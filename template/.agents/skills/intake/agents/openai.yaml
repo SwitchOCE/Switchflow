@@ -1,0 +1,7 @@
+interface:
+  display_name: "Intake"
+  short_description: "Pin down what a milestone must deliver"
+  default_prompt: "Use $intake to establish the scope contract for this {{PROJECT_NAME_YAML_DOUBLE}} milestone."
+
+policy:
+  allow_implicit_invocation: false

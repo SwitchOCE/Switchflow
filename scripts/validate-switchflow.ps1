@@ -1,0 +1,97 @@
+[CmdletBinding()]
+param(
+    [string]$PythonPath = 'python',
+    [string]$ValidatorPath = ''
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$switchflowRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$validationRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('switchflow-validation-' + [guid]::NewGuid().ToString('N'))
+$importerPath = Join-Path $switchflowRoot 'scripts\import-switchflow.ps1'
+$allowedFrontmatterKeys = @('name', 'description', 'license', 'allowed-tools', 'metadata')
+
+try {
+    & $importerPath `
+        -TargetPath $validationRoot `
+        -ProjectName 'Switchflow Validation' `
+        -TaskPrefix 'VAL' `
+        -OwnerName 'Validation Owner' `
+        -ProjectPhase 'Experimental'
+
+    & node (Join-Path $validationRoot '.switchflow\scripts\check-docs.mjs') $validationRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Rendered Backlog documentation validation failed.'
+    }
+
+    $removedMkDocsPaths = @(
+        'mkdocs.yml',
+        '.switchflow\requirements-docs.txt',
+        '.switchflow\scripts\mkdocs.ps1'
+    )
+    foreach ($removedPath in $removedMkDocsPaths) {
+        if (Test-Path -LiteralPath (Join-Path $validationRoot $removedPath)) {
+            throw "Removed MkDocs artifact was imported: $removedPath"
+        }
+    }
+
+    $skillRoots = @(Get-ChildItem -LiteralPath (Join-Path $validationRoot '.agents\skills') -Directory)
+    foreach ($skillRoot in $skillRoots) {
+        $skillPath = Join-Path $skillRoot.FullName 'SKILL.md'
+        $content = Get-Content -Raw -Encoding utf8 -LiteralPath $skillPath
+        $frontmatterMatch = [regex]::Match(
+            $content,
+            '\A---\r?\n(?<frontmatter>.*?)\r?\n---',
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+        )
+        if (-not $frontmatterMatch.Success) {
+            throw "Invalid or missing frontmatter in $skillPath"
+        }
+
+        $frontmatter = $frontmatterMatch.Groups['frontmatter'].Value
+        $keys = [regex]::Matches($frontmatter, '(?m)^(?<key>[a-z][a-z0-9-]*):') |
+            ForEach-Object { $_.Groups['key'].Value }
+        $unexpectedKeys = @($keys | Where-Object { $_ -notin $allowedFrontmatterKeys })
+        if ($unexpectedKeys.Count -gt 0) {
+            throw "Unexpected frontmatter key in $skillPath`: $($unexpectedKeys -join ', ')"
+        }
+
+        $nameMatch = [regex]::Match($frontmatter, '(?m)^name:\s*(?<name>[a-z0-9-]+)\s*$')
+        if (-not $nameMatch.Success -or $nameMatch.Groups['name'].Value -ne $skillRoot.Name) {
+            throw "Skill name is missing, invalid, or different from its directory in $skillPath"
+        }
+        if (-not [regex]::IsMatch($frontmatter, '(?m)^description:\s*\S.+$')) {
+            throw "Skill description is missing or empty in $skillPath"
+        }
+        if ($content -match '\{\{[A-Z0-9_]+\}\}') {
+            throw "Unresolved template token in $skillPath"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ValidatorPath)) {
+        $ValidatorPath = [System.IO.Path]::GetFullPath($ValidatorPath)
+        if (-not (Test-Path -LiteralPath $ValidatorPath -PathType Leaf)) {
+            throw "Codex skill validator not found at $ValidatorPath."
+        }
+        foreach ($skillRoot in $skillRoots) {
+            & $PythonPath -X utf8 $ValidatorPath $skillRoot.FullName
+            if ($LASTEXITCODE -ne 0) {
+                throw "Codex skill validation failed for $($skillRoot.Name)."
+            }
+        }
+    }
+
+    $officialResult = if ([string]::IsNullOrWhiteSpace($ValidatorPath)) { '' } else { ' and the supplied Codex validator' }
+    Write-Host "Validated $($skillRoots.Count) rendered Switchflow skills in UTF-8 mode$officialResult."
+}
+finally {
+    if (Test-Path -LiteralPath $validationRoot) {
+        $resolvedTempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+        $resolvedValidationRoot = [System.IO.Path]::GetFullPath($validationRoot)
+        if (-not $resolvedValidationRoot.StartsWith($resolvedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean validation path outside the temporary directory: $resolvedValidationRoot"
+        }
+        Remove-Item -LiteralPath $resolvedValidationRoot -Recurse -Force
+    }
+}

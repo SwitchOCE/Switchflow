@@ -1,0 +1,17 @@
+{
+  "name": "switchflow-project-tools",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Pinned local tooling for the imported Switchflow governance system.",
+  "scripts": {
+    "board": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backlog.ps1 browser",
+    "board:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backlog.ps1 doctor",
+    "docs:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1",
+    "workflow:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-workflow.ps1",
+    "phase:cleanup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/cleanup-phase.ps1"
+  },
+  "devDependencies": {
+    "backlog.md": "1.50.1"
+  }
+}

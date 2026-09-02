@@ -1,0 +1,9 @@
+/.validation/
+/.tmp/
+*.log
+
+# Tooling installed anywhere in the repository, including under template/.
+# The importer also excludes these, but they must never be committed.
+node_modules/
+.venv/
+__pycache__/

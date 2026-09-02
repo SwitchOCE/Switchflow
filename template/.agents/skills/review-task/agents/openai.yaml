@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Task"
+  short_description: "Independently review a fixed task diff"
+  default_prompt: "Use $review-task to independently review this {{PROJECT_NAME_YAML_DOUBLE}} task's fixed diff."

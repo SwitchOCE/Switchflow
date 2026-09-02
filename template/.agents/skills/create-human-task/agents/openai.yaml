@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Human Task"
+  short_description: "Create concise tasks for human action"
+  default_prompt: "Use $create-human-task to create a concise {{PROJECT_NAME_YAML_DOUBLE}} task with step-by-step instructions for a human."
