@@ -17,7 +17,7 @@ The [Kanban workflow](/documentation/03/kanban-workflow#ownership-and-authority)
 
 The orchestrator chooses sequential or parallel delivery. Parallel work is useful only when assignments have independent outcomes, clear owners, non-overlapping files or stable interfaces, explicit integration order, and reviewable stop conditions. Otherwise sequence the work.
 
-A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run tooling preflight for each assignment and resolve shared setup once.
+A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts.
 
 ## Git workflow
 
@@ -25,7 +25,7 @@ A branch does not isolate agents sharing one checkout. Use dedicated worktrees, 
 
 Workers may use branches or worktrees and create scoped commits. They do not merge or cherry-pick into `main`, rewrite shared history, or delete branches. Their handoff identifies delivered work, repository state, verification, and unresolved issues.
 
-Only an authorized orchestrator may integrate task branches into `main`. The orchestrator owns dependency order, conflict resolution, integrated validation, and authorized cleanup. If integration or conflict resolution materially changes the reviewed surface, an independent reviewer must review that post-integration delta and resulting state before acceptance. Pushing, force-pushing, shared-history rewrites, and branch deletion require explicit user authority.
+Only an authorized orchestrator may integrate task branches into `main`. The orchestrator owns dependency order, conflict resolution, integrated validation, and authorized cleanup. If integration or conflict resolution materially changes the reviewed surface, an independent reviewer must review that post-integration delta and resulting state before acceptance. Pushing, force-pushing, shared-history rewrites, and branch deletion require explicit user authority, except for the scripted phase cleanup the [Kanban workflow](/documentation/03/kanban-workflow#ownership-and-authority) grants as a standing predicate.
 
 For sequential work in the current `main` worktree, an execution instruction authorizes scoped commits unless the user says otherwise. Each commit covers one logical task, excludes unrelated user changes, uses task-appropriate validation, and includes the task ID when one exists.
 

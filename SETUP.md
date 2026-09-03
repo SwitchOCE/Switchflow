@@ -16,7 +16,7 @@ Run the importer from the Switchflow repository:
 
 After import:
 
-1. Edit `backlog/docs/doc-02 - Project-profile.md`. Confirm the product goal, phase, normal verification commands, and project-specific protected boundaries.
+1. Edit `backlog/docs/doc-02 - Project-profile.md`. Confirm the product goal, phase, normal verification commands, approval posture, and project-specific protected boundaries.
 2. Install the isolated tools:
 
    ```powershell

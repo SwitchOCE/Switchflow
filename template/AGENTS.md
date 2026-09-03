@@ -34,7 +34,7 @@ Build the simplest implementation and smallest validation set that satisfy the a
 
 - Never commit credentials, secrets, personal data, or restricted data, in code or documentation.
 - Never commit unrelated changes.
-- Pushing, rewriting shared history, and deleting branches require explicit {{OWNER_NAME}} authorization.
+- Pushing, rewriting shared history, and deleting branches require explicit {{OWNER_NAME}} authorization. The one standing exception is `cleanup-phase.ps1`, whose predicate `doc-03` grants.
 - Do not deploy, alter live data, rotate credentials, or change access controls without authorization for that specific action.
 - Account for every open {{OWNER_NAME}} comment before acting on a task. Never implement against stale scope.
 

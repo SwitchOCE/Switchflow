@@ -32,6 +32,8 @@ A user-invoked `plan-milestone` pass may create, update, archive, split, combine
 
 Explicit `$orchestrate-phase` invocation designates the orchestrator for one named phase. It may coordinate workers, amend tasks within the frozen scope contract, integrate branches, and accept independently reviewed work. It may not independently accept material work it authored. Product decisions, secrets, live external actions, pushing, shared-history rewrites, and branch deletion remain separately authorized.
 
+One narrow exception to branch deletion stands: the orchestrator may run `.switchflow/scripts/cleanup-phase.ps1` at a phase boundary. The script deletes a branch and removes its worktree only when the task is **Done**, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else it reports as an exception for a decision. This grant covers that predicate and nothing wider; deleting a branch outside it still requires explicit authorization.
+
 `deliver-task` implements one referenced task, whether invoked directly or briefed by an orchestrator, and stops at Review. `review-task` independently reviews a fixed change surface and does not change accepted scope. A milestone's scope contract is established by `intake` and decomposed by `plan-milestone`; neither authorizes execution.
 
 ## Status lifecycle

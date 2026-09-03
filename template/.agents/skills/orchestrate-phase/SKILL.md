@@ -11,11 +11,17 @@ Your context is the scarce resource this whole design protects. Everything below
 
 ## Read narrowly
 
-Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses and dependencies of this phase's tasks. Run the worktree tooling preflight and resolve shared setup once.
+Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses and dependencies of this phase's tasks.
 
 Do not read diffs, file contents, full task descriptions, or worker reasoning. When a diff needs judging, dispatch a reviewer. Fetch task detail only when an envelope reports a blocking issue or a review verdict is contested.
 
 ## Dispatch
+
+Resolve shared setup once, and run the preflight against each worktree before dispatching into it. It confirms the pinned Backlog CLI resolves there and the task is readable, so workers do not rediscover the same setup failure.
+
+```powershell
+.\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
+```
 
 Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
 

@@ -25,17 +25,6 @@ try {
         throw 'Rendered Backlog documentation validation failed.'
     }
 
-    $removedMkDocsPaths = @(
-        'mkdocs.yml',
-        '.switchflow\requirements-docs.txt',
-        '.switchflow\scripts\mkdocs.ps1'
-    )
-    foreach ($removedPath in $removedMkDocsPaths) {
-        if (Test-Path -LiteralPath (Join-Path $validationRoot $removedPath)) {
-            throw "Removed MkDocs artifact was imported: $removedPath"
-        }
-    }
-
     $skillRoots = @(Get-ChildItem -LiteralPath (Join-Path $validationRoot '.agents\skills') -Directory)
     foreach ($skillRoot in $skillRoots) {
         $skillPath = Join-Path $skillRoot.FullName 'SKILL.md'

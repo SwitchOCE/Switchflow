@@ -1,6 +1,6 @@
 # Skills
 
-Switchflow imports six repository-local skills, one per role in the [artifact pipeline](role-contracts.md). Each skill owns trigger-specific sequencing and judgement; shared lifecycle, task, delivery, quality, and documentation policy stays in the governing Backlog documents.
+Switchflow imports six repository-local skills, one per role in the artifact pipeline. Each skill owns trigger-specific sequencing and judgement; shared lifecycle, task, delivery, quality, and documentation policy stays in the governing Backlog documents.
 
 | Skill | Role | Invocation |
 | --- | --- | --- |
@@ -11,17 +11,7 @@ Switchflow imports six repository-local skills, one per role in the [artifact pi
 | `review-task` | Independently review a fixed diff. | Automatic or explicit |
 | `create-human-task` | Define work only a person can do. | Automatic or explicit |
 
-## What each skill must not read
-
-Every skill declares a read limit. These are the load-bearing lines, not economies:
-
-| Skill | Must not read | Why |
-| --- | --- | --- |
-| `intake` | Source code, tasks, diffs | Implementation knowledge anchors questions to what is cheap to build |
-| `plan-milestone` | The friction log | Process history is not product evidence |
-| `orchestrate-phase` | Diffs, file contents, worker reasoning | Orchestrator context is the scarce resource |
-| `deliver-task` | Other tasks, the milestone plan, policy above its risk class | A typo fix should not pay a migration's policy tax |
-| `review-task` | The worker's reasoning beyond the factual handoff | Reading the argument converts review into agreement |
+Every skill declares what it must not read. Those limits are load-bearing rather than economies: they are what keep intake unbiased, the orchestrator bounded, and review independent. The [role contracts](role-contracts.md) own each role's full read limit, produced artifact, exit condition, and authority. A skill file must not contradict or restate them.
 
 ## Boundaries
 
@@ -29,13 +19,9 @@ Every skill declares a read limit. These are the load-bearing lines, not economi
 
 `deliver-task` is used both by the owner directly and by an orchestrator briefing a worker. One worker takes one task and ends at its handoff; corrections from review stay with the same worker, and a different task gets a new one.
 
-`review-task` is read-only unless the owner separately authorizes a mutation. It absorbed blast-radius analysis as an escalation gated by a stated trigger, declared in every verdict.
+`review-task` is read-only unless the owner separately authorizes a mutation. Blast-radius analysis is an escalation inside it, gated by a stated trigger that every verdict declares.
 
 No skill grants permission to deploy, change live systems, expose secrets, rewrite history, or expand product scope.
-
-## Removed skills
-
-`task-creator`, `task-clarifier`, and `milestone-review` merged into `plan-milestone`, which now applies the readiness gate as its exit condition rather than leaving it to a second pass. `task-implementer` became `deliver-task` and `task-reviewer` became `review-task`. `blast-radius-review` became a section of `review-task`. `quality-profile` and `stakeholder-questionnaire` were removed as skills; their content moved into `doc-04` and `doc-07` respectively.
 
 ## Validation
 

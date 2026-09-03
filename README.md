@@ -1,8 +1,43 @@
 # Switchflow
 
-Switchflow is a reusable, repository-local project governance system for Codex-assisted work. It packages a Backlog.md task and documentation workspace, risk-based engineering standards, and focused agent skills without carrying product plans or application choices between projects.
+A governance layer for agent-assisted development. It starts with a simple claim. Intelligence is cheap. Context is not.
 
-The template is intentionally isolated from the projects that produced it. Changes can be tested here and imported into a disposable repository before they reach ongoing work.
+Coding agents are capable and easy to start. The cost climbs when the state of the work lives only in a conversation. The agent has to resend its plan on every turn, so token use grows roughly with the square of the session length. When the session ends, the plan disappears with it.
+
+This system keeps durable state in the repository. Plans go on the board. Decisions go in the docs. Progress goes on task records. A new agent can start cold, read the relevant files, and get to work.
+
+I built this for one person directing several agents on a codebase they care about. That person wants to approve the work before it starts, reviews the result, and pays the token bill. This is not a team process or a CI system. It is a way for one owner to manage work without becoming buried in agent transcripts.
+
+## What it assumes
+
+- The board is the record. If something still matters after an agent exits, write it down. Do not leave it buried in a reply.
+- Each role reads only what it needs. The role definition says what it may read and what it must ignore. Those limits are intentional.
+- A milestone ends where I can judge the result. Phases divide work for the agents. Milestones give me something I can accept or reject.
+- Fixing a bad plan is cheaper than fixing bad code. A correction before implementation costs a few hundred tokens. The same correction after implementation may waste the whole attempt.
+- Roles finish and stop. Workers are not kept alive in case they become useful later. Long-lived workers carry more context, and that context costs money on every turn.
+
+## What I do
+
+1. Say what I want. `intake` asks questions until the intent is clear, then writes a scope contract. This is the cheapest point to remove ambiguity.
+2. Approve the plan. `plan-milestone` turns the contract into phases and board tasks. Each task gets a risk class and a required evidence set. I review the board, not a transcript.
+3. Run a phase. Invoke `orchestrate-phase` and leave it alone.
+4. Accept the milestone. The result should be usable enough that I can try it and give real feedback.
+
+Between steps 2 and 3, changing my mind is cheap. Once step 3 starts, changing direction costs tokens and discarded work. That is why step 1 exists.
+
+## What the agents do
+
+`orchestrate-phase` manages builders. It reads the milestone, phase record, and task IDs. It does not read the diffs. Each worker gets one task and a part of the codebase that no other worker may edit. Before touching code, the worker describes its approach in three lines. That gives the orchestrator one cheap chance to correct it.
+
+The orchestrator waits once with a long timeout. It does not reuse finished workers. A worker becomes more expensive the longer it stays alive, even if its output does not improve.
+
+`deliver-task` completes one task and returns an envelope with the result. `review-task` reads the diff independently and returns a verdict. `create-human-task` records work that only I can do, such as supplying a credential, creating an account, or making a decision. Planning identifies those tasks up front, so they do not stop the agents halfway through.
+
+At the phase gate, the test suite runs once on the integrated branch. That is where conflicts between tasks become visible. The cleanup process removes merged branches when the result is certain. If anything is unclear, it reports the branch and leaves it alone.
+
+Work that costs more than expected goes into the friction log. The log is for me. Delivery agents never read it.
+
+Finally, the orchestrator records what the next phase needs and exits.
 
 ## What it imports
 
@@ -10,16 +45,19 @@ The template is intentionally isolated from the projects that produced it. Chang
 - An empty Backlog.md board with a fixed status lifecycle.
 - Durable Backlog documents and native decision records.
 - A project profile for the few values each repository must own.
-- Ten agent skills for task shaping, delivery, review, orchestration, quality, and stakeholder work.
+- Six agent skills for scope intake, milestone planning, phase orchestration, delivery, review, and human-owned work.
 - Pinned Backlog.md tooling and documentation validation under `.switchflow/`.
 
 It does not import tasks, milestones, roadmaps, product decisions, application dependencies, credentials, or deployment configuration.
 
-Start with [SETUP.md](SETUP.md). The framework and skill boundaries are described in [Governance system](docs/governance-system.md) and [Skills](docs/skills.md). The [architecture and delivery model](docs/architecture.md) defines the modular target and dependency direction. The [workflow diagrams](docs/workflow-diagrams.md) show the framework's key decisions at a glance.
+The template is intentionally isolated from the projects that produced it. Changes can be tested here and imported into a disposable repository before they reach ongoing work.
 
-The dated [current-state assessment](docs/current-state-assessment.md) records the verified baseline, known defects, and maturity gaps against the framework's goals.
-Maintainer decisions and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
+Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define what each role reads, writes, and must not read, and record the measured cost those limits come from. The [architecture and delivery model](docs/architecture.md) defines the module boundaries and dependency direction, and [Skills](docs/skills.md) indexes the six imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
+
+Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.2.0`. Treat it as an experimental system: test template changes with a fresh import, review the rendered files, and only then update an active project deliberately. Automatic upgrades remain out of scope.
+Switchflow is at version `0.2.0` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
+
+Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately. Automatic upgrades remain out of scope.
