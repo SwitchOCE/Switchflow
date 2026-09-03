@@ -87,10 +87,10 @@ Intake is the cheapest phase in total tokens and the most expensive per token. T
 | --- | --- |
 | Purpose | Turn a frozen scope contract into ordered phases and ready tasks. |
 | Trigger | Owner, after freezing the scope contract. |
-| Reads | Scope contract, durable documents, the repository, existing tasks, the readiness gate in `doc-07`. |
+| Reads | Scope contract, durable documents, the repository, existing tasks, prior phase records, the readiness gate in `doc-07`. |
 | Must not read | The friction log. |
-| Produces | Phase plan in the milestone record; phase coordination parents; worker tasks with context maps; the closing UAT task. |
-| Exit condition | Every worker task passes the readiness gate, phases are ordered, each phase has a verifiable gate condition, and the last task is the UAT task. |
+| Produces | Phase coordination parents carrying the phase plan and its dispatch groups; worker tasks with context maps; the closing UAT task. |
+| Exit condition | Every worker task passes the readiness gate, phases are ordered, each phase has a verifiable gate condition and a dispatch grouping, and the last task is the UAT task. |
 | Model and effort | Frontier, maximum effort, high token budget. This is where the repository is read, once. |
 | Authority | Board mutations within the named milestone. No code. |
 
@@ -98,13 +98,15 @@ The planner absorbs the readiness gate, so there is no separate clarification pa
 
 Every worker task carries a context map. It is the planner's highest-value output and the reason its repository read is not wasted: it records what the next role would otherwise rediscover. The map is exempt from the task description word limit and is advisory rather than binding, so it never becomes a competing contract.
 
+Dispatch grouping belongs here for the same reason. Deciding what can run in parallel means knowing which files each task touches, and the planner is the only role holding that: it wrote the maps, and the orchestrator's read limit excludes the descriptions they live in. An orchestrator asked to judge fan-out at dispatch would be applying a test it cannot check, and would sequence everything. Grouping at plan time makes the decision where the evidence is and leaves the orchestrator an instruction it can execute.
+
 ### orchestrate-phase
 
 | Field | Value |
 | --- | --- |
 | Purpose | Dispatch, checkpoint, integrate, and close one phase. |
 | Trigger | Owner, explicitly, per phase. |
-| Reads | Milestone record; the phase coordination parent and its prior phase records; task identifiers, statuses and dependencies for this phase; worker envelopes; review verdicts. |
+| Reads | Milestone record; the phase coordination parent, its phase plan and dispatch groups, and its prior phase records; task identifiers, statuses and dependencies for this phase; worker envelopes; review verdicts. |
 | Must not read | Diffs, file contents, full task descriptions, worker reasoning. When a diff must be judged, it dispatches a reviewer. |
 | Produces | Worker briefs, checkpoint decisions, integration, phase record, friction entries, cleanup trigger. |
 | Exit condition | Every phase task is Done or explicitly deferred, the gate condition is verified, cleanup has run and its exceptions are resolved, and the phase record and friction entries are written. |

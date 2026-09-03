@@ -59,7 +59,7 @@ The delivery unit is a task with one useful result and a reviewable stop conditi
 3. **Review:** pin the change surface and independently assess outcome and standards under `doc-08`.
 4. **Integrate and learn:** an authorized actor integrates and validates the combined state. If integration materially changes the reviewed surface, independently review the post-integration delta before acceptance. Then update durable knowledge and record blockers or follow-up without silently expanding the accepted task.
 
-Parallel work is an optimization, not a default. Fan out only when assignments have independent outcomes, non-overlapping ownership or stable interfaces, explicit integration order, and reviewable stop conditions. Otherwise sequence the work. The orchestrator owns shared setup, integration, and final validation so workers do not repeatedly rediscover the same baseline problem.
+Dispatch grouping is a planning decision, made where the file-level knowledge lives and recorded in the phase plan for the orchestrator to execute. `doc-08` owns the conditions. The orchestrator owns shared setup, integration, and final validation so workers do not repeatedly rediscover the same baseline problem.
 
 ## Dependency direction
 

@@ -17,15 +17,17 @@ Do not read diffs, file contents, full task descriptions, or worker reasoning. W
 
 ## Dispatch
 
+Dispatch the groups the phase plan defines. The planner set them while holding the file-level knowledge your read limit excludes, so execute the grouping rather than re-deriving it.
+
+Collapse a group to sequential when phase evidence contradicts the plan — an unexpected shared file, an interface that proved unstable — and record why. Do not widen one: judging that more parallelism is safe needs the file detail you do not read. Record the opportunity in the phase record so the next planning pass can act on it.
+
+Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
+
 Resolve shared setup once, and run the preflight against each worktree before dispatching into it. It confirms the pinned Backlog CLI resolves there and the task is readable, so workers do not rediscover the same setup failure.
 
 ```powershell
 .\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
 ```
-
-Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
-
-Parallel work is an optimisation, not a default. Fan out only when assignments have independent outcomes, non-overlapping files or stable interfaces, an explicit integration order, and reviewable stop conditions. Otherwise sequence them.
 
 **One worker, one task.** A worker ends at its handoff. The next logical task gets a new worker even when the finished one already holds relevant context. Reuse looks efficient because the context is loaded, but accumulated context is re-sent on every later turn, so a reused worker's cost grows with the square of its lifetime. Corrections arising from review are the same task and stay with the same worker.
 
@@ -78,6 +80,7 @@ Then close the phase:
 - Integrated at: <sha> on <branch>
 - Gate condition: how it was verified
 - Cleanup: n branches removed, n exceptions, listed
+- Grouping: which groups held, and any that should have been wider or narrower
 - Open for next phase: facts the next orchestrator needs
 ```
 

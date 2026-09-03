@@ -7,7 +7,7 @@ description: 'Turn a frozen {{PROJECT_NAME_YAML_SINGLE}} scope contract into ord
 
 Produce the phases and tasks that deliver a frozen scope contract. This is the one role that reads the repository broadly, so read it once and write down what the next role would otherwise rediscover.
 
-Read the milestone's scope contract, `backlog/docs/doc-07 - Task-contract.md`, `backlog/docs/doc-03 - Kanban-workflow.md`, the durable documents the work touches, existing tasks and their comments, and enough of the repository to place the work accurately. Do not read the friction log.
+Read the milestone's scope contract, `backlog/docs/doc-07 - Task-contract.md`, `backlog/docs/doc-03 - Kanban-workflow.md`, the durable documents the work touches, existing tasks and their comments, and enough of the repository to place the work accurately. When a milestone is already part-delivered, read the phase records on its phase parents: they report which dispatch groups held. Do not read the friction log.
 
 Use `.switchflow/scripts/backlog.ps1` for every board read and mutation.
 
@@ -22,6 +22,18 @@ If the contract proves wrong or incomplete during planning, stop and return to `
 Group tasks into phases. A phase ends at a gate the orchestrator can verify alone: the full repository suite passes on the integrated branch, or an equivalent objective condition. State that condition explicitly for each phase.
 
 Create one parent task per phase and label it `phase-N`. Give it the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children.
+
+Group each phase's tasks for dispatch in that plan. You read the repository and wrote every context map, so you are the only role that knows which files each task touches. The orchestrator's read limit excludes that detail and it will not re-derive the grouping, so an ungrouped phase is delivered one task at a time.
+
+A group runs in parallel when its tasks have independent outcomes, owned non-overlapping files or a stable interface between them, an explicit integration order, and reviewable stop conditions — the fan-out shape `doc-07` requires. Otherwise sequence them. Both answers are normal: sequencing work that could have run in parallel costs wall time and leaves no trace, so sequence is not the safe default. State the reason for each boundary, so the orchestrator can act on it and the next planning pass can correct it.
+
+```markdown
+## Phase 1 plan
+
+- Gate condition: the full suite passes on the integration branch
+- Group A, parallel: {{TASK_PREFIX}}-12, {{TASK_PREFIX}}-13 — disjoint files, no shared interface
+- Group B, after A: {{TASK_PREFIX}}-14 — consumes the serializer from {{TASK_PREFIX}}-12
+```
 
 ```powershell
 .\.switchflow\scripts\backlog.ps1 task create 'Deliver export path' -m 'Milestone name' -l 'phase-1' --desc $PhasePlan --plain

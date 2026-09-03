@@ -15,7 +15,11 @@ The [Kanban workflow](/documentation/03/kanban-workflow#ownership-and-authority)
 
 ## Coordination and isolation
 
-The orchestrator chooses sequential or parallel delivery. Parallel work is useful only when assignments have independent outcomes, clear owners, non-overlapping files or stable interfaces, explicit integration order, and reviewable stop conditions. Otherwise sequence the work.
+Dispatch grouping is decided while planning, not at dispatch. The planner reads the repository and writes every context map, so it is the only role that knows which files a task touches; the orchestrator's read limit deliberately excludes that detail. The planner records the groups in the phase plan and the orchestrator executes them.
+
+A group runs in parallel when its assignments have independent outcomes, clear owners, non-overlapping files or stable interfaces, an explicit integration order, and reviewable stop conditions. Otherwise its tasks run in sequence. Both answers are ordinary. Sequencing work that could have run in parallel costs wall time and leaves no trace, while parallelising work that could not fails visibly at integration or the phase gate, so neither is the safe default and neither needs more justification than the other.
+
+The orchestrator may collapse a group to sequential when phase evidence contradicts the plan, and records why. It does not widen one: judging that more parallelism is safe needs the file-level detail it does not read. It records the opportunity in the phase record instead.
 
 A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts.
 
