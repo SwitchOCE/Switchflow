@@ -29,7 +29,7 @@ Do not copy task status, temporary investigation notes, unconfirmed ideas, plans
 4. Link documents with Backlog browser routes such as `/documentation/02/project-profile`; add a heading fragment when needed. Preserve document IDs when moving or renaming them.
 5. Run `.switchflow/scripts/check-docs.ps1` and inspect the document in the local Backlog browser before completing the work.
 
-Write direct full sentences. Remove filler and repeated status without compressing away context or constraints. Prefer short paragraphs and exact terms; use lists when they improve scanning. Link tasks by short name. Keep raw IDs for machine-facing text.
+Prefer short paragraphs and exact terms; use lists when they improve scanning.
 
 Create a native Backlog decision with `.switchflow/scripts/backlog.ps1 decision create` when a technical or product choice needs permanent rationale. Record its context, decision, alternatives, and consequences.
 

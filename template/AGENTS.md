@@ -15,7 +15,7 @@ Backlog.md owns active work and durable documentation. Use `.switchflow/scripts/
 | `review-task` | Independently review a fixed diff. |
 | `create-human-task` | Define work requiring {{OWNER_NAME}} or someone they coordinate. Always assigns `Human`. |
 
-Skills do not expand authority, review count, or task scope.
+Skills do not expand authority, review count, or task scope. An installed skill may change how you write. It may not change what a role reads, produces, or may do, and where one conflicts with a role contract the contract wins.
 
 ## Where policy lives
 
@@ -38,6 +38,12 @@ Build the simplest implementation and smallest validation set that satisfy the a
 - Do not deploy, alter live data, rotate credentials, or change access controls without authorization for that specific action.
 - Account for every open {{OWNER_NAME}} comment before acting on a task. Never implement against stale scope.
 
+## How to write
+
+Write task fields, documentation, and replies as the smallest text that clearly carries the problem, the proposed step, or the decision required. Link tasks by short name in prose; use raw `{{TASK_PREFIX}}-xx` IDs only where a machine identifier is required.
+
+Contract artifacts are required output: the three-line plan, the five-line envelope, the handoff comment, the review verdict with its blast-radius declaration, and the phase record. Produce each in the shape its skill defines.
+
 ## Commands
 
 ```powershell
@@ -47,5 +53,3 @@ npm --prefix .switchflow ci --ignore-scripts          # setup; never repair with
 .\.switchflow\scripts\backlog.ps1 doctor              # after task mutations
 .\.switchflow\scripts\check-docs.ps1                  # after documentation changes
 ```
-
-Write task fields and documentation in direct, complete language. Link tasks by short name in prose; use raw `{{TASK_PREFIX}}-xx` IDs only where a machine identifier is required.

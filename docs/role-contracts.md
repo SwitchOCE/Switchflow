@@ -16,8 +16,9 @@ Content is placed by lifetime and mutation rate, not by subject.
 | A repeatable multi-step procedure an agent runs | Skill (`.agents/skills/`) | Are the steps both non-obvious and repeated? |
 | How the framework itself performed | Friction log (`.switchflow/friction/`) | Is it about the process rather than the product? |
 | What every agent needs before it can act safely | `AGENTS.md` | Would an agent be unsafe without it? |
+| How every agent writes | `AGENTS.md` | Is it identical for every role? |
 
-`AGENTS.md` is loaded on every agent invocation and is therefore the most expensive file in the repository per token. Content earns a place in it only by the last test.
+`AGENTS.md` is loaded on every agent invocation and is therefore the most expensive file in the repository per token. Content earns a place in it only by one of the last two tests: an agent is unsafe without it, or it holds for every role and would otherwise be repeated in all six skills.
 
 ### Where each concern lives
 

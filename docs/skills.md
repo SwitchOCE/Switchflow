@@ -23,6 +23,18 @@ Every skill declares what it must not read. Those limits are load-bearing rather
 
 No skill grants permission to deploy, change live systems, expose secrets, rewrite history, or expand product scope.
 
+## Admitting a skill
+
+Switchflow runs alongside whatever skills the owner has installed, and most of those auto-trigger on a description match rather than on an explicit invocation. That is the hazard, not the skill itself: the same skill is safe when the owner invokes it knowingly and unsafe when it fires inside a role whose contract forbids what it does.
+
+One test decides admission:
+
+**Does the skill change what a role reads, what it produces, or what it may do? If so, it is a role change and belongs in a role contract, not in an installed skill.**
+
+A skill that changes only how prose reads is admissible. `AGENTS.md` sets that style once, for every role, so a style skill is redundant rather than dangerous. A skill that widens a read limit, competes with one of the six roles, keeps a session alive, expands authority, raises the quality tier, reshapes a return envelope, or writes durable state outside the board fails the test. Those behaviours are load-bearing decisions recorded in the [role contracts](role-contracts.md), and a skill that overrides one removes a guarantee without recording that it was removed.
+
+A blocklist of skill names is not maintained. It would age badly, and the same skill passes or fails depending on the role that triggers it.
+
 ## Validation
 
 Skills are stored in `template/.agents/skills/`. Project and owner tokens are rendered during import. Validate the rendered skills, not the tokenized source, after changing their frontmatter or interface metadata:
