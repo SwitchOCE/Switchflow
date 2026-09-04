@@ -23,7 +23,7 @@ Group tasks into phases. A phase ends at a gate the orchestrator can verify alon
 
 Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
 
-Group each phase's tasks for dispatch in that plan. You read the repository and wrote every context map, so you are the only role that knows which files each task touches. The orchestrator's read limit excludes that detail and it will not re-derive the grouping, so an ungrouped phase is delivered one task at a time.
+Group each phase's tasks for dispatch in that plan. You read across the repository and wrote every context map. The orchestrator uses those maps and targeted detail for execution decisions, but does not repeat the planning pass or widen groups; an ungrouped phase is delivered one task at a time.
 
 A group runs in parallel when its tasks have independent outcomes, owned non-overlapping files or a stable interface between them, an explicit integration order, and reviewable stop conditions — the fan-out shape `doc-07` requires. Otherwise sequence them. Both answers are normal: sequencing work that could have run in parallel costs wall time and leaves no trace, so sequence is not the safe default. State the reason for each boundary, so the orchestrator can act on it and the next planning pass can correct it.
 
@@ -36,8 +36,9 @@ A group runs in parallel when its tasks have independent outcomes, owned non-ove
 ```
 
 ```powershell
-.\.switchflow\scripts\backlog.ps1 task create 'Deliver export path' -m 'Milestone name' -l 'phase-1' --desc $PhasePlan --plain
-.\.switchflow\scripts\backlog.ps1 task create 'Write CSV serializer' -m 'Milestone name' -l 'phase-1' -p 1 --desc $TaskBody --plain
+# Set $PhaseLabel to this phase's chosen board-unique label; use it for parent and children.
+.\.switchflow\scripts\backlog.ps1 task create 'Deliver export path' -m 'Milestone name' -l $PhaseLabel --desc $PhasePlan --plain
+.\.switchflow\scripts\backlog.ps1 task create 'Write CSV serializer' -m 'Milestone name' -l $PhaseLabel -p 1 --desc $TaskBody --plain
 ```
 
 The milestone closes with a Human-assigned acceptance test built from the contract's UAT definition. Use `create-human-task` and make it depend on the final phase.

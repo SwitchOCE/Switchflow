@@ -44,7 +44,7 @@ Three levels bound the work. A **milestone** ends where {{OWNER_NAME}} can use t
 
 ## 2. Phase loop
 
-An orchestrator serves one phase, records what the next one needs, and exits. Durable state moves to the board so the next phase starts with a cold context.
+An orchestrator records durable state at each phase boundary. The next authorized phase can reuse focused context; restart when context is stale or crowded. Without host compaction, checkpoint and hand off before exhausting capacity, even mid-phase.
 
 ```mermaid
 flowchart TD
@@ -60,13 +60,18 @@ flowchart TD
     AC -- Accepted --> IN[Integrate in dependency order]
     IN --> GT{Phase gate condition met?}
     GT -- No, work remains --> DP
-    GT -- No, owner decision needed --> XQ[Write phase record with<br/>the open question, then exit]
+    GT -- No, owner decision needed --> XQ[Record open question and pending work;<br/>return control]
     GT -- Yes --> CL[Run cleanup script;<br/>resolve exceptions only]
     CL --> WR[Write phase record<br/>and friction entries]
-    WR --> X[Exit. Next phase starts cold.]
+    WR --> AUTH{Next phase authorized?}
+    AUTH -- No --> X[Return control with phase record]
+    AUTH -- Yes --> CT{Context focused and useful?}
+    CT -- Yes --> S
+    CT -- No --> HC[Compact or hand off to fresh context]
+    HC --> S
 ```
 
-The loop has two exits and no waiting states. When the orchestrator needs a decision from {{OWNER_NAME}}, it records the question and exits rather than holding a context open.
+When the orchestrator needs a decision from {{OWNER_NAME}}, it records the question and pending work and returns control. Resume after the decision in the same or a fresh context as appropriate. Retaining context never grants authority for another phase.
 
 The checkpoint before implementation is the orchestrator's highest-value action. A worker states its intended approach in three lines and the orchestrator confirms or corrects it, which costs far less than discovering a wrong direction after the work is done.
 

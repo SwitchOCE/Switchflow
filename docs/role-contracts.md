@@ -18,7 +18,7 @@ Content is placed by lifetime and mutation rate, not by subject.
 | What every agent needs before it can act safely | `AGENTS.md` | Would an agent be unsafe without it? |
 | How every agent writes | `AGENTS.md` | Is it identical for every role? |
 
-`AGENTS.md` is loaded on every agent invocation and is therefore the most expensive file in the repository per token. Content earns a place in it only by one of the last two tests: an agent is unsafe without it, or it holds for every role and would otherwise be repeated in all six skills.
+`AGENTS.md` is shared context on agent invocations. Keep it concise and stable so it can be reused where caching is available. Content earns a place in it only by one of the last two tests: an agent is unsafe without it, or it holds for every role and would otherwise be repeated in all six skills.
 
 ### Where each concern lives
 
@@ -45,7 +45,7 @@ The board carries a second responsibility that is easy to underuse: it is the du
 | Concept | Representation |
 | --- | --- |
 | Milestone | Backlog.md milestone record. Carries the scope contract and the UAT definition. |
-| Phase | A native parent task created with `--parent`, labelled `phase-N`. Carries the phase plan in its description. |
+| Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label. Carries the phase plan in its description. |
 | Phase record | A comment on the phase parent task. |
 | Worker task | A child task carrying a context map, assigned to the milestone and labelled with its phase. |
 | Friction entry | `.switchflow/friction/<milestone-id>.md`, append-only, outside the board. |
@@ -55,7 +55,7 @@ Verified against Backlog.md 1.50.1:
 - `milestone add --description` accepts multi-line Markdown and stores it verbatim under a `## Description` heading, so the scope contract fits. A literal `\n` is stored as text, so the description must carry real newlines.
 - There is **no `milestone edit` or `milestone update`**. A milestone record is write-once through the CLI. That suits a contract frozen at intake, but it means intake must iterate in conversation and write once at the end. Revision after freezing means `milestone remove` followed by `milestone add`, which also touches task assignments.
 - `task create --parent` produces real hierarchical children (`TASK-1` / `TASK-1.1`) with `parent_task_id` in frontmatter. Phase parents are native, not a convention.
-- Labels are not restricted to those declared in `backlog.config.yml`, so `phase-N` labels work without configuration changes.
+- Labels are not restricted to those declared in `backlog.config.yml`, so board-unique phase labels work without configuration changes.
 
 Because the milestone record is write-once and the phase parent is editable, the split follows the mutation rate: the frozen contract sits on the milestone, and everything revised during delivery sits on the phase parent.
 
@@ -99,7 +99,7 @@ The planner absorbs the readiness gate, so there is no separate clarification pa
 
 Every worker task carries a context map. It is the planner's highest-value output and the reason its repository read is not wasted: it records what the next role would otherwise rediscover. The map is exempt from the task description word limit and is advisory rather than binding, so it never becomes a competing contract.
 
-Dispatch grouping belongs here for the same reason. Deciding what can run in parallel means knowing which files each task touches, and the planner is the only role holding that: it wrote the maps, and the orchestrator's read limit excludes the descriptions they live in. An orchestrator asked to judge fan-out at dispatch would be applying a test it cannot check, and would sequence everything. Grouping at plan time makes the decision where the evidence is and leaves the orchestrator an instruction it can execute.
+Dispatch grouping belongs here for the same reason. The planner reads across the repository and writes the context maps. The orchestrator reads those maps and targeted details for dispatch and checkpoints, but does not repeat that repository-wide planning pass. It may collapse a group when execution evidence requires it; widening a group goes back to planning.
 
 ### orchestrate-phase
 
@@ -107,14 +107,16 @@ Dispatch grouping belongs here for the same reason. Deciding what can run in par
 | --- | --- |
 | Purpose | Dispatch, checkpoint, integrate, and close one phase. |
 | Trigger | Owner, explicitly, per phase. |
-| Reads | Milestone record; the phase coordination parent, its phase plan and dispatch groups, and its prior phase records; task identifiers, statuses and dependencies for this phase; worker envelopes; review verdicts. |
-| Must not read | Diffs, file contents, full task descriptions, worker reasoning. When a diff must be judged, it dispatches a reviewer. |
+| Reads | Milestone and phase records; dispatch groups; task identifiers, statuses, dependencies, risk classes and context maps; worker plans and envelopes; review verdicts. Targeted task detail for dispatch, checkpoints, blockers or contested verdicts; affected diff and file sections for permitted conflict resolution or corrections. |
+| Must not read | Worker reasoning beyond the required plan and factual handoff; unrelated repository content. Targeted implementation reads do not replace independent review. |
 | Produces | Worker briefs, checkpoint decisions, integration, phase record, friction entries, cleanup trigger. |
 | Exit condition | Every phase task is Done or explicitly deferred, the gate condition is verified, cleanup has run and its exceptions are resolved, and the phase record and friction entries are written. |
-| Model and effort | Frontier, maximum effort, context bounded by one phase. |
+| Model and effort | Frontier, maximum effort, focused context checkpointed each phase. |
 | Authority | Dispatch, integration into the milestone branch, acceptance of independently reviewed work, scripted cleanup. Not product decisions, pushing, history rewriting, or unscripted branch deletion. |
 
-The orchestrator exits at the phase boundary rather than continuing into the next phase. This is the compaction mechanism: durable state moves to the board and the next context starts cold.
+Each phase ends with a durable record. A separately authorized related phase may use the same orchestrator when its context remains focused and useful; refresh board state and owner comments before dispatch. Restart when context is stale, crowded or irrelevant, not automatically at every phase boundary. Ending a turn does not clear context.
+
+Use host compaction when available. Without it, checkpoint before exhausting context, including mid-phase: active task and worker IDs, branches/worktrees, integration SHA, completed actions, pending reviews, blockers and the next step. That handoff must support continuation without duplicated work. Returning control for an owner decision does not require discarding the context.
 
 Its highest-value action is the pre-implementation checkpoint. A worker returns a three-line plan before implementing; the orchestrator confirms or corrects it. Roughly two hundred tokens prevent a wrong-direction implementation costing tens of thousands.
 
@@ -122,7 +124,7 @@ Its highest-value action is the pre-implementation checkpoint. A worker returns 
 
 That bound replaced a prohibition on orchestrators invoking the implementation skill. The prohibition did not achieve its purpose: it blocked the structured path while leaving the orchestrator free to implement inline, so deviation happened without the delivery contract's discipline. Naming the bound is stricter than banning the skill.
 
-**Reading beyond the envelope.** The worker's return value is structurally bounded, because whatever the subagent's final message contains is what enters orchestrator context. What is not structurally enforced is whether the orchestrator then fetches the task detail anyway. That is governed by a trigger — a blocking issue in an envelope, or a contested verdict — rather than by a size limit, and it is the weakest guarantee in the design.
+**Reading beyond the envelope.** The worker's return value is bounded by its handoff contract. Additional reads need a concrete dispatch, checkpoint, blocker, contested-verdict or permitted implementation decision. Read only the relevant fields or sections. This is a behavioural limit, not a tool-enforced size limit.
 
 ### deliver-task
 
@@ -139,9 +141,9 @@ That bound replaced a prohibition on orchestrators invoking the implementation s
 
 Policy loading is proportional to risk, so a typo fix does not pay a migration's policy tax. The risk class is already computed for verification, so using it to select the worker model is free.
 
-**One worker, one task, then end it.** A worker ends at its handoff. The next logical task gets a new worker, even when the finished worker already holds relevant context. This is the largest measured waste in the previous framework: five reused workers carried an estimated 175M excess input tokens after their first completed handoff, across 43 follow-up assignments and 20 compactions. One session opened as a reconciliation audit, finished it at line 111, then absorbed two reviews and five separate implementations across 692 turns.
+**One worker, one task, then end it.** A worker ends at its handoff. The next logical task gets a new worker to keep scope and ownership separate. In the previous framework, five reused workers carried an estimated 175M input tokens attributed to reuse after their first completed handoff, across 43 follow-up assignments and 20 compactions. One session opened as a reconciliation audit, finished it at line 111, then absorbed two reviews and five separate implementations across 692 turns. These observations do not establish the cost of an equivalent run with fresh workers.
 
-Reuse is tempting because the context is already loaded and loading it again looks wasteful. The accounting runs the other way. Accumulated context is re-sent on every subsequent turn, so a worker's cost grows with the square of its lifetime, while a fresh worker's startup read is paid once. Cheap context is context you do not send again.
+Repeated history increases input volume, but cached input, compaction and new-worker startup reads affect actual cost. One worker per task is a scope boundary; the measurements do not prove restarting is always cheaper or that spending grows quadratically with worker lifetime.
 
 Corrections after review are part of the same task and stay with the same worker. A different task is a different worker.
 
@@ -204,7 +206,7 @@ Apply this to the scope contract, the context map, the phase record, and the fri
 Two questions remain open against this design:
 
 - **Model selection.** Whether the Codex subagent interface lets the orchestrator select a model per worker determines whether risk-based model selection is automatic or a documented owner action.
-- **Envelope discipline.** The return size is structurally enforced by dispatch. Whether the orchestrator honours the no-further-fetch trigger is behavioural and unmeasured.
+- **Envelope discipline.** Whether workers keep to the return contract and orchestrators limit additional reads to a concrete decision is behavioural and unmeasured.
 
 ## 7. Cost baseline
 
@@ -220,7 +222,7 @@ Taken from 326 Codex session logs for one project running the previous framework
 | p99 session | 82,825,074 |
 | Longest session | 118.8 hours |
 
-Waste by cause. These overlap and must not be summed.
+Input volume attributed to possible sources of waste. These overlap and must not be summed; they are not measured savings from removing each cause.
 
 | Cause | Volume | Nature |
 | --- | --- | --- |
@@ -230,10 +232,10 @@ Waste by cause. These overlap and must not be summed.
 | Re-reads with no intervening change | ~28M | Missing context map |
 | Test runs with no intervening change | ~9M | `doc-04` ambiguity |
 
-Three conclusions follow.
+These observations suggest where to investigate; they do not isolate the cost or benefit of orchestration or session reuse.
 
-**Orchestrator-first delegation is not the cost.** No entry above is caused by having an orchestrator. Orchestration sessions were large because the orchestrator kept workers alive that should have ended and polled waits that should have blocked, and both are instructions rather than architecture. The one-worker-one-task rule, the wait rule, the context map, and the task/phase evidence split address the second through fifth entries directly.
+**Compare equivalent outcomes.** Evaluate fresh and reused orchestration contexts on comparable tasks. Record model and settings, cached and uncached input, cache writes where reported, output, actual cost when available, wall time, owner interventions and review returns. If cost is unavailable, label any price-weighted estimate and its assumptions. Total token volume alone cannot rank the alternatives.
 
-**The largest cost is outside the framework entirely.** Sixty-six sessions made zero tool calls across 3,798 turns and consumed 401M tokens — 23.4% of all volume — deciding whether to permit actions. That is roughly 105,000 tokens per approval decision, because each decision replays the accumulated transcript. No framework change reaches this. It is a client setting, and it is worth more than every rule in this document combined. What Switchflow can do is make the cost visible, which is why approval posture is a `doc-02` concern recorded alongside the verification commands it must stay aligned with.
+**Approval replay warrants separate measurement.** Sixty-six sessions made zero tool calls across 3,798 turns and consumed 401M tokens — 23.4% of all volume — deciding whether to permit actions. That is roughly 105,000 input tokens per approval decision. This is the largest volume category listed, but its spend cannot be inferred without its cache breakdown and applicable pricing. Keep approval posture aligned with owner authorization; the volume figures do not justify weakening it.
 
-**Longevity is the expense.** The pattern behind the first three entries is that things are kept alive because ending them feels wasteful — workers, sessions, approval contexts. Under per-turn cumulative billing, early termination is the optimisation. Every phase-exit, worker-lifecycle, and wait rule in this document is one application of that.
+**Choose context lifetime from evidence.** Matching prompt prefixes may be cached, so useful stable history can be inexpensive to reuse. Restarting or compacting can reduce cache reuse while also reducing input size; neither guarantees lower total cost. Preserve useful context and durable checkpoints, then restart when relevance or capacity warrants it. See [OpenAI's prompt caching guidance](https://developers.openai.com/api/docs/guides/prompt-caching). Codex documents automatic compaction through `model_auto_compact_token_limit`, with model defaults when unset; hosts without compaction need an explicit handoff before the context fills. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).

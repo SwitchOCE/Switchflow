@@ -13,6 +13,11 @@ $importerPath = Join-Path $switchflowRoot 'scripts\import-switchflow.ps1'
 $allowedFrontmatterKeys = @('name', 'description', 'license', 'allowed-tools', 'metadata')
 
 try {
+    & node --test (Join-Path $switchflowRoot 'scripts\check-completed-tasks.test.mjs')
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Completed-task regression checks failed.'
+    }
+
     & $importerPath `
         -TargetPath $validationRoot `
         -ProjectName 'Switchflow Validation' `

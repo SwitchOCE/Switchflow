@@ -10,7 +10,7 @@ Backlog.md owns active work and durable documentation. Use `.switchflow/scripts/
 | --- | --- |
 | `intake` | Establish a milestone's scope contract with {{OWNER_NAME}} before any planning. |
 | `plan-milestone` | Turn a frozen scope contract into ordered phases and ready tasks. |
-| `orchestrate-phase` | Deliver one phase, then exit. |
+| `orchestrate-phase` | Deliver and checkpoint one authorized phase. |
 | `deliver-task` | Implement one task and stop at Review. |
 | `review-task` | Independently review a fixed diff. |
 | `create-human-task` | Define work requiring {{OWNER_NAME}} or someone they coordinate. Always assigns `Human`. |

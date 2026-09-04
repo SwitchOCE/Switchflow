@@ -6,7 +6,7 @@ Switchflow imports six repository-local skills, one per role in the artifact pip
 | --- | --- | --- |
 | `intake` | Establish a milestone's scope contract by interrogating intent. | Explicit user invocation only |
 | `plan-milestone` | Turn a frozen scope contract into ordered phases and ready tasks. | Automatic or explicit |
-| `orchestrate-phase` | Deliver one phase, then exit. | Explicit user invocation only |
+| `orchestrate-phase` | Deliver and checkpoint one authorized phase. | Explicit user invocation only |
 | `deliver-task` | Implement one task and hand it off. | Automatic or explicit |
 | `review-task` | Independently review a fixed diff. | Automatic or explicit |
 | `create-human-task` | Define work only a person can do. | Automatic or explicit |
@@ -15,7 +15,7 @@ Every skill declares what it must not read. Those limits are load-bearing rather
 
 ## Boundaries
 
-`orchestrate-phase` serves one phase and exits, writing a phase record so the next phase starts with a cold context. It amends tasks and re-dispatches rather than implementing, except within a single-file, no-new-behaviour bound.
+`orchestrate-phase` checkpoints each authorized phase. A related phase may reuse focused context once authorized; stale or crowded context calls for compaction or a fresh start. Without compaction, hand off before capacity is exhausted. Targeted reads support dispatch, checkpoints, blockers and permitted conflict resolution. It amends tasks and re-dispatches rather than implementing, except within a single-file, no-new-behaviour bound; independent review remains required.
 
 `deliver-task` is used both by the owner directly and by an orchestrator briefing a worker. One worker takes one task and ends at its handoff; corrections from review stay with the same worker, and a different task gets a new one.
 
@@ -31,7 +31,7 @@ One test decides admission:
 
 **Does the skill change what a role reads, what it produces, or what it may do? If so, it is a role change and belongs in a role contract, not in an installed skill.**
 
-A skill that changes only how prose reads is admissible. `AGENTS.md` sets that style once, for every role, so a style skill is redundant rather than dangerous. A skill that widens a read limit, competes with one of the six roles, keeps a session alive, expands authority, raises the quality tier, reshapes a return envelope, or writes durable state outside the board fails the test. Those behaviours are load-bearing decisions recorded in the [role contracts](role-contracts.md), and a skill that overrides one removes a guarantee without recording that it was removed.
+A skill that changes only how prose reads is admissible. `AGENTS.md` sets that style once, for every role, so a style skill is redundant rather than dangerous. A skill that widens a read limit, competes with one of the six roles, continues beyond authorized scope, expands authority, raises the quality tier, reshapes a return envelope, or writes durable state outside the board fails the test. Those behaviours are load-bearing decisions recorded in the [role contracts](role-contracts.md), and a skill that overrides one removes a guarantee without recording that it was removed.
 
 A blocklist of skill names is not maintained. It would age badly, and the same skill passes or fails depending on the role that triggers it.
 

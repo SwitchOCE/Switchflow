@@ -2,7 +2,7 @@
 
 A governance layer for agent-assisted development. It starts with a simple claim. Intelligence is cheap. Context is not.
 
-Coding agents are capable and easy to start. The cost climbs when the state of the work lives only in a conversation. The agent has to resend its plan on every turn, so token use grows roughly with the square of the session length. When the session ends, the plan disappears with it.
+Coding agents are capable and easy to start. When work lives only in a conversation, a new agent must reconstruct it. Repeated history increases input volume, but caching and compaction affect the cost; a longer session is not automatically more expensive than restarting.
 
 This system keeps durable state in the repository. Plans go on the board. Decisions go in the docs. Progress goes on task records. A new agent can start cold, read the relevant files, and get to work.
 
@@ -14,7 +14,7 @@ I built this for one person directing several agents on a codebase they care abo
 - Each role reads only what it needs. The role definition says what it may read and what it must ignore. Those limits are intentional.
 - A milestone ends where I can judge the result. Phases divide work for the agents. Milestones give me something I can accept or reject.
 - Fixing a bad plan is cheaper than fixing bad code. A correction before implementation costs a few hundred tokens. The same correction after implementation may waste the whole attempt.
-- Roles finish and stop. Workers are not kept alive in case they become useful later. Long-lived workers carry more context, and that context costs money on every turn.
+- Workers finish their assigned task and hand it off. Orchestrators checkpoint each phase and may retain useful context for another authorized phase. Restart when context becomes stale or crowded.
 
 ## What I do
 
@@ -27,9 +27,9 @@ Between steps 2 and 3, changing my mind is cheap. Once step 3 starts, changing d
 
 ## What the agents do
 
-`orchestrate-phase` manages builders. It reads the milestone, phase record, and task IDs. It does not read the diffs. Each worker gets one task and a part of the codebase that no other worker may edit. Before touching code, the worker describes its approach in three lines. That gives the orchestrator one cheap chance to correct it.
+`orchestrate-phase` manages builders. It reads phase records and task dispatch fields, including risk classes and context maps. Targeted detail supports checkpoints, blockers and permitted conflict resolution; reviewers still judge changes independently. Each worker gets one task and a part of the codebase that no other worker may edit. Before touching code, the worker describes its approach in three lines. That gives the orchestrator one cheap chance to correct it.
 
-The orchestrator waits once with a long timeout. It does not reuse finished workers. A worker becomes more expensive the longer it stays alive, even if its output does not improve.
+The orchestrator uses long waits rather than frequent polling. New tasks get new workers to keep scope and ownership separate; review corrections stay with the same worker. This boundary does not imply that restarting is always cheaper.
 
 `deliver-task` completes one task and returns an envelope with the result. `review-task` reads the diff independently and returns a verdict. `create-human-task` records work that only I can do, such as supplying a credential, creating an account, or making a decision. Planning identifies those tasks up front, so they do not stop the agents halfway through.
 
@@ -37,7 +37,7 @@ At the phase gate, the test suite runs once on the integrated branch. That is wh
 
 Work that costs more than expected goes into the friction log. The log is for me. Delivery agents never read it.
 
-Finally, the orchestrator records what the next phase needs and exits.
+Finally, the orchestrator records what the next phase needs. Another phase still requires authorization, but may reuse the same focused context. Compaction or a fresh context is appropriate when capacity or relevance requires it; without compaction, checkpoint and hand off before context is exhausted.
 
 ## What it imports
 

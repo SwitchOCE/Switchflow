@@ -1,25 +1,25 @@
 ---
 name: orchestrate-phase
-description: 'Deliver one phase of a prepared {{PROJECT_NAME_YAML_SINGLE}} milestone by dispatching workers, checkpointing them, integrating, and exiting. Use only when explicitly invoked.'
+description: 'Deliver one phase of a prepared {{PROJECT_NAME_YAML_SINGLE}} milestone by dispatching workers, checkpointing them, integrating, and recording the outcome. Use only when explicitly invoked.'
 ---
 
 # Orchestrate Phase
 
-Deliver one phase, record what the next phase needs, and exit. Explicit invocation designates this agent as orchestrator for the named phase with the authority described in `backlog/docs/doc-03 - Kanban-workflow.md`.
+Deliver the named phase and record what the next phase needs. Explicit invocation designates this agent as orchestrator for that phase with the authority described in `backlog/docs/doc-03 - Kanban-workflow.md`. Reusing this context does not authorize another phase.
 
 Your context is the scarce resource this whole design protects. Everything below exists to keep it small.
 
 ## Read narrowly
 
-Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses and dependencies of this phase's tasks.
+Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses, dependencies, risk classes and context maps of this phase's tasks. Use targeted task reads to obtain dispatch fields missing from summaries.
 
-Do not read diffs, file contents, full task descriptions, or worker reasoning. When a diff needs judging, dispatch a reviewer. Fetch task detail only when an envelope reports a blocking issue or a review verdict is contested.
+Avoid broad repository reads and worker reasoning. Read additional task detail when needed to judge a checkpoint, resolve a blocker or understand a contested verdict. Read only the affected diff and file sections when resolving a merge conflict or making a correction within the direct-implementation bound below. Independent review remains required; these reads do not make the orchestrator its own reviewer.
 
 ## Dispatch
 
-Dispatch the groups the phase plan defines. The planner set them while holding the file-level knowledge your read limit excludes, so execute the grouping rather than re-deriving it.
+Dispatch the groups the phase plan defines. The planner set them with repository-wide knowledge; targeted orchestration reads are not a reason to re-derive the grouping.
 
-Collapse a group to sequential when phase evidence contradicts the plan — an unexpected shared file, an interface that proved unstable — and record why. Do not widen one: judging that more parallelism is safe needs the file detail you do not read. Record the opportunity in the phase record so the next planning pass can act on it.
+Collapse a group to sequential when phase evidence contradicts the plan — an unexpected shared file, an interface that proved unstable — and record why. Do not widen one: that needs a planning pass across all affected tasks. Record the opportunity in the phase record so the next planning pass can act on it.
 
 Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
 
@@ -29,7 +29,7 @@ Resolve shared setup once, and run the preflight against each worktree before di
 .\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
 ```
 
-**One worker, one task.** A worker ends at its handoff. The next logical task gets a new worker even when the finished one already holds relevant context. Reuse looks efficient because the context is loaded, but accumulated context is re-sent on every later turn, so a reused worker's cost grows with the square of its lifetime. Corrections arising from review are the same task and stay with the same worker.
+**One worker, one task.** A worker ends at its handoff. The next logical task gets a new worker to keep scope and task ownership separate. This is a workflow boundary, not a claim that restarting is always cheaper: cached context can be inexpensive to reuse. Corrections arising from review are the same task and stay with the same worker.
 
 ## Checkpoint before implementation
 
@@ -62,15 +62,16 @@ Then close the phase:
 1. Run the cleanup script and resolve only its exceptions.
 
    ```powershell
-   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel phase-1 -WhatIf   # inspect first
-   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel phase-1
+   # Set $PhaseLabel to the exact board-unique label on the phase parent.
+   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -WhatIf   # inspect first
+   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel
    ```
 
    It removes a branch only when its task is Done, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else is reported and left alone. Do not force past an exception: an unmerged branch or a dirty worktree holds work nobody has reviewed. Resolve it or record it in the phase record.
 
 2. Write the phase record as a comment on the phase parent task.
 3. Append friction entries to `.switchflow/friction/<milestone-id>.md`. See that directory's README for what belongs there — framework-level findings only, never task-level ones.
-4. Exit.
+4. Finish the authorized phase. Apply the context guidance below before another phase.
 
 ```markdown
 ## Phase N closed
@@ -86,6 +87,12 @@ Then close the phase:
 
 The last line makes a cold start possible. If the next orchestrator would need something the record does not carry, the record is wrong.
 
-Do not continue into the next phase. Exiting is the mechanism that keeps orchestration affordable.
+## Continue or restart
 
-When an unforeseen issue makes continued delivery the wrong call, or a decision belongs to {{OWNER_NAME}}, write the phase record with the open question and exit rather than holding the context open.
+For a separately authorized related phase, reuse this orchestrator when its context remains focused and useful. Refresh current board state and owner comments before dispatching. Start fresh when accumulated context is stale, crowded or no longer relevant. Ending a turn does not clear context or guarantee a cache reset.
+
+Use the host's compaction when available; do not restart solely because a phase ended. Without compaction, checkpoint and hand off before context is exhausted, even mid-phase. Record active task and worker IDs, branch/worktree locations, integration SHA, completed actions, pending reviews, blockers and the next step so a resumed agent does not duplicate work.
+
+Cache reuse depends on a matching prompt prefix and cache availability. A restart or compaction can reduce reuse; fewer input tokens can still reduce total cost. Judge this tradeoff using measured cost and outcomes, not cumulative token volume alone.
+
+When an unforeseen issue makes continued delivery the wrong call, or a decision belongs to {{OWNER_NAME}}, record the open question and pending work, then return control. Resume only after the blocker is resolved; a new context is optional.

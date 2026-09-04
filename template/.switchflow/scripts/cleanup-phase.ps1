@@ -16,7 +16,8 @@ Anything failing a condition is reported as an exception and left untouched.
 Exceptions need a decision and belong to the orchestrator, not this script.
 
 .EXAMPLE
-.\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel phase-1 -WhatIf
+# Set $PhaseLabel to the exact board-unique label on the phase parent.
+.\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -WhatIf
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(

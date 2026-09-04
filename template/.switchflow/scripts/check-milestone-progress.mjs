@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 function frontmatterValue(source, field) {
   const match = source.match(
     new RegExp(
-      "^" + field + ":\\s*['\\\"]?([^\\r\\n'\\\"]+)['\\\"]?\\s*$",
+      "^" + field + ":[\\t ]*['\\\"]?([^\\r\\n'\\\"]+)['\\\"]?[\\t ]*\\r?$",
       "m",
     ),
   );
@@ -14,9 +14,11 @@ function frontmatterValue(source, field) {
 }
 
 export function parseCompletedTask(source) {
-  const id = frontmatterValue(source, "id");
-  const milestone = frontmatterValue(source, "milestone");
-  const status = frontmatterValue(source, "status");
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source)?.[1];
+  if (frontmatter === undefined) return null;
+  const id = frontmatterValue(frontmatter, "id");
+  const milestone = frontmatterValue(frontmatter, "milestone");
+  const status = frontmatterValue(frontmatter, "status");
   if (id === null || status !== "Done") return null;
   return { id, milestone };
 }
@@ -53,7 +55,14 @@ export function mergeMilestoneProgress(output, completedTasks) {
 }
 
 export function readCompletedTasks(completedRoot) {
-  return readdirSync(completedRoot, { withFileTypes: true })
+  let entries;
+  try {
+    entries = readdirSync(completedRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map((entry) =>
       parseCompletedTask(readFileSync(join(completedRoot, entry.name), "utf8")),
