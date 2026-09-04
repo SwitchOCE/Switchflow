@@ -21,7 +21,7 @@ If the contract proves wrong or incomplete during planning, stop and return to `
 
 Group tasks into phases. A phase ends at a gate the orchestrator can verify alone: the full repository suite passes on the integrated branch, or an equivalent objective condition. State that condition explicitly for each phase.
 
-Create one parent task per phase and label it `phase-N`. Give it the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children.
+Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
 
 Group each phase's tasks for dispatch in that plan. You read the repository and wrote every context map, so you are the only role that knows which files each task touches. The orchestrator's read limit excludes that detail and it will not re-derive the grouping, so an ungrouped phase is delivered one task at a time.
 

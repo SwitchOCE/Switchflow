@@ -5,7 +5,8 @@ Remove branches and worktrees belonging to completed tasks in one phase.
 .DESCRIPTION
 Deterministic cleanup only. A branch is removed when every condition holds:
 
-  1. Its task carries the named phase label.
+  1. Its task carries the named phase label. The label selects tasks across the
+     whole board, so a phase label reused between milestones widens this run.
   2. That task's status is Done.
   3. The branch name matches the task-branch pattern exactly.
   4. It is not the integration branch and not currently checked out here.
