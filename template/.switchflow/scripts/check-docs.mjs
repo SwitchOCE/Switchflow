@@ -7,8 +7,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(process.argv[2] ?? join(scriptDirectory, '..', '..'));
 const backlogCli = process.argv[3] ? resolve(process.argv[3]) : null;
 const docsRoot = join(projectRoot, 'backlog', 'docs');
+const decisionsRoot = join(projectRoot, 'backlog', 'decisions');
 const errors = [];
 const documents = [];
+const decisions = [];
 
 function collectMarkdown(directory) {
   if (!existsSync(directory)) return [];
@@ -76,6 +78,17 @@ function checkLinks(sourceDocument) {
       continue;
     }
 
+    const decisionMatch = /^\/decisions\/(decision-\d+)$/.exec(encodedPath);
+    if (decisionMatch) {
+      const targetDecision = decisions.find((decision) => decision.id === decisionMatch[1]);
+      if (!targetDecision) {
+        errors.push(`${relative(projectRoot, sourceDocument.path)}: broken Backlog decision route ${rawTarget}`);
+        continue;
+      }
+      checkHeading(sourceDocument.path, targetDecision, encodedFragment, rawTarget);
+      continue;
+    }
+
     const decodedPath = decodeURIComponent(encodedPath);
     if (decodedPath.toLowerCase().endsWith('.md')) {
       errors.push(`${relative(projectRoot, sourceDocument.path)}: Markdown document links must use a /documentation/<id>/<slug> browser route: ${rawTarget}`);
@@ -102,6 +115,22 @@ for (const path of paths) {
   }
 }
 
+// Decisions are a separate Backlog record type with their own browser route, so
+// they are collected for link resolution rather than validated as documents.
+for (const path of collectMarkdown(decisionsRoot)) {
+  const content = readFileSync(path, 'utf8');
+  const id = /^id:\s*["']?(decision-\d+)["']?\s*$/m.exec(content)?.[1];
+  const title = /^title:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(content)?.[1]?.trim() ?? '';
+  if (!id) {
+    errors.push(`${relative(projectRoot, path)}: invalid or missing decision id`);
+    continue;
+  }
+  if (!basename(path).startsWith(`${id} - `)) {
+    errors.push(`${relative(projectRoot, path)}: filename must start with "${id} - "`);
+  }
+  decisions.push({ id, title, path, content });
+}
+
 const idCounts = new Map();
 for (const document of documents) idCounts.set(document.id, (idCounts.get(document.id) ?? 0) + 1);
 for (const [id, count] of idCounts) {
@@ -120,6 +149,24 @@ if (backlogCli && errors.length === 0) {
       errors.push(`${relative(projectRoot, document.path)}: Backlog could not read ${document.id}: ${(result.stderr || result.stdout).trim()}`);
     }
   }
+
+  // Backlog has no per-decision read command, so one listing confirms it parses
+  // every decision file the link checker resolved against.
+  if (decisions.length > 0) {
+    const listed = spawnSync(process.execPath, [backlogCli, 'decision', 'list', '--plain'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    });
+    if (listed.status !== 0) {
+      errors.push(`backlog/decisions: Backlog could not list decisions: ${(listed.stderr || listed.stdout).trim()}`);
+    } else {
+      for (const decision of decisions) {
+        if (!new RegExp(`^${decision.id}\\b`, 'm').test(listed.stdout)) {
+          errors.push(`${relative(projectRoot, decision.path)}: Backlog did not list ${decision.id}`);
+        }
+      }
+    }
+  }
 }
 
 if (errors.length > 0) {
@@ -127,4 +174,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Validated ${documents.length} Backlog documents, browser routes, and local links.`);
+console.log(`Validated ${documents.length} Backlog documents, ${decisions.length} decisions, browser routes, and local links.`);

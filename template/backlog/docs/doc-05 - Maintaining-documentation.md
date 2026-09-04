@@ -26,7 +26,7 @@ Do not copy task status, temporary investigation notes, unconfirmed ideas, plans
 1. Update the most relevant existing Markdown page.
 2. Add a new page only when the information has no clear home.
 3. Create new documents with `.switchflow/scripts/backlog.ps1 doc create` so Backlog assigns a unique ID and canonical filename.
-4. Link documents with Backlog browser routes such as `/documentation/02/project-profile`; add a heading fragment when needed. Preserve document IDs when moving or renaming them.
+4. Link documents with Backlog browser routes such as `/documentation/02/project-profile`, and decisions with `/decisions/decision-01`; add a heading fragment when needed. Preserve document and decision IDs when moving or renaming them.
 5. Run `.switchflow/scripts/check-docs.ps1` and inspect the document in the local Backlog browser before completing the work.
 
 Prefer short paragraphs and exact terms; use lists when they improve scanning.
