@@ -71,6 +71,41 @@ try {
         }
     }
 
+    # Phase cleanup selects tasks by label, and Backlog.md writes a non-empty list
+    # as a YAML block sequence. A parser that reads only the inline flow form
+    # selects nothing, deletes nothing, and still reports the phase clean, so both
+    # forms are exercised here against real branches.
+    $tasksRoot = Join-Path $validationRoot 'backlog\tasks'
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    $fixtures = [ordered]@{
+        'val-1.md' = "---`nid: VAL-1`ntitle: Block sequence labels`nstatus: Done`nlabels:`n  - phase-check`n---`n"
+        'val-2.md' = "---`nid: VAL-2`ntitle: Inline flow labels`nstatus: Done`nlabels: ['phase-check']`n---`n"
+        'val-3.md' = "---`nid: VAL-3`ntitle: No labels`nstatus: Done`nlabels: []`n---`n"
+    }
+    foreach ($fixture in $fixtures.GetEnumerator()) {
+        [System.IO.File]::WriteAllText((Join-Path $tasksRoot $fixture.Key), $fixture.Value, $utf8NoBom)
+    }
+
+    & git init -b main $validationRoot | Out-Null
+    & git -C $validationRoot -c user.name=Switchflow -c user.email=validation@localhost commit --allow-empty -m 'Validation baseline' | Out-Null
+    foreach ($id in @('VAL-1', 'VAL-2', 'VAL-3')) {
+        & git -C $validationRoot branch "task/$id" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not create validation branch task/$id."
+        }
+    }
+
+    & (Join-Path $validationRoot '.switchflow\scripts\cleanup-phase.ps1') -PhaseLabel phase-check | Out-Null
+    $remaining = @(& git -C $validationRoot branch --format='%(refname:short)')
+    $shouldBeGone = @(@('task/VAL-1', 'task/VAL-2') | Where-Object { $remaining -contains $_ })
+    if ($shouldBeGone.Count -gt 0) {
+        throw "Phase cleanup did not select labelled tasks: $($shouldBeGone -join ', ') survived."
+    }
+    if ($remaining -notcontains 'task/VAL-3') {
+        throw 'Phase cleanup removed task/VAL-3, whose task carries no label.'
+    }
+    Write-Host 'Validated phase cleanup label selection for block sequence and inline flow lists.'
+
     $officialResult = if ([string]::IsNullOrWhiteSpace($ValidatorPath)) { '' } else { ' and the supplied Codex validator' }
     Write-Host "Validated $($skillRoots.Count) rendered Switchflow skills in UTF-8 mode$officialResult."
 }

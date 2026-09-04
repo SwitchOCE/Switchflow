@@ -50,13 +50,36 @@ function Get-Frontmatter {
     $block = $text.Substring(3, $end - 3)
 
     $record = @{ Id = $null; Status = $null; Labels = @() }
+
+    # Backlog.md serializes a non-empty list as a YAML block sequence and only an
+    # empty one as inline flow, so both forms have to be read. Parsing the inline
+    # form alone leaves every real phase label invisible: the selector matches no
+    # task and cleanup reports success having examined nothing.
+    $labels = [System.Collections.Generic.List[string]]::new()
+    $inLabelBlock = $false
     foreach ($line in $block -split "`r?`n") {
+        if ($inLabelBlock) {
+            if ($line -match '^\s+-\s*(.*?)\s*$') {
+                $item = $Matches[1].Trim().Trim('"', "'")
+                if ($item) { $labels.Add($item) }
+                continue
+            }
+            $inLabelBlock = $false
+        }
+
         if ($line -match '^\s*id:\s*"?([^"\r\n]+?)"?\s*$') { $record.Id = $Matches[1].Trim() }
         elseif ($line -match '^\s*status:\s*"?([^"\r\n]+?)"?\s*$') { $record.Status = $Matches[1].Trim() }
         elseif ($line -match '^\s*labels:\s*\[(.*)\]\s*$') {
-            $record.Labels = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"', "'") } | Where-Object { $_ })
+            foreach ($item in ($Matches[1] -split ',')) {
+                $trimmed = $item.Trim().Trim('"', "'")
+                if ($trimmed) { $labels.Add($trimmed) }
+            }
+        }
+        elseif ($line -match '^\s*labels:\s*$') {
+            $inLabelBlock = $true
         }
     }
+    $record.Labels = @($labels)
     if ($null -eq $record.Id) {
         return $null
     }
