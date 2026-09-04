@@ -21,7 +21,7 @@ A group runs in parallel when its assignments have independent outcomes, clear o
 
 The orchestrator may collapse a group to sequential when phase evidence contradicts the plan, and records why. It does not widen one: judging that more parallelism is safe needs the file-level detail it does not read. It records the opportunity in the phase record instead.
 
-A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts.
+A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts. Add `-RequireNode` when the assignment builds, tests, or runs project code, so a worktree whose dependencies were never installed fails at dispatch rather than part-way through the task; add `-RequireDocs` when it changes Backlog documents.
 
 ## Git workflow
 
