@@ -28,7 +28,12 @@ When the owner changes the active target, update this document and any affected 
 
 ## Delivery rules
 
-- Build the simplest implementation that satisfies the accepted outcome and risk.
+- Build the simplest implementation that satisfies the accepted outcome and risk. Minimize the effort to understand, change, and verify the behavior; do not optimize for the fewest files or lines.
+- Give each business rule and state transition a clear owner. Keep values that must change together behind one transition, and avoid multiple independent update paths for the same state. Extract a function, component, or module when it isolates that responsibility or removes unrelated setup from verification. Moving code into another file without improving ownership is insufficient.
+- In UI code, extract components around coherent interactions and state ownership. Separate substantial domain rules and data access from rendering when they obscure those boundaries. A simple screen may remain one file.
+- A local function, component, or module may be justified by clarity at one use site. Shared abstractions, configurable frameworks, and compatibility layers require a demonstrated current need.
+- Prefer existing repository and platform capabilities when they satisfy the required behavior. Keep custom mechanisms only for a concrete gap, and isolate that exception. Do not remove necessary synchronization or behavior merely to reduce effects, hooks, or code size.
+- Make local structural improvements needed for the changed behavior as part of implementation. Keep unrelated cleanup outside the task. Do not split code solely to meet a size limit or introduce interfaces solely to satisfy a principle.
 - Prefer a thin, useful vertical slice over a complete subsystem.
 - Treat legacy behavior as evidence, not an implicit requirement.
 - Defer speculative generalization, exhaustive edge cases, and operational machinery.
@@ -45,7 +50,7 @@ When the owner changes the active target, update this document and any affected 
 
 ## Risk and verification
 
-Classify each task by its highest material risk and use the smallest evidence set that proves the changed outcome.
+Classify each task by its highest material risk. Verify behavior at the narrowest layer that can faithfully exercise it, with integration checks for the boundaries that layer cannot prove. Repeatedly needing unrelated application setup or packaging for a local behavior is evidence to examine the dependency boundary.
 
 Evidence is required at two levels. Task evidence proves the changed outcome and runs on the task branch. Phase evidence proves the integrated state and runs once, at the phase gate, on the integration branch.
 
@@ -66,4 +71,8 @@ If documentation changes a safety-sensitive operating procedure, classify it by 
 
 Follow the [delivery review contract](/documentation/08/delivery-contract#independent-review). One independent reviewer normally checks the accepted outcome and these standards. Add another reviewer only for a separate expertise gap.
 
-A finding blocks acceptance when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates a likely user-facing correctness failure. Improvements beyond the accepted boundary become follow-up work unless the owner expands scope.
+A finding blocks acceptance when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates a likely user-facing correctness failure.
+
+Structural findings block when the change introduces or materially worsens conflicting ownership of a rule or state, duplicated decision logic, or dependencies that force unrelated changes or setup. Identify the concrete consequence and smallest correction. File length, pattern preference, and hypothetical future requirements do not establish a finding.
+
+Unrelated pre-existing structural debt remains outside the task unless the owner expands scope. Improvements outside the accepted boundary become follow-up work only when authorized.

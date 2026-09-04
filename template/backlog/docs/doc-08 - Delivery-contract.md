@@ -71,6 +71,10 @@ One independent reviewer normally covers both. Author self-check is not independ
 
 `review-task` escalates to blast-radius analysis for a suspicious small diff or durable Elevated/Critical boundary, and states which trigger fired in every verdict. The escalation names one or two decisive safety facts, traces downstream consumers, and proves the facts with the cheapest credible contract, failure-path, execution, application, or artifact evidence.
 
-A finding blocks when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates likely user-facing incorrectness. Improvements outside the accepted boundary become follow-up work only when authorized.
+A finding blocks acceptance when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates a likely user-facing correctness failure.
+
+Structural findings block when the change introduces or materially worsens conflicting ownership of a rule or state, duplicated decision logic, or dependencies that force unrelated changes or setup. Identify the concrete consequence and smallest correction. File length, pattern preference, and hypothetical future requirements do not establish a finding.
+
+Unrelated pre-existing structural debt remains outside the task unless the owner expands scope. Improvements outside the accepted boundary become follow-up work only when authorized.
 
 The reviewer reports actionable findings first, then verification, uncertainty, and decision. Review is read-only unless the user separately grants status or acceptance authority. With status authority, a blocking finding returns **Review → Ready** with a comment; otherwise the reviewer reports it for an authorized actor. The next execution pass uses **Ready → In Progress**. If integration adds a material author-owned delta, review that delta and the resulting integrated state independently. An authorized acceptance then moves **Review → Done**.

@@ -11,7 +11,7 @@ Implement one task, prove it, hand it off, and stop.
 
 Read the task and all its comments through `.switchflow/scripts/backlog.ps1`, the files its context map names, and the delivery loop in `backlog/docs/doc-08 - Delivery-contract.md`.
 
-Read further only as the risk class requires. Documentation-only and Standard tasks need nothing more. Elevated and Critical tasks also read `backlog/docs/doc-03 - Kanban-workflow.md`, `backlog/docs/doc-07 - Task-contract.md`, and the boundaries in `backlog/docs/doc-04 - Engineering-standards.md`.
+Every task reads the Delivery rules and applicable Risk and verification guidance in `backlog/docs/doc-04 - Engineering-standards.md`. Elevated and Critical tasks additionally read `backlog/docs/doc-03 - Kanban-workflow.md`, `backlog/docs/doc-07 - Task-contract.md`, and the protected boundaries in the engineering standards.
 
 Do not read other tasks, the milestone plan, or the friction log.
 

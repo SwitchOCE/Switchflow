@@ -9,7 +9,7 @@ Produce an independent verdict on a fixed change surface.
 
 ## Pin and read
 
-Pin the accepted base, the exact HEAD, and the fixed diff. Read the complete task and its comments, the affected contracts, the review contract in `backlog/docs/doc-08 - Delivery-contract.md`, and the risk class in `backlog/docs/doc-04 - Engineering-standards.md`.
+Pin the accepted base, the exact HEAD, and the fixed diff. Read the complete task and its comments, the affected contracts, the review contract in `backlog/docs/doc-08 - Delivery-contract.md`, and the Delivery rules and applicable Risk and verification guidance in `backlog/docs/doc-04 - Engineering-standards.md`.
 
 Do not read the worker's reasoning beyond the factual handoff. Judge the artifact, not the argument. Reading the rationale converts independent review into agreement with it.
 
@@ -22,7 +22,11 @@ Identify open {{OWNER_NAME}} comments using `doc-07` and include unresolved inpu
 
 Reproduce only the evidence the decision needs. Author self-check is not independent acceptance.
 
-A finding blocks when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates a likely user-facing correctness failure. An improvement outside the accepted boundary becomes follow-up work only when authorised; it does not block.
+A finding blocks acceptance when it violates acceptance, risks data loss or credential disclosure, exposes restricted data, breaks an accepted contract, or creates a likely user-facing correctness failure.
+
+Structural findings block when the change introduces or materially worsens conflicting ownership of a rule or state, duplicated decision logic, or dependencies that force unrelated changes or setup. Identify the concrete consequence and smallest correction. File length, pattern preference, and hypothetical future requirements do not establish a finding.
+
+Unrelated pre-existing structural debt remains outside the task unless the owner expands scope. Improvements outside the accepted boundary become follow-up work only when authorized.
 
 ## Declare the blast-radius trigger
 

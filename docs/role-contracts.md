@@ -132,7 +132,7 @@ That bound replaced a prohibition on orchestrators invoking the implementation s
 | --- | --- |
 | Purpose | Implement one task. |
 | Trigger | Orchestrator brief, or the owner directly. |
-| Reads | The task and its context map; the files the map names; `doc-04` at the task's risk class; the delivery loop in `doc-08`. |
+| Reads | The task and its context map; the files the map names; Delivery rules and applicable Risk and verification guidance in `doc-04`; the delivery loop in `doc-08`. Elevated and Critical tasks also read `doc-03`, `doc-07`, and the protected boundaries in `doc-04`. |
 | Must not read | Other tasks, the milestone plan, the friction log, policy above its risk class. |
 | Produces | A three-line pre-implementation plan, the diff, a handoff comment on the task, and a five-line return envelope. |
 | Exit condition | Criteria checked, handoff written, task moved to Review, envelope returned. |
@@ -153,7 +153,7 @@ Corrections after review are part of the same task and stay with the same worker
 | --- | --- |
 | Purpose | Produce an independent verdict on a fixed diff. |
 | Trigger | Orchestrator, after a worker returns. |
-| Reads | The task and its criteria; the fixed base, HEAD and diff; affected contracts; the risk class in `doc-04`. |
+| Reads | The task and its criteria; the fixed base, HEAD and diff; affected contracts; the review contract in `doc-08`; Delivery rules and applicable Risk and verification guidance in `doc-04`. |
 | Must not read | The worker's reasoning beyond the factual handoff. |
 | Produces | A verdict, a five-line envelope to the orchestrator, and full findings as a task comment. |
 | Exit condition | Verdict recorded. |
