@@ -27,13 +27,13 @@ Between steps 2 and 3, changing my mind is cheap. Once step 3 starts, changing d
 
 ## What the agents do
 
-`orchestrate-phase` manages builders. It reads phase records and task dispatch fields, including risk classes and context maps. Targeted detail supports checkpoints, blockers and permitted conflict resolution; reviewers still judge changes independently. Each worker gets one task and a part of the codebase that no other worker may edit. Before touching code, the worker describes its approach in three lines. That gives the orchestrator one cheap chance to correct it.
+`orchestrate-phase` delivers serial tasks directly and coordinates workers for planned parallel groups. It retains useful context across related serial tasks, refreshes each task and owner comments, and keeps separate evidence and independent review for every candidate. Delegated workers confirm a three-line approach before implementation; direct delivery uses the same scope check without a self-confirmation wait.
 
-The orchestrator uses long waits rather than frequent polling. New tasks get new workers to keep scope and ownership separate; review corrections stay with the same worker. This boundary does not imply that restarting is always cheaper.
+The orchestrator uses event waits within host limits and avoids redundant status reads or unchanged updates when the host permits quiet waiting. Serial successors can reuse the phase agent after acceptance; delegated workers remain scoped to one task, with review corrections returning to the author. Delegation for a serial task needs a stated capability or isolation benefit.
 
 `deliver-task` completes one task and returns an envelope with the result. `review-task` reads the diff independently and returns a verdict. `create-human-task` records work that only I can do, such as supplying a credential, creating an account, or making a decision. Planning identifies those tasks up front, so they do not stop the agents halfway through.
 
-At the phase gate, the test suite runs once on the integrated branch. That is where conflicts between tasks become visible. The cleanup process removes merged branches when the result is certain. If anything is unclear, it reports the branch and leaves it alone.
+Prepare the next ready group; prewarm gated worktrees only for a stated setup benefit. At the phase gate, Documentation-only work uses applicable document and board checks plus diff review. Runtime or operational changes require the repository suite on the integrated candidate, where conflicts between tasks become visible. The cleanup process removes merged branches when the result is certain. If anything is unclear, it reports the branch and leaves it alone.
 
 Work that costs more than expected goes into the friction log. The log is for me. Delivery agents never read it.
 

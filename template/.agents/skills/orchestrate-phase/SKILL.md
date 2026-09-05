@@ -1,19 +1,19 @@
 ---
 name: orchestrate-phase
-description: 'Deliver one phase of a prepared {{PROJECT_NAME_YAML_SINGLE}} milestone by dispatching workers, checkpointing them, integrating, and recording the outcome. Use only when explicitly invoked.'
+description: 'Deliver one phase of a prepared {{PROJECT_NAME_YAML_SINGLE}} milestone through direct serial delivery or parallel workers, independent review, integration, and a phase record. Use only when explicitly invoked.'
 ---
 
 # Orchestrate Phase
 
 Deliver the named phase and record what the next phase needs. Explicit invocation designates this agent as orchestrator for that phase with the authority described in `backlog/docs/doc-03 - Kanban-workflow.md`. Reusing this context does not authorize another phase.
 
-Your context is the scarce resource this whole design protects. Everything below exists to keep it small.
+Retain useful context for related serial work. Add delivery agents when parallel work or a stated capability or isolation benefit justifies the extra coordination.
 
 ## Read narrowly
 
 Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses, dependencies, risk classes and context maps of this phase's tasks. Use targeted task reads to obtain dispatch fields missing from summaries.
 
-Avoid broad repository reads and worker reasoning. Read additional task detail when needed to judge a checkpoint, resolve a blocker or understand a contested verdict. Read only the affected diff and file sections when resolving a merge conflict or making a correction within the direct-implementation bound below. Independent review remains required; these reads do not make the orchestrator its own reviewer.
+While coordinating workers, avoid broad repository reads and worker reasoning. Read additional detail for a checkpoint, blocker, contested verdict or integration change. While delivering directly, follow the task-sized reads in `deliver-task`. Independent review remains required in either mode.
 
 ## Keep status current
 
@@ -21,15 +21,21 @@ At phase start, classify its unstarted worker tasks under `doc-07` and mark the 
 
 Use `backlog.ps1 flow` at phase opening and closing to report worker queues separately from coordination parents and show recently updated records. Do not infer readiness from this snapshot alone.
 
-## Dispatch
+## Choose delivery mode
 
 Dispatch the groups the phase plan defines. The planner set them with repository-wide knowledge; targeted orchestration reads are not a reason to re-derive the grouping.
 
 Collapse a group to sequential when phase evidence contradicts the plan — an unexpected shared file, an interface that proved unstable — and record why. Do not widen one: that needs a planning pass across all affected tasks. Record the opportunity in the phase record so the next planning pass can act on it.
 
-Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
+When only one delivery task is ready within the planned group, use `deliver-task` yourself. Complete its handoff, obtain independent review of the exact candidate, integrate and accept it before starting a dependent successor. Retain useful context across related serial tasks; refresh each task, its owner comments and changed source facts. Corrections stay with the author.
+
+When at least two independent tasks in a planned parallel group are ready, coordinate delivery workers. A serial task may also use a worker for a stated capability or isolation benefit; record the reason. Give each worker one task and a non-overlapping surface using `deliver-task`. Choose the lowest capability adequate for the assigned risk and work, including the whole serial segment for a direct runner. Respect host model settings; do not assume moving work to a more capable parent saves cost.
+
+Include a compact environment note in each dispatch: accepted base and worktree, verified command forms, pinned dependency state and known access route. These are facts, not transferred permissions. Refresh changed facts at checkpoints; do not repeat discovery merely because the role changed.
 
 Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
+
+Prepare only the next ready group by default. Prewarm a gated worktree only when likely dispatch and saved setup time justify it; record the prerequisite revision that must be refreshed before preflight. Do not install speculative future groups. Reuse verified pinned tooling and dependency facts when still valid.
 
 Resolve shared setup once, and run the preflight from the accepted dispatch checkout against each worktree before dispatching into it. It checks governance metadata against that checkout, then confirms the pinned Backlog CLI resolves and the task is readable. Matching metadata is not proof of identical files: create worktrees from the accepted project commit.
 
@@ -37,25 +43,21 @@ Resolve shared setup once, and run the preflight from the accepted dispatch chec
 .\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
 ```
 
-**One worker, one task.** A worker ends at its handoff. The next logical task gets a new worker to keep scope and task ownership separate. This is a workflow boundary, not a claim that restarting is always cheaper: cached context can be inexpensive to reuse. Corrections arising from review are the same task and stay with the same worker.
+**One task, one delivery boundary.** Keep criteria, commits, evidence and review separate for every task. A delegated worker stops at its handoff; corrections stay with it. The phase agent may retain context for the next authorized serial task after acceptance. Context reuse does not merge task scope or allow self-review.
 
 ## Checkpoint before implementation
 
-Require each worker to state its intended approach in three lines before it implements: files it will change, approach, stop condition. Confirm it or correct it.
+State the three-line approach for every task: files, approach, stop condition. Confirm or correct delegated workers before they implement. For direct delivery, check the approach against the accepted task and proceed within existing authority; do not wait for self-confirmation or invent a new approval gate.
 
-This is your highest-value action. A correction here costs a few hundred tokens; discovering the same mistake after implementation costs the whole attempt.
+## Wait for meaningful events
 
-## Wait once, long
+While workers or reviewers run, do useful independent work or use the host's event wait for a checkpoint, completion, blocker or user input. Use the longest interval permitted by higher-priority host instructions and appropriate to the work. Do not add status reads or shorter polling when the wait already supplies progress.
 
-Wait for workers with a timeout matched to the work — minutes, not seconds. Do independent orchestration work while they run, or block.
+An empty timeout adds no delivery evidence. Avoid repetitive updates where the host allows quiet waiting; comply with any required progress cadence. Repository instructions cannot override a host wait limit or commentary requirement. Change that behavior only through a documented host setting if available. Direct serial delivery removes idle coordination while implementing, but still waits for independent review.
 
-**Never narrate a timeout.** A timeout carries no new information, and reporting it costs a full-context turn. If a wait must be repeated, lengthen the interval rather than re-issuing the same short one. Repeated short waits are the second-largest source of wasted tokens measured in this framework.
+## Handle corrections
 
-## Amend rather than implement
-
-When execution evidence shows the plan was wrong, amend the task and re-dispatch. That is the safety net and it is exercised by re-briefing.
-
-Implement directly only within a narrow bound: a single file, no new behaviour, no new acceptance criterion. Merge conflict resolution and one-line corrections qualify. Anything larger is dispatched.
+When execution evidence contradicts the plan, amend the task within the frozen scope and reapply readiness. Direct-delivery corrections stay here; delegated corrections return to their author. Resolve integration conflicts within phase authority and send any material authored delta for independent review. Scope changes beyond the grant still need the owner.
 
 Product decisions, scope changes beyond the frozen contract, secrets, live external actions, pushing, shared-history rewrites, and branch deletion remain separately authorised.
 
@@ -63,7 +65,7 @@ Product decisions, scope changes beyond the frozen contract, secrets, live exter
 
 Obtain independent review of each task through `review-task`. Integrate accepted work in dependency order and validate the integrated state. When integration or conflict resolution materially changes the reviewed surface, obtain independent review of that delta before acceptance.
 
-Verify the phase gate condition. Run the full repository suite once here, on the integrated branch, rather than once per task: cross-task interference is only observable after integration.
+Verify the recorded phase gate on the integrated candidate using `doc-04` and the project profile. Documentation-only phases use documentation and board checks for affected surfaces plus diff review. Runtime or operational risk requires the applicable repository suite and boundary checks. Do not silently weaken an existing explicit gate; amend it under phase authority with the risk-based reason first. Reuse evidence still valid for the exact candidate.
 
 Mark the parent Review when implementation is complete and the integrated phase gate awaits acceptance. After independent acceptance and the phase gate pass, mark it Done. Refresh affected dependants before the final snapshot.
 
@@ -93,6 +95,8 @@ Then close the phase:
 - Gate condition: how it was verified
 - Cleanup: n branches removed, n exceptions, listed
 - Grouping: which groups held, and any that should have been wider or narrower
+- Execution: direct or delegated per task, and reasons for serial delegation
+- Efficiency: where telemetry is available, total tree cached/uncached input, output, models, active elapsed time, first-review acceptance and correction count
 - Open for next phase: facts the next orchestrator needs
 ```
 

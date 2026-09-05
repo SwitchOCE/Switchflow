@@ -61,7 +61,7 @@ Evidence is required at two levels. Task evidence proves the changed outcome and
 | **Elevated** | Persistence, migration, imports, authentication, deterministic domain behavior, or deployment configuration. | Changed-outcome tests plus focused failure-path and affected-boundary checks. | Full repository suite plus the affected boundary exercised on the integrated state. |
 | **Critical** | Secrets, destructive migration, live external writes, public restricted-data exposure, or another identified high-impact boundary. | Elevated task evidence plus an independent reviewer with the relevant expertise. | Elevated phase evidence. Use live proof only when acceptance requires a live claim. |
 
-**Do not run the full repository suite per task.** It runs once per phase. A full suite on an isolated task branch cannot detect what it is being run for, because cross-task interference only becomes observable after integration. Running it per task also fills the worker's context with output that displaces the code it needs to reason about.
+**Choose the phase gate from the affected risk.** Documentation-only phases run the applicable documentation and board checks plus integrated diff review. Phases with runtime or operational changes run the full repository suite once on the integrated candidate, plus required boundary checks. Task branches use focused evidence. Preserve an explicit recorded gate unless an authorized amendment records why it changes; do not silently skip it.
 
 Do not re-run any suite that no change has invalidated since its last run.
 

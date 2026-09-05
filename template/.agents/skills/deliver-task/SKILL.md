@@ -1,11 +1,11 @@
 ---
 name: deliver-task
-description: 'Implement one {{PROJECT_NAME_YAML_SINGLE}} Backlog.md task and hand it off for independent review. Used by {{OWNER_NAME_YAML_SINGLE}} directly or by an orchestrator briefing a worker.'
+description: 'Implement one {{PROJECT_NAME_YAML_SINGLE}} Backlog.md task and hand it off for independent review. Used directly, by a delegated worker, or by the authorized phase agent for serial delivery.'
 ---
 
 # Deliver Task
 
-Implement one task, prove it, hand it off, and stop.
+Implement one task, prove it, and stop delivery at Review. A phase agent using this procedure then resumes `orchestrate-phase` to obtain independent review, integrate and accept before its next serial task. This skill alone grants none of that phase authority.
 
 ## Read proportionally
 
@@ -21,7 +21,7 @@ Account for every open {{OWNER_NAME}} comment as `doc-07` requires before relyin
 
 ## State the approach first
 
-Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when an orchestrator briefed you.
+Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
 
 This exists so a wrong direction is corrected in a sentence rather than after the work is done.
 
@@ -35,7 +35,7 @@ Keep durable documentation aligned when behaviour, contracts, schemas, decisions
 
 Run the changed-outcome tests the context map identifies, plus whatever the risk class requires.
 
-Do not run the full repository suite. That runs once per phase, on the integrated branch, where cross-task interference is actually observable. A full suite on an isolated task branch cannot detect what it is being run for, and its output displaces the code you need to reason about.
+Use focused task evidence. Apply the phase gate from `doc-04` and the project profile on the integrated candidate: documentation and board checks for affected Documentation-only surfaces, or the full suite and required boundaries for runtime or operational changes. Honor any explicit task gate. Do not duplicate phase checks on every task branch.
 
 Do not re-run a suite that has not been invalidated by a change since its last run.
 
@@ -45,7 +45,7 @@ Check each satisfied criterion, set the final summary, and record the handoff co
 
 Re-read the task to confirm every mutation, then move **In Progress** to **Review**.
 
-Return five lines and nothing more:
+A delegated worker returns five lines and nothing more. A phase agent records the same envelope at the delivery boundary before requesting independent review:
 
 ```text
 task: {{TASK_PREFIX}}-14
@@ -57,4 +57,4 @@ blocking: none
 
 Detail belongs in the task comment, where the reviewer will fetch it. Repeating it in the return value puts it in the orchestrator's context, where it is paid for on every subsequent turn.
 
-A worker stops at Review. Do not review your own work, integrate, merge into `main`, or start another task. If acceptance becomes impossible, complete safe independent work, record the obstruction as `doc-08` requires, and move to **Blocked**.
+Delivery stops at Review. Never review your own work. Without separate phase authority, do not integrate, merge into `main`, or start another task. If acceptance becomes impossible, complete safe independent work, record the obstruction as `doc-08` requires, and move to **Blocked**.

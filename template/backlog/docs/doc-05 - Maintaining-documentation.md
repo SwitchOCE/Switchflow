@@ -29,6 +29,17 @@ Do not copy task status, temporary investigation notes, unconfirmed ideas, plans
 4. Link documents with Backlog browser routes such as `/documentation/02/project-profile`, and decisions with `/decisions/decision-01`; add a heading fragment when needed. Preserve document and decision IDs when moving or renaming them.
 5. Run `.switchflow/scripts/check-docs.ps1` and inspect the document in the local Backlog browser before completing the work.
 
+Use the wrapper's file route for complete document bodies, including long specifications. The UTF-8 file contains Markdown body only, without document frontmatter. Backlog preserves the existing ID, title and metadata.
+
+```powershell
+.\.switchflow\scripts\backlog.ps1 doc view doc-05
+.\.switchflow\scripts\backlog.ps1 doc update doc-05 --content-file .\document-body.md
+```
+
+`doc view` returns Markdown; it does not support `--json`. Use `task view <id> --json` for structured task reads. The file route supports `doc update <id> --content-file <path>` only; create the document first with `doc create`, and make metadata changes separately with native `doc update` options. Paths resolve from the caller's directory. Content is sent through the pinned Backlog MCP interface over stdin, avoiding Windows argument limits. A failed or uncertain write needs a document read before retrying.
+
+Re-read the saved document before handoff. For schemas and contracts, verify every required record shape and acceptance example, including failure and boundary cases named by the task. Parse embedded examples and check their semantic coverage as well as links. Never remove required content to fit transport; split pages only at an existing responsibility boundary while preserving complete examples and references.
+
 Prefer short paragraphs and exact terms; use lists when they improve scanning.
 
 Create a native Backlog decision with `.switchflow/scripts/backlog.ps1 decision create` when a technical or product choice needs permanent rationale. Record its context, decision, alternatives, and consequences.

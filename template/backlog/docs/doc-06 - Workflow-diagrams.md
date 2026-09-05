@@ -27,8 +27,8 @@ flowchart LR
     P --> UT[UAT task]
     PL --> O([orchestrate-phase])
     TM --> O
-    O --> B[Worker brief]
-    B --> D([deliver-task])
+    O --> B[Task scope and approach]
+    B --> D([deliver-task: phase agent or worker])
     D --> DF[Diff and handoff]
     DF --> RV([review-task])
     RV --> VD[Verdict]
@@ -40,7 +40,7 @@ flowchart LR
 
 Rounded nodes are roles. Rectangles are artifacts. The chain is acyclic because rework loops belong inside a phase rather than in the pipeline.
 
-Three levels bound the work. A **milestone** ends where {{OWNER_NAME}} can use the software and form an opinion, so it closes with a Human-assigned acceptance test. A **phase** ends at a gate the orchestrator verifies alone. A **task** is one worker assignment with one useful result.
+Three levels bound the work. A **milestone** ends where {{OWNER_NAME}} can use the software and form an opinion, so it closes with a Human-assigned acceptance test. A **phase** ends at a gate the orchestrator verifies alone. A **task** is one delivery boundary with one useful result.
 
 ## 2. Phase loop
 
@@ -49,11 +49,11 @@ An orchestrator records durable state at each phase boundary. The next authorize
 ```mermaid
 flowchart TD
     S[Phase opens] --> R1[Read milestone record<br/>and prior phase record]
-    R1 --> DP[Dispatch phase tasks]
-    DP --> CK{Worker plan matches<br/>task scope and context map?}
+    R1 --> DP[Select ready phase task or group]
+    DP --> CK{Delivery approach matches<br/>task scope and context map?}
     CK -- No --> CR[Correct before implementation]
     CR --> DP
-    CK -- Yes --> IM[Worker implements and<br/>returns five-line envelope]
+    CK -- Yes --> IM[Phase agent or worker delivers<br/>diff and handoff]
     IM --> RV[Independent review<br/>of the fixed diff]
     RV --> AC{Verdict}
     AC -- Blocking finding --> DP
@@ -73,7 +73,7 @@ flowchart TD
 
 When the orchestrator needs a decision from {{OWNER_NAME}}, it records the question and pending work and returns control. Resume after the decision in the same or a fresh context as appropriate. Retaining context never grants authority for another phase.
 
-The checkpoint before implementation is the orchestrator's highest-value action. A worker states its intended approach in three lines and the orchestrator confirms or corrects it, which costs far less than discovering a wrong direction after the work is done.
+Every task starts with the three-line approach. The phase agent confirms delegated approaches and checks its own against the accepted task. Both delivery modes produce the same evidence and independent review boundary.
 
 ## 3. Status lifecycle
 

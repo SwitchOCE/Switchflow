@@ -19,7 +19,7 @@ If the contract proves wrong or incomplete during planning, stop and return to `
 
 ## Shape phases
 
-Group tasks into phases. A phase ends at a gate the orchestrator can verify alone: the full repository suite passes on the integrated branch, or an equivalent objective condition. State that condition explicitly for each phase.
+Group tasks into phases. State an objective gate on the integrated candidate using `doc-04` and the project profile. Documentation-only phases use checks for the affected documentation and board surfaces plus diff review. Runtime or operational changes require the full repository suite and applicable boundary checks. This gate complements independent review; it never replaces it.
 
 Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Add the `coordination` label to the parent. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
 
