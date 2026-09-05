@@ -18,6 +18,10 @@ Exceptions need a decision and belong to the orchestrator, not this script.
 .EXAMPLE
 # Set $PhaseLabel to the exact board-unique label on the phase parent.
 .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -WhatIf
+
+.EXAMPLE
+# For a project whose recorded task branch pattern is codex/{0}:
+.\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -BranchPattern 'codex/{0}' -WhatIf
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(

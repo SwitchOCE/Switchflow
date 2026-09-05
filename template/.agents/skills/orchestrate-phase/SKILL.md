@@ -23,7 +23,7 @@ Collapse a group to sequential when phase evidence contradicts the plan — an u
 
 Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
 
-Resolve shared setup once, and run the preflight against each worktree before dispatching into it. It confirms the pinned Backlog CLI resolves there and the task is readable, so workers do not rediscover the same setup failure.
+Resolve shared setup once, and run the preflight from the accepted dispatch checkout against each worktree before dispatching into it. It checks governance metadata against that checkout, then confirms the pinned Backlog CLI resolves and the task is readable. Matching metadata is not proof of identical files: create worktrees from the accepted project commit.
 
 ```powershell
 .\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
@@ -63,8 +63,9 @@ Then close the phase:
 
    ```powershell
    # Set $PhaseLabel to the exact board-unique label on the phase parent.
-   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -WhatIf   # inspect first
-   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel
+   # Set $BranchPattern from the project profile's Task branch naming section.
+   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -BranchPattern $BranchPattern -WhatIf
+   .\.switchflow\scripts\cleanup-phase.ps1 -PhaseLabel $PhaseLabel -BranchPattern $BranchPattern
    ```
 
    It removes a branch only when its task is Done, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else is reported and left alone. Do not force past an exception: an unmerged branch or a dirty worktree holds work nobody has reviewed. Resolve it or record it in the phase record.

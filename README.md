@@ -58,6 +58,6 @@ Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.2.0` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
+Switchflow is at version `0.2.1` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
 
-Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately. Automatic upgrades remain out of scope.
+Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

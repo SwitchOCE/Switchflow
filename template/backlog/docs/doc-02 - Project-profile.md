@@ -22,6 +22,10 @@ No product goal has been recorded yet. Replace this paragraph before creating th
 
 **{{PROJECT_PHASE}}.** Confirm or change this phase when product context changes. Phase is descriptive context; it does not select a different engineering quality level. The single active quality target is owned by [Engineering standards](/documentation/04/engineering-standards).
 
+## Task branch naming
+
+The task branch pattern is `task/{0}`, where `{0}` is the task ID. Replace this value when the project uses another convention, such as `codex/{0}`. Workers use the recorded pattern when creating branches; orchestration passes it to `cleanup-phase.ps1 -BranchPattern` together with the exact board-unique phase label.
+
 ## Normal verification
 
 No application-specific build, test, lint, type-check, or artifact commands have been recorded yet. Add the smallest normal gate before the first runtime change.

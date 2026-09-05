@@ -12,7 +12,46 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $worktreeRoot = (Resolve-Path -LiteralPath $Worktree).Path
-$projectConfig = Get-Content -Raw -Encoding utf8 (Join-Path $worktreeRoot '.switchflow\project.json') | ConvertFrom-Json
+function Read-GovernanceConfig {
+    param([string]$Root)
+
+    $configPath = Join-Path $Root '.switchflow\project.json'
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        throw "$Root has no Switchflow project metadata. Create a fresh worktree from the accepted project base and rerun this preflight."
+    }
+    $config = Get-Content -Raw -Encoding utf8 -LiteralPath $configPath | ConvertFrom-Json
+    if ($null -eq $config -or $config -isnot [pscustomobject]) {
+        throw "Invalid Switchflow project metadata in $Root. Expected a JSON object."
+    }
+    foreach ($field in @('schemaVersion', 'templateVersion', 'taskPrefix', 'templateRevision', 'templateDirty')) {
+        if ($null -eq $config.PSObject.Properties[$field]) {
+            $config | Add-Member -NotePropertyName $field -NotePropertyValue $null
+        }
+    }
+    if ($config.schemaVersion -ne 1 -or
+        $config.templateVersion -isnot [string] -or [string]::IsNullOrWhiteSpace($config.templateVersion) -or
+        $config.taskPrefix -isnot [string] -or $config.taskPrefix -cnotmatch '^[A-Z][A-Z0-9]{1,7}$') {
+        throw "Invalid Switchflow project metadata in $Root. Expected schema 1, a template version, and an uppercase task prefix."
+    }
+    if (($null -ne $config.templateRevision -and
+            ($config.templateRevision -isnot [string] -or $config.templateRevision -notmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$')) -or
+        ($null -ne $config.templateDirty -and $config.templateDirty -isnot [bool])) {
+        throw "Invalid Switchflow source provenance in $Root."
+    }
+    return $config
+}
+
+$projectConfig = Read-GovernanceConfig -Root $worktreeRoot
+$dispatchRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$dispatchConfig = Read-GovernanceConfig -Root $dispatchRoot
+if ($projectConfig.schemaVersion -ne $dispatchConfig.schemaVersion -or
+    $projectConfig.templateVersion -ne $dispatchConfig.templateVersion -or
+    $projectConfig.taskPrefix -ne $dispatchConfig.taskPrefix -or
+    ($null -ne $dispatchConfig.templateRevision -and
+        ($projectConfig.templateRevision -ne $dispatchConfig.templateRevision -or
+         $projectConfig.templateDirty -ne $dispatchConfig.templateDirty))) {
+    throw "Switchflow governance mismatch in $worktreeRoot. Expected schema $($dispatchConfig.schemaVersion), template $($dispatchConfig.templateVersion), prefix $($dispatchConfig.taskPrefix), revision $($dispatchConfig.templateRevision). Create a fresh worktree from the accepted project base and rerun this preflight."
+}
 $taskPattern = '^' + [regex]::Escape([string]$projectConfig.taskPrefix) + '-\d+(\.\d+)?$'
 if ($TaskId -notmatch $taskPattern) {
     throw "TaskId must match $($projectConfig.taskPrefix)-<number>."

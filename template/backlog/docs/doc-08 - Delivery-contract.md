@@ -15,17 +15,19 @@ The [Kanban workflow](/documentation/03/kanban-workflow#ownership-and-authority)
 
 ## Coordination and isolation
 
-Dispatch grouping is decided while planning, not at dispatch. The planner reads the repository and writes every context map, so it is the only role that knows which files a task touches; the orchestrator's read limit deliberately excludes that detail. The planner records the groups in the phase plan and the orchestrator executes them.
+Dispatch grouping is decided while planning, not at dispatch. The planner assesses all affected tasks and files and writes every context map. The planner records the groups in the phase plan and the orchestrator executes them. Targeted orchestration reads support checkpoints, blockers, contested verdicts, and permitted conflict resolution or corrections; they do not replace that planning pass or independent review.
 
 A group runs in parallel when its assignments have independent outcomes, clear owners, non-overlapping files or stable interfaces, an explicit integration order, and reviewable stop conditions. Otherwise its tasks run in sequence. Both answers are ordinary. Sequencing work that could have run in parallel costs wall time and leaves no trace, while parallelising work that could not fails visibly at integration or the phase gate, so neither is the safe default and neither needs more justification than the other.
 
-The orchestrator may collapse a group to sequential when phase evidence contradicts the plan, and records why. It does not widen one: judging that more parallelism is safe needs the file-level detail it does not read. It records the opportunity in the phase record instead.
+The orchestrator may collapse a group to sequential when phase evidence contradicts the plan, and records why. It does not widen one: that requires another planning pass across all affected tasks. It records the opportunity in the phase record instead.
 
 A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts. Add `-RequireNode` when the assignment builds, tests, or runs project code, so a worktree whose dependencies were never installed fails at dispatch rather than part-way through the task; add `-RequireDocs` when it changes Backlog documents.
 
 ## Git workflow
 
 `main` is the integration branch. An orchestrator is designated by explicit `$orchestrate-phase` invocation or specific user authority. Other agents are workers unless the user grants integration authority.
+
+Use the task branch pattern recorded in the [project profile](/documentation/02/project-profile#task-branch-naming) when creating task branches and when passing `-BranchPattern` to phase cleanup.
 
 Workers may use branches or worktrees and create scoped commits. They do not merge or cherry-pick into `main`, rewrite shared history, or delete branches. Their handoff identifies delivered work, repository state, verification, and unresolved issues.
 

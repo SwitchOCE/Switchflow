@@ -103,6 +103,27 @@ if (-not [string]::IsNullOrWhiteSpace($RepoUrl)) {
 }
 
 $version = (Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $switchflowRoot 'VERSION')).Trim()
+# Archives and unavailable Git leave provenance unknown. Do not accidentally
+# attribute an unpacked copy to an enclosing repository, or label dirty input clean.
+$templateRevision = $null
+$templateDirty = $null
+if ((Test-Path -LiteralPath (Join-Path $switchflowRoot '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    try {
+        $revision = & git -C $switchflowRoot rev-parse --verify HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$revision" -match '^(?:[0-9a-f]{40}|[0-9a-f]{64})$') {
+            $templateRevision = ([string]$revision).Trim()
+            $sourceStatus = @(& git -C $switchflowRoot status --porcelain --untracked-files=all -- template scripts VERSION 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+                $templateDirty = $sourceStatus.Count -gt 0
+            }
+        }
+    }
+    catch {
+        # Windows PowerShell turns native stderr into a terminating error under
+        # ErrorActionPreference=Stop. Provenance is optional, including for unborn HEAD.
+        $templateDirty = $null
+    }
+}
 $repositoryDisplay = if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
     'Not configured.'
 }
@@ -209,6 +230,8 @@ foreach ($file in $renderedFiles) {
 $projectConfig = [ordered]@{
     schemaVersion = 1
     templateVersion = $version
+    templateRevision = $templateRevision
+    templateDirty = $templateDirty
     projectName = $ProjectName
     taskPrefix = $TaskPrefix
     ownerName = $OwnerName
