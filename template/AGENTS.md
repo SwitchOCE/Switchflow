@@ -38,6 +38,8 @@ Build the simplest implementation and smallest validation set that satisfy the a
 - Do not deploy, alter live data, rotate credentials, or change access controls without authorization for that specific action.
 - Account for every open {{OWNER_NAME}} comment before acting on a task. Never implement against stale scope.
 
+- Keep the board running during application dependency setup. Stop it only when replacing the `.switchflow` installation it uses; restart and verify HTTP availability after maintenance. Stop only processes using the dependency directory being replaced. Reuse matching pinned tooling across worktrees.
+
 ## How to write
 
 Write task fields, documentation, and replies as the smallest text that clearly carries the problem, the proposed step, or the decision required. Link tasks by short name in prose; use raw `{{TASK_PREFIX}}-xx` IDs only where a machine identifier is required.

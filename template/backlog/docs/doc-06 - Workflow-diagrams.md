@@ -82,17 +82,22 @@ flowchart LR
     B[Backlog] -->|Full readiness gate passes| R[Ready]
     R -->|Explicit execution authority| P[In Progress]
     P -->|Implementation, evidence and handoff complete| V[Review]
-    V -->|Independent acceptance by authorized actor| D[Done]
+    V -->|Independent acceptance and required integration pass| D[Done]
     V -->|Blocking finding recorded| R
-    P -->|Acceptance impossible after safe alternatives| X[Blocked]
-    X -->|Obstruction resolved; fresh execution pass| R
+    B -->|Prepared; named prerequisite missing| X[Blocked]
+    R -->|Executable prerequisite lost| X
+    P -->|Named obstruction prevents progress| X
+    V -->|Named obstruction prevents review or integration| X
+    X -->|Resolved and full readiness gate passes| R
+    X -->|Scope needs definition| B
+    X -->|Review evidence still valid| V
     B -. Material decision missing .-> N[needs-decision label]
     N -. Decision recorded and all exceptions resolved .-> B
     B -. Reviewer priority choice .-> H[high-priority label]
     H -. Label changes ordering, not status .-> B
 ```
 
-**Blocked** is an execution state entered only after work has started. `needs-decision` is a clarification exception used during Backlog refinement and never a substitute for Blocked. `high-priority` changes ordering, not status.
+**Backlog** needs definition; **Blocked** is prepared work waiting on a named prerequisite, before or after execution. `needs-decision` identifies a user-owned choice in either state. `high-priority` changes ordering, not status. Coordination parents follow the separate rollup lifecycle in the Kanban workflow.
 
 Readiness does not authorize implementation. The [Kanban workflow](/documentation/03/kanban-workflow) owns which actor may make each transition.
 

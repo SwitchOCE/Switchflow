@@ -23,6 +23,8 @@ The orchestrator may collapse a group to sequential when phase evidence contradi
 
 A branch does not isolate agents sharing one checkout. Use dedicated worktrees, branches, sub-branches, or file ownership when useful. Avoid concurrent edits to the same files and unresolved interfaces. Run `.switchflow/scripts/check-worktree-tools.ps1 -Worktree <path> -TaskId <id>` as the preflight for each assignment, and resolve shared setup once. It confirms the pinned Backlog CLI resolves in that worktree and that the task is readable before a worker starts. Add `-RequireNode` when the assignment builds, tests, or runs project code, so a worktree whose dependencies were never installed fails at dispatch rather than part-way through the task; add `-RequireDocs` when it changes Backlog documents.
 
+Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
+
 ## Git workflow
 
 `main` is the integration branch. An orchestrator is designated by explicit `$orchestrate-phase` invocation or specific user authority. Other agents are workers unless the user grants integration authority.
@@ -46,17 +48,17 @@ For sequential work in the current `main` worktree, an execution instruction aut
 
 ## Execution obstruction
 
-Use **Blocked** only after execution has started, safe independent work is complete, and in-scope alternatives are exhausted. Record:
+Use **Blocked** for prepared work waiting on a named prerequisite before execution, or for an obstruction discovered during execution or review. Continue safe independent work when useful; do not require a failed implementation attempt before recording a known blocker. Ordinary review or integration queues stay in **Review**. Record:
 
-- the obstruction and its impact;
-- evidence checked;
-- completed and remaining work;
-- exact unblock criteria and owner;
-- what changed since readiness;
-- whether readiness could have detected it; and
-- prevention or follow-up learning, including when no preventable admission failure occurred.
+- Waiting for: the dependency, decision, resource, or obstruction and its impact;
+- Evidence: the decisive observation or linked task;
+- Unblock owner: the person or role that can resolve it;
+- Resume when: the exact observable condition; and
+- Progress: completed and remaining work, plus what changed since readiness when work had started.
 
-When resolved, update scope if needed and move **Blocked → Ready** for a fresh execution pass.
+Keep task dependencies in the native dependency field. Add a short current waiting summary to implementation notes and an append-only comment when the obstruction changes. For an execution surprise, also state whether readiness could have detected it and the prevention or follow-up learning.
+
+When resolved, reapply the full readiness gate. Move **Blocked → Ready** only when it passes, or **Blocked → Backlog** when scope needs definition. If the obstruction interrupted Review and its reviewed surface and evidence remain valid, an authorized actor may restore **Blocked → Review**; otherwise return through readiness and rework.
 
 ## Reviewer handoff
 
@@ -79,4 +81,4 @@ Structural findings block when the change introduces or materially worsens confl
 
 Unrelated pre-existing structural debt remains outside the task unless the owner expands scope. Improvements outside the accepted boundary become follow-up work only when authorized.
 
-The reviewer reports actionable findings first, then verification, uncertainty, and decision. Review is read-only unless the user separately grants status or acceptance authority. With status authority, a blocking finding returns **Review → Ready** with a comment; otherwise the reviewer reports it for an authorized actor. The next execution pass uses **Ready → In Progress**. If integration adds a material author-owned delta, review that delta and the resulting integrated state independently. An authorized acceptance then moves **Review → Done**.
+The reviewer reports actionable findings first, then verification, uncertainty, and decision. Review is read-only unless the user separately grants status or acceptance authority. With status authority, a blocking finding returns **Review → Ready** with a comment; otherwise the reviewer reports it for an authorized actor. The next execution pass uses **Ready → In Progress**. If integration adds a material author-owned delta, review that delta and the resulting integrated state independently. Keep the task in Review while review or required integration is pending. An authorized acceptance moves **Review → Done** only after required integration checks pass. If corrections cannot start because of a named external obstacle, use Blocked with its unblock record instead of Ready.

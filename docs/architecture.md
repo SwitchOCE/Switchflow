@@ -7,7 +7,7 @@ Switchflow is a small policy kernel with adapters, not a collection of overlappi
 Any change to the structure must keep these true:
 
 - Backlog.md remains the source of truth for active work and durable project knowledge.
-- Work follows **Backlog → Ready → In Progress → Review → Done**, with **Blocked** as a non-terminal execution state.
+- Work follows **Backlog → Ready → In Progress → Review → Done**, with **Blocked** for prepared work waiting on a named prerequisite before or after execution.
 - Readiness requires useful progress, observable acceptance, completed dependencies, provisioned evidence and authority, a stable baseline, and a bounded review surface.
 - Quality uses one active target, independent VAPS axes, highest material risk, and explicit authority for protected external actions.
 - Workers stop at Review. Independent reviewers or designated orchestrators accept work. Protected Git and live-system actions need separate authority.

@@ -21,7 +21,7 @@ If the contract proves wrong or incomplete during planning, stop and return to `
 
 Group tasks into phases. A phase ends at a gate the orchestrator can verify alone: the full repository suite passes on the integrated branch, or an equivalent objective condition. State that condition explicitly for each phase.
 
-Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
+Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Add the `coordination` label to the parent. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
 
 Group each phase's tasks for dispatch in that plan. You read across the repository and wrote every context map. The orchestrator uses those maps and targeted detail for execution decisions, but does not repeat the planning pass or widen groups; an ungrouped phase is delivered one task at a time.
 
@@ -45,7 +45,7 @@ The milestone closes with a Human-assigned acceptance test built from the contra
 
 ## Shape tasks
 
-Apply the task contract's execution-unit rules and the full readiness gate in `doc-07`. Readiness is this skill's exit condition, not a separate later pass. Do not weaken or restate the gate.
+Apply the task contract's execution-unit rules and the full readiness gate in `doc-07`. Classification is this skill's exit condition: Backlog for missing definition, Blocked for prepared work waiting on named prerequisites, and Ready only when the full gate passes. Record an unblock owner and condition for every Blocked task. Do not weaken or restate the gate.
 
 Split when independent delivery produces a useful result or a safer review boundary. Combine when separation adds coordination without an intermediate result. Remove speculative work.
 
@@ -67,6 +67,8 @@ The map is exempt from the description word limit. It is advisory, so a worker t
 Set the risk class from `backlog/docs/doc-04 - Engineering-standards.md`. It selects both the verification depth and the capability the worker needs.
 
 ## Finish
+
+Separate coordination parents from executable tasks in the report. Show worker counts by status, each Blocked task's waiting reason and unblock owner, and the Ready queue. Do not hide prepared dependency waiting in Backlog.
 
 Re-read every changed task, run `.\.switchflow\scripts\backlog.ps1 doctor`, and report the phases, their gate conditions, each material mutation and its reason, and any assumption a worker will depend on.
 

@@ -14,7 +14,7 @@ Every milestone closes with one of these. `plan-milestone` builds the closing ac
 1. Read `AGENTS.md`, `backlog/docs/doc-07 - Task-contract.md`, related tasks and comments, and the minimum relevant documentation. For a closing acceptance test, read the milestone's UAT definition and use its wording. Search for the same result before creating a task.
 2. Define one human-owned result. Keep agent work and work for different people in separate tasks. Confirm required access, equipment, inputs, and dependencies.
 3. Write a direct title and use the description shape below. Give numbered actions in execution order and, when applicable, observable acceptance criteria.
-4. Set the assignee to exactly `Human`. Use **Ready** unless the person cannot start now; otherwise use **Backlog** and record the dependencies.
+4. Set the assignee to exactly `Human`. Apply the task contract: Ready when the person can start, Blocked when prepared instructions wait on a named prerequisite, and Backlog when scope or acceptance needs definition. Record dependencies and every blocker's unblock owner and condition.
 5. Create or update the task through `.switchflow/scripts/backlog.ps1`. When editing, resolve open {{OWNER_NAME}} comments before relying on the existing scope.
 6. Re-read it with `task view --json`, verify every field, then run `.\.switchflow\scripts\backlog.ps1 doctor`.
 

@@ -34,7 +34,13 @@ A task is Ready only when all of these are true:
 9. **Stable execution baseline:** Required gates pass from the intended branch or worktree, or every pre-existing failure has a verified cause and explicit owner. Shared setup failures become foundation work rather than repeated worker discoveries.
 10. **Reviewable delivery:** The task can produce a bounded branch or sequential commit whose evidence can be reviewed independently. It is not a coordination parent presented as a worker assignment. One reviewer is normal; Critical work requires the relevant expertise.
 
-Readiness does not authorize implementation. A passing Backlog worker task moves to **Ready** without a second approval. A passing Ready task stays Ready. A Ready task that fails any part of the full readiness gate before execution returns to Backlog with the failed condition, evidence, remaining scope, and next readiness condition recorded. A readiness-only pass never regresses **In Progress**, **Review**, **Blocked**, or **Done**.
+Readiness does not authorize implementation. Classify unstarted worker tasks after planning and whenever a known prerequisite changes:
+
+- **Backlog:** the outcome, boundaries, acceptance criteria, or material scope decisions still need definition.
+- **Blocked:** the task has a clear outcome, bounded scope, and observable acceptance criteria, but a named dependency, decision, resource, authority, or baseline obstruction prevents execution. Record the obstacle, evidence, unblock owner, and exact resumption condition using `doc-08`. An unspecified readiness failure is not enough to call work prepared.
+- **Ready:** every readiness condition passes; waiting for dispatch or execution authorization alone does not make it Blocked.
+
+A passing Backlog or Blocked worker task moves to **Ready** without a second approval. A Ready task that loses an executable prerequisite moves to **Blocked**; if its scope or acceptance becomes undefined, move it to **Backlog** and record the missing definition. Resolving a blocker requires the full readiness gate again, not just a dependency check. A readiness-only pass never regresses **In Progress**, **Review**, or **Done**; it may reassess Blocked work without authorizing execution.
 
 ## Execution-unit design
 
@@ -42,7 +48,7 @@ One executable task produces one clear, useful result. A task may cross layers w
 
 Split when separate outcomes, foundations and UI, migrations and later behavior, lifecycle stages, dependencies, ownership, edit collisions, material risks, or review boundaries make independent delivery more effective. Use expand–migrate–contract only for a real compatibility requirement. Combine tasks when separation adds coordination without a useful intermediate result.
 
-A coordination parent uses a `Deliver ...` title, states that it is not a worker assignment, depends on its terminal child set, and closes only after child and integrated evidence pass. Workers execute child tasks. For fan-out, every slice needs a deliverable, owned files, stable interface, integration order, and reviewable stop condition.
+A coordination parent carries the `coordination` label, uses a `Deliver ...` title, states that it is not a worker assignment, depends on its terminal child set, and closes only after child and integrated evidence pass. Workers execute child tasks. For fan-out, every slice needs a deliverable, owned files, stable interface, integration order, and reviewable stop condition.
 
 ## Task structure
 
@@ -101,7 +107,7 @@ Treat open owner input as current. Reflect an issue or amendment in task fields 
 
 Resolve discoverable facts from project evidence. Ask only when the answer is user-owned, cannot be found safely, and changes goal, scope, workflow, compatibility, data contract, acceptance, or safety—or substantially narrows open-ended work.
 
-When a material answer is required, comment with the exact question, why it cannot be inferred, its impact, evidence, and a reasonable recommendation. Apply `needs-decision`, keep the task in Backlog, and never substitute **Blocked**. Ask independent user-owned decisions together. Record returned answers and resulting decisions in the task.
+When a material answer is required, comment with the exact question, why it cannot be inferred, its impact, evidence, and a reasonable recommendation. Apply `needs-decision`. Keep missing scope definition in Backlog; classify otherwise prepared work waiting for a specific decision as Blocked, with its unblock owner and condition. Ask independent user-owned decisions together. Record returned answers and resulting decisions in the task.
 
 ### External stakeholders
 
@@ -117,7 +123,7 @@ Remove `needs-decision` only when all material decisions are resolved. Amend the
 
 ## Human tasks
 
-Use `create-human-task` when completion requires human access, judgement, physical observation, or coordination. Create one human-owned result, separate it from agent work and work for other people, assign exactly `Human`, provide concise numbered actions, state prerequisites and report-back evidence, and use one to three observable criteria. Use **Ready** only when the person can start; otherwise keep it in **Backlog** with dependencies recorded. Never request secrets or sensitive values.
+Use `create-human-task` when completion requires human access, judgement, physical observation, or coordination. Create one human-owned result, separate it from agent work and work for other people, assign exactly `Human`, provide concise numbered actions, state prerequisites and report-back evidence, and use one to three observable criteria. Use **Ready** only when the person can start. Use **Blocked** for prepared instructions waiting on dependencies, access, or another named prerequisite; use **Backlog** when the instructions or acceptance still need definition. Record dependencies and the unblock owner and condition. Never request secrets or sensitive values.
 
 ## Safe task mutations
 

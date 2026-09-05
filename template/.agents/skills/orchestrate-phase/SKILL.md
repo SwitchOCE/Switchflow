@@ -15,6 +15,12 @@ Read the milestone record, the phase parent task and its prior phase records, an
 
 Avoid broad repository reads and worker reasoning. Read additional task detail when needed to judge a checkpoint, resolve a blocker or understand a contested verdict. Read only the affected diff and file sections when resolving a merge conflict or making a correction within the direct-implementation bound below. Independent review remains required; these reads do not make the orchestrator its own reviewer.
 
+## Keep status current
+
+At phase start, classify its unstarted worker tasks under `doc-07` and mark the coordination parent In Progress. At handoff, verify the worker is in Review before requesting independent review. Keep it there through required integration and validation, then accept it as Done. After dependency completion or blocker resolution, re-read affected direct dependants and owner comments and reapply the full readiness gate. Ready means executable, including work awaiting authorization; Blocked means prepared but waiting on a named obstacle. Record the waiting reason, evidence, unblock owner, and resumption condition. Do not dispatch a newly Ready task outside the authorized phase.
+
+Use `backlog.ps1 flow` at phase opening and closing to report worker queues separately from coordination parents and show recently updated records. Do not infer readiness from this snapshot alone.
+
 ## Dispatch
 
 Dispatch the groups the phase plan defines. The planner set them with repository-wide knowledge; targeted orchestration reads are not a reason to re-derive the grouping.
@@ -22,6 +28,8 @@ Dispatch the groups the phase plan defines. The planner set them with repository
 Collapse a group to sequential when phase evidence contradicts the plan — an unexpected shared file, an interface that proved unstable — and record why. Do not widen one: that needs a planning pass across all affected tasks. Record the opportunity in the phase record so the next planning pass can act on it.
 
 Give each worker one task, the context it needs, and a non-overlapping surface. Use `deliver-task`. Choose worker capability from the task's risk class: Documentation-only and Standard take a smaller model, Elevated and Critical take a frontier model.
+
+Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
 
 Resolve shared setup once, and run the preflight from the accepted dispatch checkout against each worktree before dispatching into it. It checks governance metadata against that checkout, then confirms the pinned Backlog CLI resolves and the task is readable. Matching metadata is not proof of identical files: create worktrees from the accepted project commit.
 
@@ -56,6 +64,8 @@ Product decisions, scope changes beyond the frozen contract, secrets, live exter
 Obtain independent review of each task through `review-task`. Integrate accepted work in dependency order and validate the integrated state. When integration or conflict resolution materially changes the reviewed surface, obtain independent review of that delta before acceptance.
 
 Verify the phase gate condition. Run the full repository suite once here, on the integrated branch, rather than once per task: cross-task interference is only observable after integration.
+
+Mark the parent Review when implementation is complete and the integrated phase gate awaits acceptance. After independent acceptance and the phase gate pass, mark it Done. Refresh affected dependants before the final snapshot.
 
 Then close the phase:
 

@@ -7,7 +7,12 @@ $isMilestoneList = $args.Count -ge 2 -and $args[0] -in @('milestone', 'milestone
 
 Push-Location -LiteralPath $projectRoot
 try {
-    if ($isMilestoneList) {
+    if ($args.Count -ge 1 -and $args[0] -eq 'flow') {
+        $flowArgs = @($args | Select-Object -Skip 1)
+        & node (Join-Path $PSScriptRoot 'flow.mjs') $cliPath $projectRoot @flowArgs
+        $cliExitCode = $LASTEXITCODE
+    }
+    elseif ($isMilestoneList) {
         & node (Join-Path $PSScriptRoot 'check-milestone-progress.mjs') $cliPath $projectRoot @args
         $cliExitCode = $LASTEXITCODE
     }

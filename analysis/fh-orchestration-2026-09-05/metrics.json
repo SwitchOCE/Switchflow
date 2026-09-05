@@ -1,0 +1,758 @@
+{
+  "01a0700d-eef1-78b0-949c-b573deae12f2": {
+    "title": "Orchestrate advanced foundations",
+    "records": [
+      {
+        "id": "01a0700d-eef1-78b0-949c-b573deae12f2",
+        "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-32-36-01a0700d-eef1-78b0-949c-b573deae12f2.jsonl",
+        "agent": "/root",
+        "parent": null,
+        "forked": false,
+        "models": {
+          "gpt-6-astra/high": 1
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 9684296,
+          "cached_input_tokens": 9476096,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 14348,
+          "reasoning_output_tokens": 4103,
+          "total_tokens": 9698644,
+          "uncached_input_tokens": 208200
+        },
+        "responses": 126,
+        "first_input": 32394,
+        "max_input": 97303,
+        "last_input": 97303,
+        "calls": {
+          "exec": 57,
+          "spawn_agent": 2,
+          "send_message": 11,
+          "wait_agent": 52,
+          "list_agents": 1,
+          "followup_task": 2
+        },
+        "compactions": 0,
+        "commands_count": 48,
+        "doc_reads": {
+          "doc-03": 1,
+          "doc-08": 1,
+          "doc-02": 1,
+          "doc-07": 1,
+          "doc-04": 1
+        },
+        "task_reads": {
+          "FH-30": 4,
+          "FH-30.01": 7,
+          "FH-30.02": 1,
+          "FH-30.03": 1,
+          "FH-30.04": 1
+        },
+        "turns": [
+          {
+            "turn_id": "01a0700e-1c6a-7572-b395-27ac9ed12738",
+            "last_agent_message": "Stopped after **Define card template contract**: independently accepted, marked Done, and integrated into local `main`.\n\nAll five criteria and integrated documentation checks pass. The remaining three tasks are unstarted. Changes are committed, not pushed.",
+            "started_at": 1788586368,
+            "completed_at": 1788590363,
+            "duration_ms": 3994256
+          }
+        ],
+        "empty_waits": {
+          "count": 42,
+          "source_lines": [
+            161,
+            184,
+            196,
+            205,
+            236,
+            254,
+            298,
+            327,
+            358,
+            365,
+            388,
+            402,
+            440,
+            449,
+            456,
+            486,
+            534,
+            541,
+            548,
+            557,
+            564,
+            571,
+            580,
+            592,
+            599,
+            608,
+            615,
+            622,
+            629,
+            645,
+            652,
+            659,
+            673,
+            680,
+            687,
+            714,
+            728,
+            740,
+            749,
+            773,
+            780,
+            818
+          ],
+          "issuing_response_usage": {
+            "input_tokens": 3476816,
+            "cached_input_tokens": 3455744,
+            "output_tokens": 3592
+          }
+        }
+      },
+      {
+        "id": "01a07010-f702-74c3-b965-28b0c3eedcc2",
+        "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-35-55-01a07010-f702-74c3-b965-28b0c3eedcc2.jsonl",
+        "agent": "/root/contract",
+        "parent": "01a0700d-eef1-78b0-949c-b573deae12f2",
+        "forked": false,
+        "models": {
+          "gpt-5.6-sol/high": 3
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 17594126,
+          "cached_input_tokens": 17136000,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 100278,
+          "reasoning_output_tokens": 28391,
+          "total_tokens": 17694404,
+          "uncached_input_tokens": 458126
+        },
+        "responses": 139,
+        "first_input": 35844,
+        "max_input": 212116,
+        "last_input": 73019,
+        "calls": {
+          "exec": 129,
+          "send_message": 6,
+          "wait_agent": 1
+        },
+        "compactions": 1,
+        "commands_count": 138,
+        "doc_reads": {
+          "doc-08": 1,
+          "doc-04": 1,
+          "doc-12": 4,
+          "doc-05": 1,
+          "doc-13": 3,
+          "doc-11": 3,
+          "doc-21": 6
+        },
+        "task_reads": {
+          "FH-30.01": 5
+        },
+        "turns": [
+          {
+            "turn_id": "01a07010-f7f8-7720-9367-56cb858249bb",
+            "last_agent_message": "task: FH-30.01\nbranch: codex/FH-30.01\nhead: cd18fdd956cbb418d5a055eb16d7a71bd3e8aa74\ncriteria: 5/5 checked\nblocking: none",
+            "started_at": 1788586555,
+            "completed_at": 1788587814,
+            "duration_ms": 1258164
+          },
+          {
+            "turn_id": "01a0702a-5217-7a23-b39d-4e6da733ccef",
+            "last_agent_message": "task FH-30.01\nbranch codex/FH-30.01\nhead 0df6ed5957c7496d399072653d8d4837ba618616\ncriteria 5/5 checked\nblocking none",
+            "started_at": 1788588216,
+            "completed_at": 1788590071,
+            "duration_ms": 1854930
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "id": "01a07024-58f4-7902-a8c3-3398e99c2af6",
+        "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-57-05-01a07024-58f4-7902-a8c3-3398e99c2af6.jsonl",
+        "agent": "/root/contract_review",
+        "parent": "01a0700d-eef1-78b0-949c-b573deae12f2",
+        "forked": false,
+        "models": {
+          "gpt-5.6-sol/high": 2
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 3224662,
+          "cached_input_tokens": 3105664,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 16635,
+          "reasoning_output_tokens": 10015,
+          "total_tokens": 3241297,
+          "uncached_input_tokens": 118998
+        },
+        "responses": 35,
+        "first_input": 35830,
+        "max_input": 150045,
+        "last_input": 150045,
+        "calls": {
+          "exec": 32,
+          "send_message": 1
+        },
+        "compactions": 0,
+        "commands_count": 66,
+        "doc_reads": {
+          "doc-07": 1,
+          "doc-04": 2,
+          "doc-12": 3,
+          "doc-13": 2,
+          "doc-11": 2,
+          "doc-08": 1,
+          "doc-21": 3,
+          "doc-22": 1,
+          "doc-23": 1,
+          "doc-24": 1
+        },
+        "task_reads": {
+          "FH-30.01": 4,
+          "FH-30": 1
+        },
+        "turns": [
+          {
+            "turn_id": "01a07024-59f1-74f1-bcd3-42d285911013",
+            "last_agent_message": "task: FH-30.01\nverdict: block\nfindings: 3 blocking, 0 follow-up\nblast-radius: Elevated \u2014 durable persistence, hash, renderer, and export contracts\nnext: complete concrete v2 schemas/examples and re-review",
+            "started_at": 1788587825,
+            "completed_at": 1788588161,
+            "duration_ms": 335823
+          },
+          {
+            "turn_id": "01a07046-c5ad-7d11-abe2-1e96ed3515dc",
+            "last_agent_message": "task: FH-30.01\nverdict: accept\nfindings: 0 blocking, 0 follow-up\nblast-radius: Elevated \u2014 durable persistence, hash, renderer, and export contracts\nnext: integrate",
+            "started_at": 1788590081,
+            "completed_at": 1788590238,
+            "duration_ms": 156507
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      }
+    ]
+  },
+  "01a06f88-2017-7f32-a830-18f516a4ad42": {
+    "title": "Orchestrate designer release",
+    "records": [
+      {
+        "id": "01a06f88-2017-7f32-a830-18f516a4ad42",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-06-27-01a06f88-2017-7f32-a830-18f516a4ad42.jsonl",
+        "agent": "/root",
+        "parent": null,
+        "forked": false,
+        "models": {
+          "gpt-6-astra/medium": 2
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 7322671,
+          "cached_input_tokens": 7217024,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 11857,
+          "reasoning_output_tokens": 1102,
+          "total_tokens": 7334528,
+          "uncached_input_tokens": 105647
+        },
+        "responses": 106,
+        "first_input": 33916,
+        "max_input": 86809,
+        "last_input": 86809,
+        "calls": {
+          "exec": 39,
+          "spawn_agent": 3,
+          "wait_agent": 45,
+          "send_message": 13,
+          "followup_task": 4
+        },
+        "compactions": 0,
+        "commands_count": 34,
+        "doc_reads": {
+          "doc-03": 1,
+          "doc-08": 1,
+          "doc-02": 1
+        },
+        "task_reads": {
+          "FH-87": 2,
+          "FH-85": 1,
+          "FH-86": 1,
+          "FH-87.01": 8,
+          "FH-87.02": 2,
+          "FH-87.03": 4,
+          "FH-88": 1
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f88-4d58-7d90-a542-d4936739b1ee",
+            "last_agent_message": "The v0.1.0 installer is built and independently accepted. Fixed a missing credential launcher; 534 tests and six packaged smoke checks pass.\n\nApprove publishing the [reviewed assets](<C:/Users/keech/Documents/FH Dev Tooling/backlog/tasks/fh-87.02 - Approve-release-publication.md>) to the private repository, marking v0.1.0 latest, and updating the README download link?\n\nThe [orchestrate-phase skill](<C:/Users/keech/Documents/FH Dev Tooling/.agents/skills/orchestrate-phase/SKILL.md>) requires live external actions to be \u201cseparately authorised.\u201d Your existing approval covers building the installer; publication is the remaining decision.",
+            "started_at": 1788577598,
+            "completed_at": 1788579149,
+            "duration_ms": 1550773
+          },
+          {
+            "turn_id": "01a06fba-59a2-79d3-a01b-83098dedeec2",
+            "last_agent_message": "Published [v0.1.0](https://github.com/SwitchOCE/FH-Dev-Tooling/releases/tag/v0.1.0) as the latest private release and updated the README download link.\n\nDownload hash verified; independent review passed. Designer release phase is closed. Teammate installation testing remains separate.",
+            "started_at": 1788580878,
+            "completed_at": 1788582383,
+            "duration_ms": 1504922
+          }
+        ],
+        "empty_waits": {
+          "count": 30,
+          "source_lines": [
+            75,
+            103,
+            141,
+            166,
+            183,
+            190,
+            244,
+            253,
+            301,
+            308,
+            335,
+            349,
+            354,
+            385,
+            463,
+            470,
+            498,
+            503,
+            515,
+            522,
+            545,
+            550,
+            557,
+            564,
+            571,
+            592,
+            599,
+            604,
+            611,
+            618
+          ],
+          "issuing_response_usage": {
+            "input_tokens": 2176443,
+            "cached_input_tokens": 2166400,
+            "output_tokens": 1202
+          }
+        }
+      },
+      {
+        "id": "01a06f89-6db0-7673-98fd-59b24cf81554",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-07-52-01a06f89-6db0-7673-98fd-59b24cf81554.jsonl",
+        "agent": "/root/build_installer",
+        "parent": "01a06f88-2017-7f32-a830-18f516a4ad42",
+        "forked": true,
+        "models": {
+          "gpt-5.6-sol/medium": 2
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 7201705,
+          "cached_input_tokens": 7049344,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 20339,
+          "reasoning_output_tokens": 7846,
+          "total_tokens": 7222044,
+          "uncached_input_tokens": 152361
+        },
+        "responses": 75,
+        "first_input": 37645,
+        "max_input": 145570,
+        "last_input": 145570,
+        "calls": {
+          "exec": 64,
+          "send_message": 5,
+          "wait": 4
+        },
+        "compactions": 0,
+        "commands_count": 93,
+        "doc_reads": {
+          "doc-04": 2,
+          "doc-07": 2,
+          "doc-08": 2,
+          "doc-03": 2,
+          "doc-18": 2
+        },
+        "task_reads": {
+          "FH-87.01": 9
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f89-6f11-74b2-adc6-a0b328a73d50",
+            "last_agent_message": "task: FH-87.01\nbranch: main\nhead: 445a11746ab51e168183c4109fcd0bcb251d4080\ncriteria: 2/2 checked\nblocking: none",
+            "started_at": 1788577672,
+            "completed_at": 1788578260,
+            "duration_ms": 587078
+          },
+          {
+            "turn_id": "01a06f96-9295-7082-94a3-e1aa013decbb",
+            "last_agent_message": "task: FH-87.01\nbranch: main\nhead: 1c62554ddf1bdfded4d4e5352626a824ff0df987\ncriteria: 2/2 checked\nblocking: none",
+            "started_at": 1788578534,
+            "completed_at": 1788578983,
+            "duration_ms": 449671
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "id": "01a06f92-8c89-7e32-b685-34d39a3219e7",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-17-50-01a06f92-8c89-7e32-b685-34d39a3219e7.jsonl",
+        "agent": "/root/review_installer",
+        "parent": "01a06f88-2017-7f32-a830-18f516a4ad42",
+        "forked": true,
+        "models": {
+          "gpt-5.6-sol/medium": 3
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 2384520,
+          "cached_input_tokens": 2289920,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 14767,
+          "reasoning_output_tokens": 4634,
+          "total_tokens": 2399287,
+          "uncached_input_tokens": 94600
+        },
+        "responses": 30,
+        "first_input": 37647,
+        "max_input": 121809,
+        "last_input": 121809,
+        "calls": {
+          "exec": 27
+        },
+        "compactions": 0,
+        "commands_count": 80,
+        "doc_reads": {
+          "doc-07": 2,
+          "doc-18": 4,
+          "doc-08": 2,
+          "doc-04": 3,
+          "doc-02": 2
+        },
+        "task_reads": {
+          "FH-87.01": 4,
+          "FH-87": 1,
+          "FH-87.03": 3
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f92-8de0-7250-b07e-f3f03e9539d4",
+            "last_agent_message": "task: FH-87.01\nverdict: block\nfindings: 1 blocking, 0 follow-up\nblast-radius: Elevated \u2014 installer payload differs from smoke-tested package\nnext: include credential launcher in Squirrel payload and rebuild",
+            "started_at": 1788578270,
+            "completed_at": 1788578490,
+            "duration_ms": 220194
+          },
+          {
+            "turn_id": "01a06f9d-7723-7582-b902-18fcda6decb3",
+            "last_agent_message": "task: FH-87.01\nverdict: accept\nfindings: 0 blocking, 0 follow-up\nblast-radius: Elevated \u2014 installer payload boundary verified\nnext: integrate",
+            "started_at": 1788578985,
+            "completed_at": 1788579074,
+            "duration_ms": 88456
+          },
+          {
+            "turn_id": "01a06fce-3172-7782-a0a9-5fd916e0899c",
+            "last_agent_message": "task: FH-87.03\nverdict: accept\nfindings: 0 blocking, 0 follow-up\nblast-radius: Critical \u2014 live private release and access verified\nnext: integrate",
+            "started_at": 1788582179,
+            "completed_at": 1788582313,
+            "duration_ms": 134017
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "id": "01a06fbb-109a-7f22-8ce3-b0bebb9ebb7c",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T14-02-05-01a06fbb-109a-7f22-8ce3-b0bebb9ebb7c.jsonl",
+        "agent": "/root/publish_installer",
+        "parent": "01a06f88-2017-7f32-a830-18f516a4ad42",
+        "forked": true,
+        "models": {
+          "gpt-5.6-sol/medium": 2
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 7915953,
+          "cached_input_tokens": 7820160,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 23625,
+          "reasoning_output_tokens": 9123,
+          "total_tokens": 7939578,
+          "uncached_input_tokens": 95793
+        },
+        "responses": 92,
+        "first_input": 38505,
+        "max_input": 115399,
+        "last_input": 115399,
+        "calls": {
+          "exec": 77,
+          "send_message": 6,
+          "js": 2,
+          "wait": 5
+        },
+        "compactions": 0,
+        "commands_count": 116,
+        "doc_reads": {
+          "doc-03": 1,
+          "doc-05": 1,
+          "doc-18": 5,
+          "doc-08": 2,
+          "doc-04": 1,
+          "doc-07": 2
+        },
+        "task_reads": {
+          "FH-87.03": 3
+        },
+        "turns": [
+          {
+            "turn_id": "01a06fbb-11c6-7232-9511-147a766a7e3d",
+            "last_agent_message": "task: FH-87.03\nbranch: main\nhead: 20722af0ac7e5aacd58faa800bcc15b4ab7def84\ncriteria: 2/2 checked\nblocking: none",
+            "started_at": 1788580925,
+            "completed_at": 1788582168,
+            "duration_ms": 1242858
+          },
+          {
+            "turn_id": "01a06fce-80d3-7e92-b9b2-90b9a528f24e",
+            "last_agent_message": "task: FH-87.03\nbranch: main\nhead: 20722af0ac7e5aacd58faa800bcc15b4ab7def84\ncriteria: 2/2 checked\nblocking: none",
+            "started_at": 1788582199,
+            "completed_at": 1788582240,
+            "duration_ms": 40558
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      }
+    ]
+  },
+  "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5": {
+    "title": "Prepare designer phase",
+    "records": [
+      {
+        "id": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-20-40-01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5.jsonl",
+        "agent": "/root",
+        "parent": null,
+        "forked": false,
+        "models": {
+          "gpt-6-astra/medium": 1
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 2340586,
+          "cached_input_tokens": 2268416,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 4634,
+          "reasoning_output_tokens": 474,
+          "total_tokens": 2345220,
+          "uncached_input_tokens": 72170
+        },
+        "responses": 44,
+        "first_input": 32379,
+        "max_input": 64567,
+        "last_input": 64567,
+        "calls": {
+          "exec": 24,
+          "spawn_agent": 2,
+          "wait_agent": 12,
+          "send_message": 5
+        },
+        "compactions": 0,
+        "commands_count": 57,
+        "doc_reads": {
+          "doc-03": 1,
+          "doc-02": 1,
+          "doc-08": 1
+        },
+        "task_reads": {
+          "FH-85": 2,
+          "FH-85.01": 4
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f5e-b97e-7e01-8466-037fe3ce9e84",
+            "last_agent_message": "Designer Preparation is Done and pushed to `main` at `445a117`.\n\n- Designer instructions and release procedure completed.\n- Independent review accepted with no findings.\n- All 534 tests and required checks passed.\n\nNext: approve the recorded installer build proposal. No installer was built or published.",
+            "started_at": 1788574873,
+            "completed_at": 1788575770,
+            "duration_ms": 896869
+          }
+        ],
+        "empty_waits": {
+          "count": 7,
+          "source_lines": [
+            133,
+            142,
+            165,
+            179,
+            188,
+            248,
+            255
+          ],
+          "issuing_response_usage": {
+            "input_tokens": 385317,
+            "cached_input_tokens": 382080,
+            "output_tokens": 421
+          }
+        }
+      },
+      {
+        "id": "01a06f60-9ddc-7212-9fb5-76d92e368f75",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-23-18-01a06f60-9ddc-7212-9fb5-76d92e368f75.jsonl",
+        "agent": "/root/prepare_instructions",
+        "parent": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+        "forked": true,
+        "models": {
+          "gpt-5.6-sol/medium": 1
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 2990199,
+          "cached_input_tokens": 2894848,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 14999,
+          "reasoning_output_tokens": 5973,
+          "total_tokens": 3005198,
+          "uncached_input_tokens": 95351
+        },
+        "responses": 43,
+        "first_input": 36141,
+        "max_input": 88887,
+        "last_input": 88887,
+        "calls": {
+          "exec": 39,
+          "send_message": 3
+        },
+        "compactions": 0,
+        "commands_count": 75,
+        "doc_reads": {
+          "doc-18": 2,
+          "doc-03": 1,
+          "doc-05": 1,
+          "doc-04": 1,
+          "doc-07": 2,
+          "doc-08": 2
+        },
+        "task_reads": {
+          "FH-85.01": 3
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f60-9f4f-7110-b20d-7f9b53545b51",
+            "last_agent_message": "task: FH-85.01\nbranch: main\nhead: 5d9ef435c7e52cce0c9589b84f6960ac11336d05\ncriteria: 3/3 checked\nblocking: none",
+            "started_at": 1788574998,
+            "completed_at": 1788575472,
+            "duration_ms": 474056
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "id": "01a06f68-0d6b-7882-a5c2-7131a4e105b0",
+        "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-31-25-01a06f68-0d6b-7882-a5c2-7131a4e105b0.jsonl",
+        "agent": "/root/review_instructions",
+        "parent": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+        "forked": false,
+        "models": {
+          "gpt-5.6-sol/medium": 1
+        },
+        "method": "per-response records",
+        "usage": {
+          "input_tokens": 673851,
+          "cached_input_tokens": 615296,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 7445,
+          "reasoning_output_tokens": 3902,
+          "total_tokens": 681296,
+          "uncached_input_tokens": 58555
+        },
+        "responses": 12,
+        "first_input": 35850,
+        "max_input": 78823,
+        "last_input": 78823,
+        "calls": {
+          "exec": 10,
+          "send_message": 1
+        },
+        "compactions": 0,
+        "commands_count": 35,
+        "doc_reads": {
+          "doc-04": 2,
+          "doc-08": 3,
+          "doc-07": 2,
+          "doc-18": 3
+        },
+        "task_reads": {
+          "FH-85.01": 2
+        },
+        "turns": [
+          {
+            "turn_id": "01a06f68-0e5a-7152-ac2f-6301be055ed7",
+            "last_agent_message": "task: FH-85.01\nverdict: accept\nfindings: 0 blocking, 0 follow-up\nblast-radius: Elevated\nnext: integrate",
+            "started_at": 1788575485,
+            "completed_at": 1788575674,
+            "duration_ms": 189057
+          }
+        ],
+        "empty_waits": {
+          "count": 0,
+          "source_lines": [],
+          "issuing_response_usage": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      }
+    ]
+  }
+}

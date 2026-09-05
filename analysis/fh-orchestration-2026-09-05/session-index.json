@@ -1,0 +1,90 @@
+{
+  "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-20-40-01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5.jsonl",
+    "meta": {
+      "id": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+      "timestamp": "2026-09-05T02:20:40.431Z"
+    }
+  },
+  "01a06f60-9ddc-7212-9fb5-76d92e368f75": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-23-18-01a06f60-9ddc-7212-9fb5-76d92e368f75.jsonl",
+    "meta": {
+      "id": "01a06f60-9ddc-7212-9fb5-76d92e368f75",
+      "parent_thread_id": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+      "timestamp": "2026-09-05T02:23:18.112Z",
+      "agent_path": "/root/prepare_instructions",
+      "forked_from_id": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5"
+    }
+  },
+  "01a06f68-0d6b-7882-a5c2-7131a4e105b0": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T12-31-25-01a06f68-0d6b-7882-a5c2-7131a4e105b0.jsonl",
+    "meta": {
+      "id": "01a06f68-0d6b-7882-a5c2-7131a4e105b0",
+      "parent_thread_id": "01a06f5e-35f8-7241-ba84-d3ab2c4b9bf5",
+      "timestamp": "2026-09-05T02:31:25.422Z",
+      "agent_path": "/root/review_instructions"
+    }
+  },
+  "01a06f88-2017-7f32-a830-18f516a4ad42": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-06-27-01a06f88-2017-7f32-a830-18f516a4ad42.jsonl",
+    "meta": {
+      "id": "01a06f88-2017-7f32-a830-18f516a4ad42",
+      "timestamp": "2026-09-05T03:06:27.352Z"
+    }
+  },
+  "01a06f89-6db0-7673-98fd-59b24cf81554": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-07-52-01a06f89-6db0-7673-98fd-59b24cf81554.jsonl",
+    "meta": {
+      "id": "01a06f89-6db0-7673-98fd-59b24cf81554",
+      "parent_thread_id": "01a06f88-2017-7f32-a830-18f516a4ad42",
+      "timestamp": "2026-09-05T03:07:52.752Z",
+      "agent_path": "/root/build_installer",
+      "forked_from_id": "01a06f88-2017-7f32-a830-18f516a4ad42"
+    }
+  },
+  "01a06f92-8c89-7e32-b685-34d39a3219e7": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T13-17-50-01a06f92-8c89-7e32-b685-34d39a3219e7.jsonl",
+    "meta": {
+      "id": "01a06f92-8c89-7e32-b685-34d39a3219e7",
+      "parent_thread_id": "01a06f88-2017-7f32-a830-18f516a4ad42",
+      "timestamp": "2026-09-05T03:17:50.469Z",
+      "agent_path": "/root/review_installer",
+      "forked_from_id": "01a06f88-2017-7f32-a830-18f516a4ad42"
+    }
+  },
+  "01a06fbb-109a-7f22-8ce3-b0bebb9ebb7c": {
+    "path": "C:\\Users\\keech\\.codex\\archived_sessions\\rollout-2026-09-05T14-02-05-01a06fbb-109a-7f22-8ce3-b0bebb9ebb7c.jsonl",
+    "meta": {
+      "id": "01a06fbb-109a-7f22-8ce3-b0bebb9ebb7c",
+      "parent_thread_id": "01a06f88-2017-7f32-a830-18f516a4ad42",
+      "timestamp": "2026-09-05T04:02:05.720Z",
+      "agent_path": "/root/publish_installer",
+      "forked_from_id": "01a06f88-2017-7f32-a830-18f516a4ad42"
+    }
+  },
+  "01a0700d-eef1-78b0-949c-b573deae12f2": {
+    "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-32-36-01a0700d-eef1-78b0-949c-b573deae12f2.jsonl",
+    "meta": {
+      "id": "01a0700d-eef1-78b0-949c-b573deae12f2",
+      "timestamp": "2026-09-05T05:32:36.591Z"
+    }
+  },
+  "01a07010-f702-74c3-b965-28b0c3eedcc2": {
+    "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-35-55-01a07010-f702-74c3-b965-28b0c3eedcc2.jsonl",
+    "meta": {
+      "id": "01a07010-f702-74c3-b965-28b0c3eedcc2",
+      "parent_thread_id": "01a0700d-eef1-78b0-949c-b573deae12f2",
+      "timestamp": "2026-09-05T05:35:55.263Z",
+      "agent_path": "/root/contract"
+    }
+  },
+  "01a07024-58f4-7902-a8c3-3398e99c2af6": {
+    "path": "C:\\Users\\keech\\.codex\\sessions\\2026\\09\\05\\rollout-2026-09-05T15-57-05-01a07024-58f4-7902-a8c3-3398e99c2af6.jsonl",
+    "meta": {
+      "id": "01a07024-58f4-7902-a8c3-3398e99c2af6",
+      "parent_thread_id": "01a0700d-eef1-78b0-949c-b573deae12f2",
+      "timestamp": "2026-09-05T05:57:05.531Z",
+      "agent_path": "/root/contract_review"
+    }
+  }
+}

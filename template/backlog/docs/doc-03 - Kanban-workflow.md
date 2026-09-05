@@ -14,11 +14,13 @@ This document owns roles, statuses, labels, and legal transitions. The [task con
 Run the local board with:
 
 ```powershell
-npm --prefix .switchflow ci --ignore-scripts
+npm --prefix .switchflow ci --ignore-scripts # initial setup only, while this installation is not serving the board
 .\.switchflow\scripts\backlog.ps1 browser
 ```
 
 The server listens on <http://127.0.0.1:6420>. Agents use `.switchflow/scripts/backlog.ps1` instead of editing task frontmatter. The wrapper reuses a matching pinned Backlog.md installation from the primary checkout when possible, so isolated worktrees do not need a full install for board access.
+
+Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
 
 `milestone list` reports active and completed records. Completed records remain outside the active board and count once by task ID.
 
@@ -40,14 +42,14 @@ One narrow exception to branch deletion stands: the orchestrator may run `.switc
 
 | Status | Meaning | Transition owner |
 | --- | --- | --- |
-| **Backlog** | Planned work not approved or not yet executable. | Project owner or authorized reviewer controls approval; Codex may clarify it. |
-| **Ready** | The task passes the full readiness gate in the task contract. | Project owner, authorized reviewer, or Codex after readiness review or explicit execution instruction. |
-| **In Progress** | Codex is actively executing the task. | Codex under execution authority. |
-| **Review** | Implementation, documentation, and required verification are complete. | Codex after reviewer handoff. |
-| **Blocked** | Execution cannot reach acceptance with current decisions, authority, resources, or evidence after safe alternatives are exhausted. | Codex or orchestrator records and later clears the obstruction. |
-| **Done** | The result passed independent acceptance review. | Authorized reviewer or the designated phase orchestrator. |
+| **Backlog** | Work whose outcome, scope, acceptance, or material scope decisions still need definition. | Project owner or authorized reviewer controls approval; Codex may clarify it. |
+| **Ready** | Prepared and executable; passes the full readiness gate and awaits dispatch or execution authorization. | Project owner, authorized reviewer, or Codex after readiness review or explicit execution instruction. |
+| **In Progress** | The assigned agent or human is actively executing the task. | Codex under execution authority. |
+| **Review** | Implementation, documentation, verification, and handoff are complete; awaiting independent review or required integration. | Codex after reviewer handoff. |
+| **Blocked** | Prepared work cannot proceed because of a named dependency, decision, resource, or obstruction, before or after execution starts. | Codex or orchestrator records and later clears the obstruction. |
+| **Done** | The result passed independent acceptance review and required integration checks. | Authorized reviewer or the designated phase orchestrator. |
 
-Tasks move **Backlog → Ready → In Progress → Review → Done**. **Blocked** is non-terminal and enters only from execution. Resolution moves **Blocked → Ready** for a fresh pass. A blocking review finding moves **Review → Ready**, followed by **Ready → In Progress** for rework.
+Tasks normally move **Backlog → Ready → In Progress → Review → Done**. Prepared work may enter **Blocked** from Backlog, Ready, In Progress, or Review. Resolution requires reassessment: return to Ready when the full gate passes, or Backlog when scope needs definition. A task blocked during Review may return to Review only when its reviewed surface and evidence remain valid. Actionable review corrections return **Review → Ready → In Progress**; an external obstacle uses Blocked instead. Keep work in Review until acceptance and required integration checks finish.
 
 Readiness does not authorize implementation. A request such as “execute {{TASK_PREFIX}}-02” authorizes **Backlog → Ready → In Progress** only when no material decision or execution obstruction remains.
 
@@ -60,18 +62,26 @@ Labels communicate exceptions, not status:
 | `needs-decision` | A material product, design, or technical choice is required before readiness. | Codex applies it and removes it after every material decision is understood. |
 | `high-priority` | Work should precede normal-priority tasks. | Project owner or authorized reviewer alone applies or removes it. |
 
-Use `needs-decision` during Backlog clarification. Never use **Blocked** as a substitute for an unresolved readiness decision. Put non-blocking risk in the task's **De-risking** section or implementation notes.
+Use `needs-decision` for a user-owned choice in either Backlog or Blocked. Missing scope definition belongs in Backlog; an otherwise prepared task waiting for a specific decision belongs in Blocked. Put non-blocking risk in the task's **De-risking** section or implementation notes.
 
 ## Complete lifecycle
 
 1. The project owner, authorized reviewer, or Codex creates a **Backlog** task under the [task contract](/documentation/07/task-contract).
 2. Codex resolves discoverable facts, accounts for owner comments, amends the task, and applies the readiness gate.
-3. When a material answer is required, Codex comments with the decision frontier, applies `needs-decision`, and leaves the task in Backlog. After the answer is recorded and all material decisions are resolved, Codex removes the label and reapplies readiness.
-4. A passing worker task moves to **Ready**. Readiness alone does not start work.
+3. When a material answer is required, Codex comments with the decision frontier, applies `needs-decision`, and classifies it as Backlog or Blocked using the task contract. After the answer is recorded and all material decisions are resolved, Codex removes the label and reapplies readiness.
+4. Classify prepared tasks waiting on prerequisites as **Blocked**, with an unblock owner and condition. A task passing the full gate moves to **Ready**. Readiness alone does not start work.
 5. Under explicit execution authority, Codex moves **Ready → In Progress** and follows the [delivery contract](/documentation/08/delivery-contract).
-6. If acceptance becomes impossible, Codex completes safe independent work, records the obstruction and learning, and moves to **Blocked**. Resolution returns the task to Ready.
+6. If acceptance becomes impossible, Codex completes safe independent work, records the obstruction and learning, and moves to **Blocked**. Resolution triggers the reassessment described above.
 7. Otherwise Codex records final evidence and handoff, then moves **In Progress → Review**.
-8. An authorized independent reviewer or designated orchestrator moves **Review → Done** after acceptance, or records blocking findings and moves **Review → Ready**. A reviewer without status authority reports the decision and awaits an authorized actor.
+8. An authorized independent reviewer or designated orchestrator moves **Review → Done** after acceptance and required integration checks, or records actionable corrections and moves **Review → Ready**. A reviewer without status authority reports the decision and awaits an authorized actor.
+
+## Keep the board current
+
+At planning completion, classify every changed worker task. At phase start, handoff, dependency completion, blocker resolution, and phase close, the orchestrator refreshes affected tasks and their current owner comments. Reassess direct dependants after acceptance; do not promote them solely because one dependency finished. Status maintenance may expose readiness for a later phase but never authorizes its execution.
+
+Give coordination parents the `coordination` label and exclude them from executable queue counts. Keep a parent in Backlog while its phase is only planned, In Progress while the authorized phase runs, Review while its integrated gate awaits acceptance, and Done after phase acceptance. Use Blocked only for an obstacle to phase progress, not merely unfinished children. Never dispatch a parent as a worker task.
+
+Use `backlog.ps1 flow` for worker queues, separate coordination parents, and recently updated records. This is a read-only snapshot of recorded state, not a readiness verdict or a complete transition log. Update statuses at actual handoffs; do not hold Ready or Review artificially to make them visible.
 
 ## Deterministic checks
 

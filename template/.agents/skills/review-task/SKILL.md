@@ -57,4 +57,4 @@ blast-radius: none
 next: integrate
 ```
 
-Do not fix, integrate, expand scope, or create hardening tasks. Change task status only when {{OWNER_NAME}} has separately granted status or acceptance authority, and then use `.switchflow/scripts/backlog.ps1`. With status authority, a blocking finding returns **Review** to **Ready** with a comment; otherwise report and await an authorised actor.
+Do not fix, integrate, expand scope, or create hardening tasks. Change task status only when {{OWNER_NAME}} has separately granted status or acceptance authority, and then use `.switchflow/scripts/backlog.ps1`. With status authority, actionable corrections return **Review** to **Ready** with a comment when the full readiness gate passes. A named external obstacle uses **Blocked** with the waiting reason, evidence, unblock owner, and resumption condition from `doc-08`. Keep accepted work in Review until required integration checks pass; otherwise report and await an authorised actor.

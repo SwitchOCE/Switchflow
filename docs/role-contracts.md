@@ -45,7 +45,7 @@ The board carries a second responsibility that is easy to underuse: it is the du
 | Concept | Representation |
 | --- | --- |
 | Milestone | Backlog.md milestone record. Carries the scope contract and the UAT definition. |
-| Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label. Carries the phase plan in its description. |
+| Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label and the `coordination` label. Carries the phase plan in its description. |
 | Phase record | A comment on the phase parent task. |
 | Worker task | A child task carrying a context map, assigned to the milestone and labelled with its phase. |
 | Friction entry | `.switchflow/friction/<milestone-id>.md`, append-only, outside the board. |

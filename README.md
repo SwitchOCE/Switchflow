@@ -41,6 +41,8 @@ Finally, the orchestrator records what the next phase needs. Another phase still
 
 ## What it imports
 
+In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker queues, separate coordination parents, blocker notes, and recently updated records. Add `--json` for structured output. Backlog needs definition; Blocked is prepared work waiting on a named prerequisite; Ready passes the full readiness gate. Planning and orchestration maintain these statuses without granting execution authority.
+
 - `AGENTS.md` repository instructions.
 - An empty Backlog.md board with a fixed status lifecycle.
 - Durable Backlog documents and native decision records.
