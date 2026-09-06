@@ -1,6 +1,6 @@
 # Role contracts and the artifact pipeline
 
-This document defines what each pillar of Switchflow owns, the contract each agent role works to, and the measured cost the design is built around. It is the specification the six skills implement: the skills carry the instructions, this document carries the boundaries and the reasons.
+This document defines role boundaries and their rationale. The eight skills implement these roles; governing Backlog documents own shared procedures and policy. Scope checkpoints and revisions live in doc-09.
 
 The diagrams are not repeated here. The artifact pipeline, the phase loop, and the status lifecycle live in the imported [workflow diagrams](<../template/backlog/docs/doc-06 - Workflow-diagrams.md>), so framework maintainers and imported projects read the same picture.
 
@@ -18,7 +18,7 @@ Content is placed by lifetime and mutation rate, not by subject.
 | What every agent needs before it can act safely | `AGENTS.md` | Would an agent be unsafe without it? |
 | How every agent writes | `AGENTS.md` | Is it identical for every role? |
 
-`AGENTS.md` is shared context on agent invocations. Keep it concise and stable so it can be reused where caching is available. Content earns a place in it only by one of the last two tests: an agent is unsafe without it, or it holds for every role and would otherwise be repeated in all six skills.
+`AGENTS.md` is shared context on agent invocations. Keep it concise and stable so it can be reused where caching is available. Content earns a place in it only by one of the last two tests: an agent is unsafe without it, or it holds for every role and would otherwise be repeated in each skill.
 
 ### Where each concern lives
 
@@ -31,6 +31,7 @@ Content is placed by lifetime and mutation rate, not by subject.
 | Artifact flow and status diagrams | `doc-06` |
 | Task shape, readiness, and owner input | `doc-07` |
 | Delivery, Git, blockers, handoff, and review | `doc-08` |
+| Intake checkpoints, scope baselines and shared revision procedure | `doc-09` |
 | Implemented product behaviour and contracts | Backlog documents under `backlog/docs/` |
 | Durable decisions and their rationale | Backlog decision records under `backlog/decisions/` |
 | Active tasks, milestones, status, and comments | Backlog.md files under `backlog/` |
@@ -45,6 +46,8 @@ The board carries a second responsibility that is easy to underuse: it is the du
 | Concept | Representation |
 | --- | --- |
 | Milestone | Backlog.md milestone record. Carries the scope contract and the UAT definition. |
+| Intake and revision discovery | Unmilestoned task labelled `discovery` and `coordination`; optional discovery children. Current checkpoint in description, answers in comments. |
+| Previous scope baseline | Exact record snapshot under `backlog/archive/milestone-revisions/<id>/`, written before an adapter replacement. |
 | Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label and the `coordination` label. Carries the phase plan in its description. |
 | Phase record | A comment on the phase parent task. |
 | Worker task | A child task carrying a context map, assigned to the milestone and labelled with its phase. |
@@ -53,11 +56,11 @@ The board carries a second responsibility that is easy to underuse: it is the du
 Verified against Backlog.md 1.50.1:
 
 - `milestone add --description` accepts multi-line Markdown and stores it verbatim under a `## Description` heading, so the scope contract fits. A literal `\n` is stored as text, so the description must carry real newlines.
-- There is **no `milestone edit` or `milestone update`**. A milestone record is write-once through the CLI. That suits a contract frozen at intake, but it means intake must iterate in conversation and write once at the end. Revision after freezing means `milestone remove` followed by `milestone add`, which also touches task assignments.
+- Native CLI/MCP have no milestone description edit. Switchflow adds `milestone view` and `milestone edit --input-file` through its wrapper, preserving identity and prior content with an expected-revision check. Native rename remains available. The adapter protocol and recovery limits live in doc-09.
 - `task create --parent` produces real hierarchical children (`TASK-1` / `TASK-1.1`) with `parent_task_id` in frontmatter. Phase parents are native, not a convention.
 - Labels are not restricted to those declared in `backlog.config.yml`, so board-unique phase labels work without configuration changes.
 
-Because the milestone record is write-once and the phase parent is editable, the split follows the mutation rate: the frozen contract sits on the milestone, and everything revised during delivery sits on the phase parent.
+The accepted contract sits on the milestone; discovery is editable before acceptance, and phase parents hold delivery plans. A frozen contract is an accepted baseline that the owner can deliberately supersede without losing its identity or history.
 
 The phase parent is a tracking artifact. It is never promoted to Ready for worker execution, consistent with the coordination-parent rule in `doc-07`.
 
@@ -69,18 +72,24 @@ Each role declares what it must **not** read. That field is load-bearing: it is 
 
 | Field | Value |
 | --- | --- |
-| Purpose | Convert a proposed goal into a frozen scope contract. |
-| Trigger | Owner, explicitly, at the start of a milestone. |
-| Reads | The owner. `doc-01`, `doc-02`, durable product documents. Existing milestone records for overlapping scope. |
-| Must not read | Source code, tasks, diffs. |
-| Produces | Scope contract, written into the milestone record. |
-| Exit condition | The owner freezes the contract. Every material question is answered or explicitly deferred with a recorded default. |
-| Model and effort | Frontier, maximum reasoning, deliberately low token budget. |
-| Authority | Creates and updates the milestone record. No tasks, no code. |
+| Purpose | Establish or resume scope discovery, then freeze a contract. |
+| Trigger | Owner, explicitly, with a goal or existing intake ID. |
+| Reads | Owner input, doc-01, doc-02, doc-09, relevant durable documents and overlapping milestones; its own discovery records and bounded investigation findings. |
+| Must not read | Broad source implementation, delivery tasks or diffs. Targeted research runs as a separate investigation and returns decisive evidence. |
+| Produces | Editable intake checkpoint, optional linked discovery questions, confirmed terminology/decisions and the accepted milestone contract. |
+| Exit condition | Checkpoint is resumable; final closure requires owner acceptance and readback of the saved contract. |
+| Model and effort | Frontier reasoning with focused context; checkpoint as relevance and capacity require. |
+| Authority | Maintains its discovery records, bounded local fact-finding and new milestone creation under doc-03/doc-09. Existing frozen contracts change through edit-milestone. No product implementation. |
 
-Intake reads the durable documents but not the code by design. An intake agent holding tens of thousands of tokens of implementation detail anchors the owner's answers to what is cheap to build, and starts proposing solutions instead of interrogating intent. Durable documents are the correct abstraction level for informed questions.
+Intake keeps the product discussion above implementation detail. Bounded research findings can test assumptions without pulling a repository-wide implementation model into the interview. Its checkpoint records unresolved state from the first session, not just the final contract.
 
-Intake is the cheapest phase in total tokens and the most expensive per token. The scope contract closes with a UAT definition stating what the owner will do to judge the milestone. That makes the milestone boundary enforceable and tells the planner where to stop.
+The contract closes with a UAT definition stating what the owner will do to judge the milestone. This tells the planner where to stop. Multi-session discovery has no measured cost advantage yet; its immediate proof is correct resumption without lost decisions.
+
+### edit-milestone and edit-phase
+
+Both roles use the single revision procedure in doc-09. They read the accepted contract, relevant discovery, affected phase/task records and owner comments, active assignments and targeted impact evidence. Neither reads the friction log or unrelated implementation history. Both produce an explained revision, application checkpoint, reconciled board and current scope baseline; neither implements or grants new execution authority.
+
+`edit-milestone` applies owner-authorized changes to outcome, exclusions, decisions or UAT while preserving milestone identity and prior scope. Its exit condition includes reconciliation of affected phase plans and acceptance work. `edit-phase` exercises existing planning authority for tasks, dependencies, sequencing, groups and gates within the accepted outcome. Changed product obligations return to `edit-milestone`. Both coordinate affected active work and preserve completed evidence.
 
 ### plan-milestone
 
@@ -91,11 +100,11 @@ Intake is the cheapest phase in total tokens and the most expensive per token. T
 | Reads | Scope contract, durable documents, the repository, existing tasks, prior phase records, the readiness gate in `doc-07`. |
 | Must not read | The friction log. |
 | Produces | Phase coordination parents carrying the phase plan and its dispatch groups; worker tasks with context maps; the closing UAT task. |
-| Exit condition | Every worker task passes the readiness gate, phases are ordered, each phase has a verifiable gate condition and a dispatch grouping, and the last task is the UAT task. |
+| Exit condition | Changed tasks are classified Backlog, Blocked or Ready under the full gate; phases name their scope revision, integrated gate and groups; closing UAT matches the contract. |
 | Model and effort | Frontier, maximum effort, high token budget. This is where the repository is read, once. |
 | Authority | Board mutations within the named milestone. No code. |
 
-The planner absorbs the readiness gate, so there is no separate clarification pass. It does not re-open questions the scope contract settled. If the contract proves wrong, the planner stops and returns to intake rather than deciding on the owner's behalf.
+The planner owns readiness classification and respects settled scope. If the contract proves wrong, it checkpoints evidence for edit-milestone and uses intake only for unresolved owner decisions. Planning resumes against the accepted revision.
 
 Every worker task carries a context map. It is the planner's highest-value output and the reason its repository read is not wasted: it records what the next role would otherwise rediscover. The map is exempt from the task description word limit and is advisory rather than binding, so it never becomes a competing contract.
 
@@ -120,7 +129,7 @@ Use host compaction when available. Without it, checkpoint before exhausting con
 
 Its highest-value action is the pre-implementation checkpoint. A worker returns a three-line plan before implementing; the orchestrator confirms or corrects it. Roughly two hundred tokens prevent a wrong-direction implementation costing tens of thousands.
 
-**Amending rather than implementing.** The orchestrator amends a task and re-dispatches when execution evidence shows the plan was wrong. That is the safety net: a frontier model with cross-task visibility correcting a planner miss, exercised by re-briefing rather than by implementing. Direct implementation is bounded to a single file, no new behaviour, and no new acceptance criterion.
+**Correcting against current scope.** Execution evidence can require task amendments within the accepted contract; direct-delivery corrections remain with the phase agent and delegated corrections return to their author. Material scope changes follow doc-09 before affected dispatch resumes. Independent review remains required for material authored changes.
 
 That bound replaced a prohibition on orchestrators invoking the implementation skill. The prohibition did not achieve its purpose: it blocked the structured path while leaving the orchestrator free to implement inline, so deviation happened without the delivery contract's discipline. Naming the bound is stricter than banning the skill.
 
@@ -197,7 +206,7 @@ The orchestrator writes entries at the phase boundary, in the same action that w
 
 ## 6. Governing test
 
-The framework can become the project. Six roles, six artifacts, and a learning log are already close to the limit of what is worth carrying.
+The framework can become the project. New entry points must reuse shared procedures and artifacts rather than multiply competing versions of the same rules.
 
 **If an artifact is written but never read by the next role, delete it.**
 

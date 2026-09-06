@@ -18,12 +18,14 @@ I built this for one person directing several agents on a codebase they care abo
 
 ## What I do
 
-1. Say what I want. `intake` asks questions until the intent is clear, then writes a scope contract. This is the cheapest point to remove ambiguity.
+1. Say what I want. `intake` records decisions and unanswered questions as we go, so another instance can resume by intake ID. It writes the scope contract when I accept it.
 2. Approve the plan. `plan-milestone` turns the contract into phases and board tasks. Each task gets a risk class and a required evidence set. I review the board, not a transcript.
 3. Run a phase. Invoke `orchestrate-phase` and leave it alone.
 4. Accept the milestone. The result should be usable enough that I can try it and give real feedback.
 
 Between steps 2 and 3, changing my mind is cheap. Once step 3 starts, changing direction costs tokens and discarded work. That is why step 1 exists.
+
+Use `edit-milestone` to change an accepted outcome or UAT definition, and `edit-phase` to change tasks, order or gates within that outcome. Both preserve history and coordinate affected active work. Long intakes can expand into linked research, prototype or discussion questions; short intakes stay in one board record. [Scope and revisions](<template/backlog/docs/doc-09 - Scope-and-revisions.md>) describes resumption and the shared editing procedure.
 
 ## What the agents do
 
@@ -47,19 +49,19 @@ In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker 
 - An empty Backlog.md board with a fixed status lifecycle.
 - Durable Backlog documents and native decision records.
 - A project profile for the few values each repository must own.
-- Six agent skills for scope intake, milestone planning, phase orchestration, delivery, review, and human-owned work.
+- Eight agent skills for resumable intake, milestone and phase editing, planning, orchestration, delivery, review, and human-owned work.
 - Pinned Backlog.md tooling and documentation validation under `.switchflow/`.
 
 It does not import tasks, milestones, roadmaps, product decisions, application dependencies, credentials, or deployment configuration.
 
 The template is intentionally isolated from the projects that produced it. Changes can be tested here and imported into a disposable repository before they reach ongoing work.
 
-Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define what each role reads, writes, and must not read, and record the measured cost those limits come from. The [architecture and delivery model](docs/architecture.md) defines the module boundaries and dependency direction, and [Skills](docs/skills.md) indexes the six imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
+Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define role boundaries and evidence. The [architecture and delivery model](docs/architecture.md) defines module ownership, and [Skills](docs/skills.md) indexes the eight imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
 
 Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.2.1` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
+Switchflow is at version `0.3.0` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
 
 Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

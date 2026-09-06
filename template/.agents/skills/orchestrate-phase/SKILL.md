@@ -13,6 +13,8 @@ Retain useful context for related serial work. Add delivery agents when parallel
 
 Read the milestone record, the phase parent task and its prior phase records, and the identifiers, statuses, dependencies, risk classes and context maps of this phase's tasks. Use targeted task reads to obtain dispatch fields missing from summaries.
 
+Read the milestone through `milestone view <id> --json`. Compare its revision with the phase plan before dispatch and at checkpoints. If it changed, or a scope/phase edit is pending, follow `backlog/docs/doc-09 - Scope-and-revisions.md`: preserve active work and suspend affected dispatch until its plan, evidence and authority are reconciled. Record the current scope revision in phase records.
+
 While coordinating workers, avoid broad repository reads and worker reasoning. Read additional detail for a checkpoint, blocker, contested verdict or integration change. While delivering directly, follow the task-sized reads in `deliver-task`. Independent review remains required in either mode.
 
 ## Keep status current

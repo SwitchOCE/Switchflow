@@ -1,0 +1,4 @@
+interface:
+  display_name: "Edit Phase"
+  short_description: "Reshape a phase against its accepted scope"
+  default_prompt: "Use $edit-phase to update this {{PROJECT_NAME_YAML_DOUBLE}} phase while preserving completed and active work."

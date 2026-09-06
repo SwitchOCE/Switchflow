@@ -54,3 +54,9 @@ The importer is for first-time installation and deliberately rejects collisions.
 6. Create subsequent worktrees from that accepted project commit. Run preflight from the accepted dispatch checkout against each worktree. It validates required metadata and compares schema, template version, and task prefix; when the dispatch checkout records a source revision, revision and dirty state must also match. Older imports without provenance retain version-based checks. Equal metadata cannot prove equal file contents, so starting from the accepted project commit remains necessary.
 
 Rollback restores the scoped source changes and document bodies from the accepted pre-update baseline. Restore Backlog bodies through the wrapper, retaining their IDs, metadata, comments, and history. Automatic merging and transactional import remain separate backlog work (SF-07 and SF-10).
+
+### Updating to 0.3.0
+
+Bring in the eight skills, scope/revision adapter, discovery-aware flow, and their governing documents together. Existing milestone records work without conversion; their current content becomes the first baseline when edited. Keep revision snapshots in version control and add the candidate's narrow milestone lock/staging exclusions to the project gitignore.
+
+The fresh template uses `doc-09` for Scope and revisions. If that ID already belongs to a project document, preserve it. Create the new governance page through `doc create`, then substitute its assigned ID, filename and browser route in the imported skills, AGENTS.md and links. Do not overwrite a product page or renumber existing documents. Verify the remapped references in the disposable candidate before applying the update.

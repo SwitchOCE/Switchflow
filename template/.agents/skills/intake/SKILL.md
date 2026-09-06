@@ -1,63 +1,40 @@
 ---
 name: intake
-description: 'Establish the scope contract for a {{PROJECT_NAME_YAML_SINGLE}} milestone by interrogating intent until it is unambiguous. Does not plan tasks or implement.'
+description: 'Start or resume scope discovery for a {{PROJECT_NAME_YAML_SINGLE}} milestone, retaining decisions and unanswered questions across instances. Produces an accepted contract, not a delivery plan.'
 ---
 
 # Intake
 
-Turn a proposed goal into a scope contract {{OWNER_NAME}} can freeze. Optimise for surfacing the decisions that are expensive to get wrong, not for producing a plan.
+Turn a proposed goal into a scope contract {{OWNER_NAME}} can freeze. Resume by intake task ID; if none was supplied, inspect discovery summaries for a matching effort before creating another record.
 
-## Read the documents, not the code
+## Orient and checkpoint
 
-Read `backlog/docs/doc-01 - Project-overview.md`, `backlog/docs/doc-02 - Project-profile.md`, the durable documents relevant to the proposal, and any existing milestone record whose scope overlaps it.
+Read `backlog/docs/doc-01 - Project-overview.md`, `doc-02 - Project-profile.md`, `doc-09 - Scope-and-revisions.md`, relevant durable product documents, and overlapping milestones through `milestone view <id> --json`. Read this intake's checkpoint, new owner comments, linked questions and decisive evidence as needed. Use `.switchflow/scripts/backlog.ps1` for board access.
 
-Do not read source code, tasks, or diffs. This is deliberate rather than an economy. Implementation knowledge anchors questions to what is cheap to build and turns interrogation into solution design. Durable documents are the right altitude to ask informed questions without acquiring that bias.
+Create or refresh the intake record using doc-09. Capture meaningful answers as they land. A fresh instance must distinguish agreement, recommendation, accepted deferral and unanswered questions without the previous transcript.
+
+Use doc-09's `task edit --description-file` route for checkpoint bodies, then read back JSON. Avoid transporting the checkpoint through a long command-line argument.
+
+Keep product questioning above implementation detail. Read bounded fact-finding reports when a question depends on current behaviour or feasibility; source exploration belongs to a separately scoped investigation or planner. Do not read implementation tasks or diffs as a substitute for discovering the desired outcome.
 
 ## Interrogate
 
-Establish, in this order:
+Establish the product outcome, exclusions, consequential owner decisions, unraised consequences with recommended defaults, and what {{OWNER_NAME}} will do to judge the result. Use established product terms and clarify overloaded words with concrete scenarios.
 
-1. The product outcome, in {{OWNER_NAME}}'s terms rather than technical ones.
-2. What is explicitly out of scope, including work that seems adjacent and will otherwise be assumed in.
-3. Decisions {{OWNER_NAME}} owns that would cause substantial rework if guessed wrong.
-4. Consequences and problems {{OWNER_NAME}} has not raised, with a recommended default for each.
-5. What {{OWNER_NAME}} will do to judge the finished milestone.
+Ask independent questions together in a small round, one idea per question, ordered by how much the answer changes. Prefer the host's structured question tool with a recommended option. Questions depending on unanswered prerequisites wait for a later round. Resolve discoverable facts from evidence rather than asking the owner to supply them.
 
-Ask one idea per question and order questions by how much the answer changes. Always offer a recommended default so a question can be answered with agreement. Accept "I don't know" and record it as a deferred question with its default rather than pressing.
+Accept "I don't know". Keep the proposed default provisional until the owner explicitly accepts deferral with that default. Preserve rejected alternatives and why. Checkpoint before moving to the next round.
 
-Raise problems early and concretely. A consequence noticed here costs a sentence; the same consequence noticed during delivery costs a phase. This is the cheapest point in the whole workflow to change direction, and the only phase where {{OWNER_NAME}} is reliably present.
+When questions need separate research, prototypes, dependencies or multiple sessions, read `references/discovery.md`. Expand the existing record only as needed. For answers owned by an external person, use the questionnaire guidance in `doc-07 - Task-contract.md`. Returned facts inform owner decisions.
 
-Do not ask about implementation approach, technology choices, or anything the durable documents already answer.
+## Freeze or hand off
 
-## Write the contract
-
-Write the scope contract to a new milestone record. Use a single-quoted PowerShell here-string so the description carries real newlines; a literal `\n` is stored as text.
+Synthesize Goal, In scope, Out of scope, Decisions taken, Alternatives rejected, Deferred questions and accepted defaults, and UAT definition. Verify against confirmed answers and apply doc-09's freeze procedure. For a new milestone, include an intake pointer in the full accepted contract and create it with:
 
 ```powershell
-$Scope = @'
-## Goal
-
-## In scope
-
-## Out of scope
-
-## Decisions taken
-
-## Alternatives rejected
-
-## Deferred questions and their defaults
-
-## UAT definition
-'@
 .\.switchflow\scripts\backlog.ps1 milestone add 'Milestone name' --description $Scope
 ```
 
-**UAT definition** states what {{OWNER_NAME}} will do to judge the result. It tells `plan-milestone` where to stop and becomes the closing human task.
+Set `$Scope` using a single-quoted PowerShell here-string carrying real newlines. After creation, record the returned milestone ID on the intake and read back its scope before closing discovery. Inspect matching milestones before retrying an uncertain write. For an existing milestone, pass the proposed contract to `edit-milestone`; preserve its accepted baseline until that procedure applies the revision.
 
-Milestone records cannot be edited through the CLI. Iterate in conversation and write once, when {{OWNER_NAME}} confirms the contract is right.
-
-## Stop here
-
-Report the contract and ask {{OWNER_NAME}} to freeze it. Do not create tasks, plan phases, propose an implementation, or read the repository to check feasibility. When a deferred question later proves material, return here rather than deciding during planning.
-
-When several related answers belong to one external person rather than {{OWNER_NAME}}, follow the stakeholder questionnaire guidance in `backlog/docs/doc-07 - Task-contract.md`.
+If discovery remains open, save its next question/action and report the intake ID. If accepted, report the contract and milestone ID. Stop at the contract boundary; phases and delivery require their own invocation and authority. A material deferred question returns to discovery, not an invented answer during planning.

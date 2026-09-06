@@ -8,7 +8,9 @@ Backlog.md owns active work and durable documentation. Use `.switchflow/scripts/
 
 | Skill | Use it to |
 | --- | --- |
-| `intake` | Establish a milestone's scope contract with {{OWNER_NAME}} before any planning. |
+| `intake` | Start or resume scope discovery and freeze a milestone contract. |
+| `edit-milestone` | Revise accepted scope and reconcile affected delivery work. |
+| `edit-phase` | Reshape a phase within its accepted milestone scope. |
 | `plan-milestone` | Turn a frozen scope contract into ordered phases and ready tasks. |
 | `orchestrate-phase` | Deliver and checkpoint one authorized phase. |
 | `deliver-task` | Implement one task and stop at Review. |
@@ -26,6 +28,7 @@ Skills do not expand authority, review count, or task scope. An installed skill 
 | Execution, Git, handoff, review | `backlog/docs/doc-08 - Delivery-contract.md` |
 | Quality target, risk class, evidence | `backlog/docs/doc-04 - Engineering-standards.md` |
 | When documentation changes | `backlog/docs/doc-05 - Maintaining-documentation.md` |
+| Intake state, scope baselines and revisions | `backlog/docs/doc-09 - Scope-and-revisions.md` |
 | This project's goal, gates, boundaries | `backlog/docs/doc-02 - Project-profile.md` |
 
 Build the simplest implementation and smallest validation set that satisfy the accepted outcome and its risk class. Do not invent a stricter quality tier.

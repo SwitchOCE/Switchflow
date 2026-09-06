@@ -21,6 +21,8 @@ Update the documentation when work changes:
 
 Do not copy task status, temporary investigation notes, unconfirmed ideas, plans, or roadmaps into durable documentation. Those belong in the Kanban task or its discussion.
 
+Intake checkpoints and proposed revisions follow [Scope and revisions](/documentation/09/scope-and-revisions). Capture confirmed vocabulary in the relevant existing product document and preserve consequential rationale in native decision records; distinguish intended behaviour from implemented facts.
+
 ## Editing a page
 
 1. Update the most relevant existing Markdown page.

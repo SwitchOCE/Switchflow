@@ -16,3 +16,5 @@ Start with the [project profile](/documentation/02/project-profile), then use th
 The [workflow diagrams](/documentation/06/workflow-diagrams) show how work moves between roles and through the status lifecycle. Decision rules stay in the documents above; the diagrams do not restate them.
 
 Product plans, roadmap ideas, temporary investigation notes, and live task status do not belong in durable documentation.
+
+Use [Scope and revisions](/documentation/09/scope-and-revisions) to resume intake from its board checkpoint or edit an accepted milestone or phase without losing prior decisions and delivery evidence.

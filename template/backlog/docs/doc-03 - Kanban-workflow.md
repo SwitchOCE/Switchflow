@@ -32,6 +32,8 @@ A **reviewer** is an actor assigned to inspect a fixed change independently. Rev
 
 A user-invoked `plan-milestone` pass may create, update, archive, split, combine, reorder, move, or relink tasks in the named milestone. It explains every material mutation and serves the milestone's frozen scope contract. Archiving is the recoverable way to remove obsolete work from the active board.
 
+`edit-phase` exercises that planning authority for an existing phase. `edit-milestone` applies owner-authorized changes to the accepted scope and reconciles affected plans. Both use the shared procedure in [Scope and revisions](/documentation/09/scope-and-revisions), including coordination with active work and preservation of completed evidence. Neither grants delivery authority.
+
 Explicit `$orchestrate-phase` invocation designates the orchestrator for one named phase. It may deliver serial tasks directly, coordinate parallel workers, amend tasks within the frozen scope contract, integrate branches, and record acceptance after a separate independent verdict and required integration checks. Direct delivery follows the delivery contract and retains separate task boundaries. It may not independently accept material work it authored. Product decisions, secrets, live external actions, pushing, shared-history rewrites, and branch deletion remain separately authorized.
 
 One narrow exception to branch deletion stands: the orchestrator may run `.switchflow/scripts/cleanup-phase.ps1` at a phase boundary. The script deletes a branch and removes its worktree only when the task is **Done**, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else it reports as an exception for a decision. This grant covers that predicate and nothing wider; deleting a branch outside it still requires explicit authorization.
@@ -76,6 +78,14 @@ Use `needs-decision` for a user-owned choice in either Backlog or Blocked. Missi
 8. An authorized independent reviewer or designated orchestrator moves **Review → Done** after acceptance and required integration checks, or records actionable corrections and moves **Review → Ready**. A reviewer without status authority reports the decision and awaits an authorized actor.
 
 ## Keep the board current
+
+### Discovery records
+
+Explicit intake authorizes maintaining its `discovery` records and bounded local fact-finding needed to clarify the requested outcome; it does not authorize product implementation or protected external actions. The intake parent also carries `coordination`. Discovery records stay outside delivery milestones and phase labels. `flow` reports them separately from delivery workers and phase parents.
+
+Use Backlog for an unformulated question, In Progress for active intake or investigation, and Blocked when waiting on a named answer or resource. A well-defined discovery question may be Ready when it can be taken next, but is not a delivery assignment. Completed research goes to Review until the intake owner checks evidence against its question; owner decisions resolve only from that owner's recorded answer. The intake agent may mark that question Done after this check; the parent becomes Done only when the accepted contract is saved and read back. These are discovery closure rules, not independent acceptance of product code. Archive abandoned questions with their reason. A closed intake reopened by new uncertainty uses a new linked revision intake when the milestone is already frozen.
+
+### Delivery records
 
 At planning completion, classify every changed worker task. At phase start, handoff, dependency completion, blocker resolution, and phase close, the orchestrator refreshes affected tasks and their current owner comments. Reassess direct dependants after acceptance; do not promote them solely because one dependency finished. Status maintenance may expose readiness for a later phase but never authorizes its execution.
 

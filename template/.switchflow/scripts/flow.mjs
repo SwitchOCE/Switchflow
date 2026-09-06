@@ -7,14 +7,16 @@ const statuses = ['Backlog', 'Blocked', 'Ready', 'In Progress', 'Review', 'Done'
 export function buildFlowSnapshot(tasks, blockedViews = new Map()) {
   const parentIds = new Set(tasks.map(task => task.parentTaskId).filter(Boolean));
   const isParent = task => parentIds.has(task.id) || (task.labels ?? []).includes('coordination');
+  const isDiscovery = task => (task.labels ?? []).includes('discovery');
   const summarize = task => ({
     id: task.id, title: task.title, status: task.status,
     assignees: task.assignees ?? [], updatedAt: task.updatedAt ?? null,
   });
-  const workers = tasks.filter(task => !isParent(task));
+  const workers = tasks.filter(task => !isParent(task) && !isDiscovery(task));
   return {
     queues: Object.fromEntries(statuses.map(status => [status, workers.filter(task => task.status === status).map(summarize)])),
-    coordination: tasks.filter(isParent).map(summarize),
+    coordination: tasks.filter(task => isParent(task) && !isDiscovery(task)).map(summarize),
+    discovery: tasks.filter(isDiscovery).map(summarize),
     blocked: workers.filter(task => task.status === 'Blocked').map(task => {
       const view = blockedViews.get(task.id);
       return { ...summarize(task), dependencies: view?.dependencies ?? [], waitingNotes: view?.implementationNotes ?? null };
@@ -39,6 +41,8 @@ export function renderFlow(snapshot) {
   }
   lines.push(`\nCoordination parents: ${snapshot.coordination.length}`);
   for (const task of snapshot.coordination) lines.push(`- ${task.title}: ${task.status} [${task.id}]`);
+  lines.push(`\nDiscovery records (not delivery): ${snapshot.discovery.length}`);
+  for (const task of snapshot.discovery) lines.push(`- ${task.title}: ${task.status} [${task.id}]`);
   lines.push('\nRecently updated records (not a transition log)');
   for (const task of snapshot.recent) lines.push(`- ${task.updatedAt} — ${task.title}: ${task.status} [${task.id}]`);
   return lines.join('\n');

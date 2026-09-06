@@ -20,9 +20,15 @@ Each role reads the artifact the previous role produced instead of re-deriving i
 ```mermaid
 flowchart LR
     G[Proposed goal] --> I([intake])
-    I --> SC[Scope contract]
+    I --> IC[Intake checkpoint and linked questions]
+    IC --> I
+    I --> SC[Accepted scope contract and revision]
+    SC --> EM([edit-milestone])
+    EM --> SC
     SC --> P([plan-milestone])
     P --> PL[Phase plan]
+    PL --> EP([edit-phase])
+    EP --> PL
     P --> TM[Task and context map]
     P --> UT[UAT task]
     PL --> O([orchestrate-phase])
@@ -38,7 +44,7 @@ flowchart LR
     UT --> UAT[Human acceptance test]
 ```
 
-Rounded nodes are roles. Rectangles are artifacts. The chain is acyclic because rework loops belong inside a phase rather than in the pipeline.
+Rounded nodes are roles. Rectangles are artifacts. Intake can resume from its checkpoint; scope and phase revisions return through their editing procedures before affected delivery continues. [Scope and revisions](/documentation/09/scope-and-revisions) owns those rules.
 
 Three levels bound the work. A **milestone** ends where {{OWNER_NAME}} can use the software and form an opinion, so it closes with a Human-assigned acceptance test. A **phase** ends at a gate the orchestrator verifies alone. A **task** is one delivery boundary with one useful result.
 

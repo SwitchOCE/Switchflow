@@ -23,12 +23,14 @@ flowchart LR
     K --> D[Delivery contract<br/>doc-08]
     K --> Q[Engineering standards<br/>doc-04]
     K --> M[Documentation policy<br/>doc-05]
+    K --> R[Scope and revisions<br/>doc-09]
 
     L --> A[AGENTS.md<br/>repository adapter]
     T --> A
     D --> A
     Q --> A
     M --> A
+    R --> A
 
     A --> S[Skills<br/>focused workflow adapters]
     S --> B[Backlog wrapper and checks<br/>deterministic enforcement]
@@ -45,6 +47,7 @@ flowchart LR
 | Delivery contract (`doc-08`) | Coordination, isolation, Git procedure, blocker record, handoff, independent review, integration procedure. | Authority grants, product scope, or risk classification. |
 | Engineering standards (`doc-04`) | The single active VAPS target, risk classes, safeguards, required evidence. | Task status mechanics or phase selection. |
 | Documentation policy (`doc-05`) | Durable-knowledge placement, editing, decisions, and documentation proof. | Live task state. |
+| Scope and revisions (`doc-09`) | Intake checkpoints, accepted scope baselines, shared edit procedure and snapshot recovery. | Delivery authorization or product decisions on the owner's behalf. |
 | Skills | One role each: trigger-specific sequencing, judgement, and an explicit read limit. | Copies of shared policy, or authority grants. |
 | `.switchflow` tooling | Deterministic checks and Backlog CLI adaptation. | Product or architectural judgement. |
 

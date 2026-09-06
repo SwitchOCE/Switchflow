@@ -38,6 +38,21 @@ test('reports recorded blocker evidence without promoting work or inventing tran
   assert.equal(tasks[0].status, 'Blocked');
 });
 
+test('discovery questions and intake parents stay outside delivery queues and phase counts', () => {
+  const tasks = [
+    { id: 'T-1', title: 'Clarify exports', status: 'In Progress', labels: ['discovery', 'coordination'] },
+    { id: 'T-1.1', title: 'Choose output', status: 'Ready', parentTaskId: 'T-1', labels: ['discovery', 'discussion'] },
+    { id: 'T-1.2', title: 'Research format', status: 'Done', parentTaskId: 'T-1', labels: ['discovery', 'research'] },
+    { id: 'T-2', title: 'Deliver export', status: 'Ready' },
+  ];
+  const snapshot = buildFlowSnapshot(tasks);
+  assert.deepEqual(snapshot.queues.Ready.map(task => task.id), ['T-2']);
+  assert.equal(snapshot.queues.Done.length, 0);
+  assert.equal(snapshot.coordination.length, 0);
+  assert.equal(snapshot.discovery.length, 3);
+  assert.match(renderFlow(snapshot), /Discovery records \(not delivery\): 3/);
+});
+
 test('PowerShell wrapper forwards flow options and makes only read calls', { skip: process.platform !== 'win32' }, () => {
   const root = mkdtempSync(path.join(tmpdir(), 'switchflow-flow-'));
   const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../template/.switchflow/scripts');

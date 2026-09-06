@@ -11,11 +11,13 @@ Read the milestone's scope contract, `backlog/docs/doc-07 - Task-contract.md`, `
 
 Use `.switchflow/scripts/backlog.ps1` for every board read and mutation.
 
+Read the current contract with `milestone view <id> --json` and record its revision on each phase plan. For revisions of existing work, use `edit-phase` or `edit-milestone` and the shared procedure in `backlog/docs/doc-09 - Scope-and-revisions.md`; reuse the shaping rules here instead of recreating the milestone or completed tasks.
+
 ## Work within the frozen contract
 
 The scope contract is binding. Do not re-open questions it settled, and do not expand scope because an adjacent improvement is convenient.
 
-If the contract proves wrong or incomplete during planning, stop and return to `intake` rather than deciding on {{OWNER_NAME}}'s behalf. Record what planning revealed so intake resumes from evidence.
+If the contract proves wrong or incomplete during planning, checkpoint the evidence and proposed change for `edit-milestone`, using `intake` for unresolved owner decisions. Preserve the accepted contract until revision is authorized and applied. Resume planning against the resulting current revision.
 
 ## Shape phases
 

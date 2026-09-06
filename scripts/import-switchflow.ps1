@@ -249,6 +249,8 @@ $gitignoreMarker = '# Switchflow local tooling'
 $gitignoreBlock = @'
 # Switchflow local tooling
 /.switchflow/node_modules/
+/backlog/milestones/*.scope-lock
+/backlog/milestones/*.tmp
 '@
 $existingGitignore = if (Test-Path -LiteralPath $gitignorePath) {
     [string](Get-Content -Raw -Encoding utf8 -LiteralPath $gitignorePath)

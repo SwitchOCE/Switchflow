@@ -9,6 +9,8 @@ tags: ["governance", "tasks", "readiness"]
 
 Backlog.md owns active work. A task is the accepted, reviewable unit of delivery; repository files and Backlog documents own implemented behavior and durable contracts.
 
+Discovery tasks follow the separate closure rules in [Kanban workflow](/documentation/03/kanban-workflow#discovery-records) and checkpoint shape in [Scope and revisions](/documentation/09/scope-and-revisions). They are not delivery assignments. The remaining readiness and execution rules here govern delivery tasks.
+
 ## Read a task before acting
 
 Use the exact `{{TASK_PREFIX}}-xx` reference supplied by the user and read the complete task, including comments:
@@ -128,6 +130,8 @@ Use `create-human-task` when completion requires human access, judgement, physic
 ## Safe task mutations
 
 Use `.switchflow/scripts/backlog.ps1` instead of editing task frontmatter. After every mutation, re-read JSON and verify status, labels, criteria, dependencies, assignees, and comment text. Write multiline PowerShell comments with a single-quoted here-string; do not encode newlines as `\n` or interpolate Markdown backticks.
+
+For a complete description, use `task edit <id> --description-file <UTF-8 body file>` without other edit flags, then read back the task. This shares doc-09's checkpoint transport and the pinned description limit. Make other field changes separately; maintain single-writer coordination throughout the read/write operation.
 
 Archive obsolete work to remove it from the active board while preserving history:
 
