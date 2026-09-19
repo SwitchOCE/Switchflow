@@ -1,14 +1,17 @@
 # Skills
 
-Switchflow imports eight repository-local skills. Each owns trigger-specific sequencing and judgement; shared lifecycle, task, delivery, quality, documentation and revision policy stays in the governing Backlog documents.
+Switchflow imports eleven repository-local skills. Each owns trigger-specific sequencing and judgement; shared lifecycle, task, delivery, quality, documentation and revision policy stays in the governing Backlog documents.
 
 | Skill | Role | Invocation |
 | --- | --- | --- |
-| `intake` | Start or resume discovery and establish an accepted scope contract. | Explicit user invocation only |
+| `intake` | Start or resume discovery and establish an accepted scope contract. | Explicit invocation or authorized project lifecycle |
 | `edit-milestone` | Revise accepted scope and reconcile affected delivery plans. | Automatic or explicit |
 | `edit-phase` | Reshape an existing phase within accepted scope. | Automatic or explicit |
 | `plan-milestone` | Turn a frozen scope contract into ordered phases and ready tasks. | Automatic or explicit |
-| `orchestrate-phase` | Deliver and checkpoint one authorized phase. | Explicit user invocation only |
+| `orchestrate-phase` | Deliver and checkpoint one authorized phase. | Explicit invocation or approved project plan |
+| `orchestrate-project` | Run Intake, Planning, automatic phases and guided UAT. | Explicit owner/browser initiation |
+| `guided-uat` | Guide scenario observations and record the owner's verdict. | Automatic at the UAT boundary or explicit |
+| `review-framework` | Review external friction and recommend framework improvements without dispatch. | Explicit user invocation only |
 | `deliver-task` | Implement one task and hand it off. | Automatic or explicit |
 | `review-task` | Independently review a fixed diff. | Automatic or explicit |
 | `create-human-task` | Define work only a person can do. | Automatic or explicit |
@@ -16,6 +19,10 @@ Switchflow imports eight repository-local skills. Each owns trigger-specific seq
 Every skill declares what it must not read. Those limits are load-bearing rather than economies: they are what keep intake unbiased, the orchestrator bounded, and review independent. The [role contracts](role-contracts.md) own each role's full read limit, produced artifact, exit condition, and authority. A skill file must not contradict or restate them.
 
 ## Boundaries
+
+Project mode has three routine human steps: Intake, Planning and UAT. The concrete Planning approval authorizes all listed phases through technical review and local integration; automatic continuation reuses `orchestrate-phase` without repeating human start or milestone-acceptance prompts. Standalone phase mode retains its single-phase boundary. Scope changes, bugs and updates use their established routes; protected external actions still need action-specific authority. Intake and Planning support an independent-review toggle that adds agent critique before their existing human decision.
+
+Human clarification and permission requests are written to the configured external operations store by the requesting role. Delivery does not read friction history. `review-framework` reads it only on explicit invocation and never dispatches corrective work into an unrelated phase. `guided-uat` reads acceptance scenarios and candidate evidence, never source code or worker reasoning, and cannot supply the human verdict.
 
 `orchestrate-phase` checkpoints each authorized phase. A related phase may reuse focused context once authorized; stale or crowded context calls for compaction or a fresh start. Targeted reads support dispatch and revision checks. Serial delivery uses `deliver-task`; independent review remains required. Revision checkpoints suspend affected dispatch while scope, evidence and authority are reconciled.
 

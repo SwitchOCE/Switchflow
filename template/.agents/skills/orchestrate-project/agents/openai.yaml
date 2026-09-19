@@ -1,0 +1,7 @@
+interface:
+  display_name: "Orchestrate Project"
+  short_description: "Run an approved plan through guided UAT"
+  default_prompt: "Use $orchestrate-project to start or resume this {{PROJECT_NAME_YAML_DOUBLE}} project run."
+
+policy:
+  allow_implicit_invocation: false

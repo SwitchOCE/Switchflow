@@ -13,7 +13,8 @@ $importerPath = Join-Path $switchflowRoot 'scripts\import-switchflow.ps1'
 $allowedFrontmatterKeys = @('name', 'description', 'license', 'allowed-tools', 'metadata')
 
 try {
-    & node --test (Join-Path $switchflowRoot 'scripts\check-completed-tasks.test.mjs') (Join-Path $switchflowRoot 'scripts\check-governance-baseline.test.mjs') (Join-Path $switchflowRoot 'scripts\flow.test.mjs') (Join-Path $switchflowRoot 'scripts\update-document.test.mjs') (Join-Path $switchflowRoot 'scripts\milestone-scope.test.mjs')
+    $tests = @(Get-ChildItem -LiteralPath (Join-Path $switchflowRoot 'scripts') -Filter '*.test.mjs' | Sort-Object Name | ForEach-Object FullName)
+    & node --test @tests
     if ($LASTEXITCODE -ne 0) {
         throw 'Switchflow regression checks failed.'
     }

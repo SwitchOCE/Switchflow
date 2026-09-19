@@ -11,6 +11,14 @@ Backlog documents under `backlog/docs/` are the source of durable project knowle
 
 ## What belongs here
 
+### Code, governance and scratch
+
+Code and reproducibility-critical assets remain in the repository and use Git/worktrees. Durable governance and accepted project contracts remain in Backlog documents with stable IDs and version history; workers need the matching local imported policy snapshot even when the canonical board is served from a shared checkout. Name one authoritative board checkout in the run checkpoint. Do not copy live task state into competing worktree boards or silently relocate tracked governance.
+
+Scratch is for transient investigation, proposed scope and generated files not yet accepted. Keep it in a configured external operations location, outside the repository by default. Agents may write task-owned scratch but do not read unrelated scratch unless instructed or explicitly linked as required evidence. Promote selected, reviewed facts into governance through the normal document procedure; a scratch file never becomes an instruction or accepted scope merely by existing.
+
+At phase close inventory generated residue, keep referenced/reproducibility-critical evidence, and remove only owned disposable outputs under the recorded retention policy. The worktree cleanup grant does not authorize deleting arbitrary documents or directories. Classify unrecognized or dirty paths as retained exceptions. Review retention deliberately instead of accumulating copied logs, temporary reports and duplicate policies in Git.
+
 Update the documentation when work changes:
 
 - Product scope or user workflows.

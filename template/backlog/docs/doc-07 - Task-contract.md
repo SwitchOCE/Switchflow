@@ -85,6 +85,8 @@ One sentence describing the finished result.
 
 Put sources in references, durable documents in documentation, and dependencies in the dependency field. Acceptance describes outcomes rather than implementation unless a method is itself required. Keep live discussion in comments, progress in implementation notes, and verified outcome in final summary.
 
+The **Outcome** is written for the person using the product: who can do what, and what observable problem disappears. Delivery detail belongs in a separate **Context map**: owned files or modules, affected layers, stable interfaces, commands and evidence. Specify output files only when their format/location is part of acceptance; otherwise treat file suggestions as advisory. A cross-layer slice is valid when one useful outcome owns it. Use the shared glossary in doc-09 and established product vocabulary; avoid internal abbreviations in titles and human instructions.
+
 ## Task links
 
 In prose, link a task with its short name instead of a bare ID:
@@ -124,6 +126,10 @@ A questionnaire is not a second contract. Record returned decisions in the task 
 Remove `needs-decision` only when all material decisions are resolved. Amend the task until it is self-contained, then apply the full readiness gate again without requiring a separate approval pass.
 
 ## Human tasks
+
+The routine human checkpoints are Intake, Planning and UAT. Do not create human tasks for starting each approved phase, accepting technical milestones, running agent-accessible checks, or copying information the agent can retrieve. During planning, provision genuinely human-only access or observations early and explain the exception. Batch independent decisions at their natural checkpoint without hiding a material blocker.
+
+Offer a guided walkthrough instead of handing over a long checklist. The agent prepares the candidate and safe test data, explains the next visible action, records the owner's observation, and advances one scenario at a time. Preserve the current scenario, candidate/environment, expected and observed result, and unfinished steps so the session resumes without repetition. Dictated answers are valid input; record their confirmed meaning. Only the human's explicit verdict can establish UAT acceptance. A failed scenario produces an evidence-linked correction or scope-change proposal, never an automatic pass.
 
 Use `create-human-task` when completion requires human access, judgement, physical observation, or coordination. Create one human-owned result, separate it from agent work and work for other people, assign exactly `Human`, provide concise numbered actions, state prerequisites and report-back evidence, and use one to three observable criteria. Use **Ready** only when the person can start. Use **Blocked** for prepared instructions waiting on dependencies, access, or another named prerequisite; use **Backlog** when the instructions or acceptance still need definition. Record dependencies and the unblock owner and condition. Never request secrets or sensitive values.
 

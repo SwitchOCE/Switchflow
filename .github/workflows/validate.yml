@@ -1,0 +1,27 @@
+name: Validate Switchflow
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  governance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: template/.switchflow/package-lock.json
+      - run: npm --prefix template/.switchflow ci --ignore-scripts
+      - name: Build the pinned Backlog fork
+        run: node template/.switchflow/scripts/backlog-fork/setup.mjs
+      - name: Validate imports, runtime contracts and documentation
+        shell: pwsh
+        run: |
+          # Import compatibility fixtures copy the official npm package metadata.
+          # Native fork tests resolve their verified runtime independently.
+          $env:BACKLOG_TEST_CLI = (Resolve-Path template/.switchflow/node_modules/backlog.md/cli.js).Path
+          ./scripts/validate-switchflow.ps1

@@ -6,7 +6,7 @@ Switchflow is a small policy kernel with adapters, not a collection of overlappi
 
 Any change to the structure must keep these true:
 
-- Backlog.md remains the source of truth for active work and durable project knowledge.
+- Backlog.md remains the source of truth for delivery work and durable project knowledge. The external control ledger owns browser approvals, run admission, and recovery; it does not infer completed tasks from process exit.
 - Work follows **Backlog → Ready → In Progress → Review → Done**, with **Blocked** for prepared work waiting on a named prerequisite before or after execution.
 - Readiness requires useful progress, observable acceptance, completed dependencies, provisioned evidence and authority, a stable baseline, and a bounded review surface.
 - Quality uses one active target, independent VAPS axes, highest material risk, and explicit authority for protected external actions.
@@ -50,6 +50,11 @@ flowchart LR
 | Scope and revisions (`doc-09`) | Intake checkpoints, accepted scope baselines, shared edit procedure and snapshot recovery. | Delivery authorization or product decisions on the owner's behalf. |
 | Skills | One role each: trigger-specific sequencing, judgement, and an explicit read limit. | Copies of shared policy, or authority grants. |
 | `.switchflow` tooling | Deterministic checks and Backlog CLI adaptation. | Product or architectural judgement. |
+| Browser control (`scripts/control`) | Intake/Planning/UAT transitions, scoped grants, serialized local run admission, owner-input revisions, recovery and localhost API. | Claiming human UAT or interpreting test claims as independently established proof. |
+| Managed Git helper (`scripts/control/git-bridge*`) | Fixed local candidate creation, exact-file commits, managed-candidate integration, baseline-bound grants and durable operation receipts. | Primary-checkout mutation, remote Git, deployment, arbitrary commands or silently replaying uncertain operations. |
+| UAT text preview (`scripts/control/artifacts.mjs`) | Resolve an exact saved walkthrough reference against the approved candidate registry and read its bounded immutable text blob. | Arbitrary filesystem browsing, working-file substitution, binary rendering or expanding the delivery grant. |
+| Operations (`scripts/operations`) | Git-shared state identity, friction, exact check receipts, worktree ownership, scratch promotion and retention. | Automatic out-of-scope work, unknown-worktree deletion, or container/native evidence without execution. |
+| Backlog CAS fork | Comparing a task revision under Backlog's existing task lock before applying a partial update. | Product policy or changing the task schema beyond the explicit revision interface. |
 
 The [role contracts](role-contracts.md) specify what each role reads, must not read, produces, and may authorize, along with the operating evidence those limits are derived from.
 
@@ -78,7 +83,7 @@ The outcome side is unmeasured. A disposable import proves structure and renderi
 
 ## Deferred changes
 
-- Do not create a custom workflow engine while Backlog.md remains the system of record.
+- The browser coordinator is deliberately limited to owner gates and run admission. Backlog continues to own task storage and its canonical edit lock; no second delivery-task database is introduced.
 - Do not enforce judgement-heavy readiness or review rules with brittle text checks.
 - Do not add automatic upgrade or merge behavior before compatibility requirements are known.
 - Do not create a generic skill-composition runtime. Direct references to small policy modules are sufficient.

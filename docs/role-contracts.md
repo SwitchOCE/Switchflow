@@ -1,6 +1,6 @@
 # Role contracts and the artifact pipeline
 
-This document defines role boundaries and their rationale. The eight skills implement these roles; governing Backlog documents own shared procedures and policy. Scope checkpoints and revisions live in doc-09.
+This document defines role boundaries and their rationale. The eleven skills implement these roles; governing Backlog documents own shared procedures and policy. Scope checkpoints and revisions live in doc-09.
 
 The diagrams are not repeated here. The artifact pipeline, the phase loop, and the status lifecycle live in the imported [workflow diagrams](<../template/backlog/docs/doc-06 - Workflow-diagrams.md>), so framework maintainers and imported projects read the same picture.
 
@@ -14,7 +14,7 @@ Content is placed by lifetime and mutation rate, not by subject.
 | True about one unit of work, right now | Board (`backlog/tasks/`, `backlog/milestones/`) | Does it die when the task closes? |
 | True about how work moves, across all tasks | One governing document | Is it policy rather than fact? |
 | A repeatable multi-step procedure an agent runs | Skill (`.agents/skills/`) | Are the steps both non-obvious and repeated? |
-| How the framework itself performed | Friction log (`.switchflow/friction/`) | Is it about the process rather than the product? |
+| How the framework itself performed | Configured external operations friction log | Is it about the process rather than the product? |
 | What every agent needs before it can act safely | `AGENTS.md` | Would an agent be unsafe without it? |
 | How every agent writes | `AGENTS.md` | Is it identical for every role? |
 
@@ -51,7 +51,7 @@ The board carries a second responsibility that is easy to underuse: it is the du
 | Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label and the `coordination` label. Carries the phase plan in its description. |
 | Phase record | A comment on the phase parent task. |
 | Worker task | A child task carrying a context map, assigned to the milestone and labelled with its phase. |
-| Friction entry | `.switchflow/friction/<milestone-id>.md`, append-only, outside the board. |
+| Friction entry | Append-only external operations record linked to project/run and task where relevant. Legacy `.switchflow/friction/` history is retained. |
 
 Verified against Backlog.md 1.50.1:
 
@@ -73,7 +73,7 @@ Each role declares what it must **not** read. That field is load-bearing: it is 
 | Field | Value |
 | --- | --- |
 | Purpose | Establish or resume scope discovery, then freeze a contract. |
-| Trigger | Owner, explicitly, with a goal or existing intake ID. |
+| Trigger | Owner with a goal or existing intake ID, or the explicitly initiated project lifecycle. |
 | Reads | Owner input, doc-01, doc-02, doc-09, relevant durable documents and overlapping milestones; its own discovery records and bounded investigation findings. |
 | Must not read | Broad source implementation, delivery tasks or diffs. Targeted research runs as a separate investigation and returns decisive evidence. |
 | Produces | Editable intake checkpoint, optional linked discovery questions, confirmed terminology/decisions and the accepted milestone contract. |
@@ -115,7 +115,7 @@ Dispatch grouping belongs here for the same reason. The planner reads across the
 | Field | Value |
 | --- | --- |
 | Purpose | Dispatch, checkpoint, integrate, and close one phase. |
-| Trigger | Owner, explicitly, per phase. |
+| Trigger | Owner explicitly for one phase, or project orchestrator under the owner's approved plan. |
 | Reads | Milestone and phase records; dispatch groups; task identifiers, statuses, dependencies, risk classes and context maps; worker plans and envelopes; review verdicts. Targeted task detail for dispatch, checkpoints, blockers or contested verdicts; affected diff and file sections for permitted conflict resolution or corrections. |
 | Must not read | Worker reasoning beyond the required plan and factual handoff; unrelated repository content. Targeted implementation reads do not replace independent review. |
 | Produces | Worker briefs, checkpoint decisions, integration, phase record, friction entries, cleanup trigger. |
@@ -123,7 +123,7 @@ Dispatch grouping belongs here for the same reason. The planner reads across the
 | Model and effort | Frontier, maximum effort, focused context checkpointed each phase. |
 | Authority | Dispatch, integration into the milestone branch, acceptance of independently reviewed work, scripted cleanup. Not product decisions, pushing, history rewriting, or unscripted branch deletion. |
 
-Each phase ends with a durable record. A separately authorized related phase may use the same orchestrator when its context remains focused and useful; refresh board state and owner comments before dispatch. Restart when context is stale, crowded or irrelevant, not automatically at every phase boundary. Ending a turn does not clear context.
+Each phase ends with a durable record. A related phase authorized individually or by the approved project plan may use the same orchestrator when its context remains focused and useful; refresh board state and owner comments before dispatch. Project mode advances automatically within its grant. Restart when context is stale, crowded or irrelevant, not automatically at every phase boundary. Ending a turn does not clear context.
 
 Use host compaction when available. Without it, checkpoint before exhausting context, including mid-phase: active task and worker IDs, branches/worktrees, integration SHA, completed actions, pending reviews, blockers and the next step. That handoff must support continuation without duplicated work. Returning control for an owner decision does not require discarding the context.
 
@@ -188,6 +188,16 @@ Blast-radius analysis is an escalation section within this role rather than a se
 
 This role is load-bearing rather than occasional, because every milestone closes with a UAT task. Naming human-only work during planning is what stops an orchestration run halting on it later.
 
+### Project lifecycle roles
+
+`orchestrate-project` is the outer lifecycle, explicitly initiated by the owner or browser action. It reads the run checkpoint, approval evidence, scope and phase records and open owner comments; it must not read unrelated repository content or framework friction history. It produces a resumable run through Intake, Planning and UAT. Owner approval of a concrete versioned plan authorizes its listed phases, independent technical reviews, local integration and bounded cleanup automatically. Its exit is the recorded human UAT verdict or an honest blocked checkpoint. Plan approval does not grant remote push or protected external mutations. Standalone phase execution remains supported.
+
+`guided-uat` reads the Human task, scope's UAT definition, candidate handoff and session checkpoint; it does not read source or worker reasoning. It produces scenario observations, resumable progress, evidence-linked defects and the owner's explicit candidate-specific verdict. It can guide and record, not invent observations, accept on the owner's behalf or dispatch repairs. Routine human work stays at the three gates; actual human-only access dependencies are recorded exceptions.
+
+`review-framework` is an explicitly invoked read-only reviewer of external friction and relevant policy. It produces evidence-linked recommendations and expected measurement, never delivery dispatch or policy mutation. It excludes unrelated scratch and product source. Its separation prevents process observations from expanding an active phase.
+
+The optional Intake/Planning review toggle requests independent agent critique before those existing human decisions. Review findings return to the current artifact's writer; critique neither settles a product choice nor adds a routine human gate.
+
 ## 4. Cleanup
 
 Cleanup splits by whether judgement is required.
@@ -200,9 +210,9 @@ This is a safety improvement rather than a relaxation. A blanket rule requiring 
 
 ## 5. The friction log
 
-Findings divide by lifetime. **Task-level findings** — bad scope, a wrong dependency, an inaccurate context map — belong on the task, where the blocker record in `doc-08` already asks whether readiness could have detected the obstruction. **Framework-level findings** — the readiness gate misses a class of problem, workers keep rediscovering the same setup, a policy is ambiguous — are not product knowledge and outlive their task, so they go to `.switchflow/friction/<milestone-id>.md`. That directory's README owns the format and the rules.
+Findings divide by lifetime. **Task-level findings** — bad scope, a wrong dependency, an inaccurate context map — belong on the task, where the blocker record in `doc-08` already asks whether readiness could have detected the obstruction. **Framework-level findings** — the readiness gate misses a class of problem, workers keep rediscovering the same setup, a policy is ambiguous — belong in the configured external operations store, outside code and canonical governance. Preserve legacy `.switchflow/friction/` history instead of silently relocating it.
 
-The orchestrator writes entries at the phase boundary, in the same action that writes the phase record. It is the only role that sees across tasks, so it is the correct author, and the marginal cost is near zero. No delivery role reads the log, so it costs nothing in the hot path.
+Every role records each human clarification or permission request when it occurs, then records the answer and resulting next action. Include project/run, phase/task when present, time, category, requested decision, reason, authority already checked and prevention opportunity; omit secrets and unnecessary personal data. If the store is unavailable, checkpoint a pending event and reconcile it when access returns rather than hiding the interruption. The orchestrator reconciles pending records at phase close. No delivery role reads friction history. Only explicit `review-framework` invocation consumes it for improvements; it never dispatches work outside the active phase.
 
 ## 6. Governing test
 

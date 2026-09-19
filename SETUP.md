@@ -21,6 +21,7 @@ After import:
 
    ```powershell
    npm --prefix .switchflow ci --ignore-scripts
+   npm --prefix .switchflow run setup:backlog-fork
    ```
 
 3. Verify the empty board and Backlog documents:
@@ -31,6 +32,18 @@ After import:
    ```
 
 4. Review and commit the imported baseline before creating product tasks.
+
+5. Sign in to the installed local Codex CLI using its normal login flow. Double-click `Start Switchflow.cmd` or run `npm --prefix .switchflow run board`. Create an initiative and start Intake from the browser. The same launcher reuses an existing service for this Git project.
+
+The CAS setup builds Backlog 1.50.1 plus the tracked revision patch from an integrity-checked official source archive using pinned Bun 1.3.14. Generated source and binaries stay in the external user cache; later projects reuse that exact build. See [fork provenance](template/.switchflow/scripts/backlog-fork/README.md). Without it, original Backlog remains readable and safe task editing fails closed.
+
+The supported host is Windows with PowerShell, Node.js, Git, and local Codex. This candidate was exercised with PowerShell 7.6.5 (launcher also invokes Windows PowerShell), Node 24.19.0, Git 2.55.0.windows.3, and Codex 0.155.0-alpha.9.2. No global model or authentication configuration is changed. Codex needs its normal local state/database permissions when the service runs; starting it inside another restricted sandbox can prevent startup even when `codex --version` succeeds.
+
+The browser uses an OS-assigned loopback port and displays the URL. `backlog.ps1 control -Port <number>` selects a fixed port; `-NoOpen` starts/reuses it without opening a tab. The original Backlog browser remains available as `npm --prefix .switchflow run board:native`.
+
+See [browser control](docs/browser-control.md) for storage backup and crash recovery. Keep the service local; a remote/cloud runner is outside this release.
+
+The separate personal framework-review skill can be installed from this repository with `scripts/install-review-skill.ps1`. Invoke `$review-switchflow` to review external friction across a selected project without dispatching application work. Its maintained source lives under `skills/review-switchflow`; it is separate from the eleven imported project skills.
 
 Use a short uppercase task prefix that is unique within the repository. `OwnerName` must match the name used on authoritative owner comments so agents can recognize and close them correctly.
 
@@ -60,3 +73,9 @@ Rollback restores the scoped source changes and document bodies from the accepte
 Bring in the eight skills, scope/revision adapter, discovery-aware flow, and their governing documents together. Existing milestone records work without conversion; their current content becomes the first baseline when edited. Keep revision snapshots in version control and add the candidate's narrow milestone lock/staging exclusions to the project gitignore.
 
 The fresh template uses `doc-09` for Scope and revisions. If that ID already belongs to a project document, preserve it. Create the new governance page through `doc create`, then substitute its assigned ID, filename and browser route in the imported skills, AGENTS.md and links. Do not overwrite a product page or renumber existing documents. Verify the remapped references in the disposable candidate before applying the update.
+
+### Updating to 0.4.0
+
+Apply the eleven skills, revised governing documents, browser service, operations modules, pinned tooling, and launcher together using the reviewed update procedure. Existing task and milestone IDs stay unchanged. External browser state is created on first launch, with no migration of existing board records. The standalone phase skill remains available for grants that name only one phase; project-wide continuation requires a recorded plan approval.
+
+Take an external state backup with the service stopped when moving a project to a different Git common directory: project identity is derived from that canonical directory. Do not copy a running service lock or auto-replay interrupted work. No ongoing application project is upgraded by changing this template repository.

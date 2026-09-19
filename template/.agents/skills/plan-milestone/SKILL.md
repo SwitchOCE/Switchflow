@@ -1,6 +1,6 @@
 ---
 name: plan-milestone
-description: 'Turn a frozen {{PROJECT_NAME_YAML_SINGLE}} scope contract into ordered phases and ready tasks with context maps. Also used to create or reshape individual tasks.'
+description: 'Plan phases and ready tasks from a frozen {{PROJECT_NAME_YAML_SINGLE}} scope contract, or shape an individual task. Does not execute delivery.'
 ---
 
 # Plan Milestone
@@ -21,13 +21,15 @@ If the contract proves wrong or incomplete during planning, checkpoint the evide
 
 ## Shape phases
 
+For project orchestration, prepare one owner-readable execution plan covering all listed phases up to the final UAT session. Record scope revision, ordered phase IDs, integration branch, worktree manager, visual/headless posture, external prerequisites and action-specific permissions. Separate product outcomes from agent delivery details. Resolve known access/setup requirements now. Apply the recorded Planning review-mode toggle before presenting the plan; its critique is agent work, not an extra human gate. Owner approval supplies the project grant in doc-03; this planning skill itself does not execute delivery.
+
 Group tasks into phases. State an objective gate on the integrated candidate using `doc-04` and the project profile. Documentation-only phases use checks for the affected documentation and board surfaces plus diff review. Runtime or operational changes require the full repository suite and applicable boundary checks. This gate complements independent review; it never replaces it.
 
 Create one parent task per phase and give it a phase label that is unique across the whole board, not just within this milestone. `cleanup-phase.ps1` selects tasks by that label alone and never scopes by milestone, so a label reused in a later milestone puts two milestones of branches in one cleanup run. Number phases continuously, or name them after the work. Add the `coordination` label to the parent. Give the parent the phase plan in its description and state that it is not a worker assignment. Worker tasks are its children and carry the same label.
 
 Group each phase's tasks for dispatch in that plan. You read across the repository and wrote every context map. The orchestrator uses those maps and targeted detail for execution decisions, but does not repeat the planning pass or widen groups; an ungrouped phase is delivered one task at a time.
 
-A group runs in parallel when its tasks have independent outcomes, owned non-overlapping files or a stable interface between them, an explicit integration order, and reviewable stop conditions — the fan-out shape `doc-07` requires. Otherwise sequence them. Both answers are normal: sequencing work that could have run in parallel costs wall time and leaves no trace, so sequence is not the safe default. State the reason for each boundary, so the orchestrator can act on it and the next planning pass can correct it.
+A group runs in parallel when its tasks have independent outcomes, owned non-overlapping files or a stable interface between them, an explicit integration order, and reviewable stop conditions — the fan-out shape `doc-07` requires. Otherwise sequence them. Choose grouping by independence and delivery cost; state the reason for each boundary so orchestration can use it.
 
 ```markdown
 ## Phase 1 plan
@@ -44,6 +46,8 @@ A group runs in parallel when its tasks have independent outcomes, owned non-ove
 ```
 
 The milestone closes with a Human-assigned acceptance test built from the contract's UAT definition. Use `create-human-task` and make it depend on the final phase.
+
+When an approved project spans several milestones, prepare all their scenarios for one final guided UAT session unless the owner requires an intermediate human boundary. Technical milestone checks stay with the agent. Assign one owner per expensive check and record reusable evidence identity under doc-04, so worker, reviewer and integration stages do not repeat unchanged proof.
 
 ## Shape tasks
 
@@ -64,7 +68,7 @@ Advisory. Start here; correct it if it is wrong.
 - Pattern to follow: `src/example.ts:60-95`
 ```
 
-The map is exempt from the description word limit. It is advisory, so a worker that finds it inaccurate corrects course and reports the correction rather than treating it as a contract. An accurate map is the difference between a worker that starts working and one that starts searching.
+The map is exempt from the description word limit. It is advisory, so a worker that finds it inaccurate corrects course and reports the correction rather than treating it as a contract.
 
 Set the risk class from `backlog/docs/doc-04 - Engineering-standards.md`. It selects both the verification depth and the capability the worker needs.
 

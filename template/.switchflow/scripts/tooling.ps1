@@ -63,6 +63,15 @@ function Get-ToolingRoots {
 function Resolve-BacklogCli {
     param([Parameter(Mandatory)][string]$ProjectRoot)
 
+    $forkResolver = Join-Path $ProjectRoot '.switchflow\scripts\backlog-fork\resolve.mjs'
+    if (Test-Path -LiteralPath $forkResolver -PathType Leaf) {
+        try {
+            $forkCli = & node $forkResolver 2>$null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath ([string]$forkCli).Trim() -PathType Leaf)) { return ([string]$forkCli).Trim() }
+        } catch { # Existing imports retain readable original tooling until explicit fork setup.
+        }
+    }
+
     $projectPackage = Get-Content -Raw -Encoding utf8 (Join-Path $ProjectRoot '.switchflow\package.json') | ConvertFrom-Json
     $expectedVersion = [string]$projectPackage.devDependencies.'backlog.md'
     if ([string]::IsNullOrWhiteSpace($expectedVersion)) {

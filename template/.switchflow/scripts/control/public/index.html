@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Switchflow · Project control</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#board">Skip to project board</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Switchflow home"><span class="brand-mark" aria-hidden="true">S</span>Switchflow<span class="brand-divider">/</span><span id="project-name">Project control</span></a>
+    <div class="header-actions"><span id="connection" class="connection" role="status">Connecting…</span><a id="backlog-link" class="text-link" hidden target="_blank" rel="noopener">Open Backlog ↗</a><button class="button primary" id="new-initiative">+ New initiative</button></div>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">PROJECT WORKSPACE</p><h1 id="page-title">Your decisions. Agent delivery.</h1><p class="intro-copy">Shape the scope, approve the plan, and try the result.<br> Agents carry the work between these three checkpoints.</p></div>
+      <div class="human-steps" aria-label="Three human checkpoints"><span><b>01</b> Intake</span><i aria-hidden="true">→</i><span><b>02</b> Planning</span><i aria-hidden="true">→</i><span><b>03</b> UAT</span></div>
+    </section>
+    <div id="error-banner" class="banner error" role="alert" hidden></div>
+    <div id="notice-banner" class="banner" role="status" hidden></div>
+    <section class="board-section" aria-labelledby="board-title">
+      <div class="section-heading"><div><h2 id="board-title">Project board</h2><span id="board-count" class="muted">Loading initiatives…</span></div><div class="board-tools"><label class="search-label" for="filter">Find an initiative<input id="filter" type="search" placeholder="Search initiatives…"></label><button id="refresh" class="button quiet" aria-label="Refresh board">Refresh</button></div></div>
+      <div class="board" id="board" tabindex="-1" aria-busy="true"></div>
+      <div id="empty-state" class="empty-state" hidden><span class="empty-symbol" aria-hidden="true">↗</span><h3>Start with the outcome you want.</h3><p>Describe an initiative. Your agent will inspect what exists and bring back a scope for your review.</p><button class="button primary" id="empty-create">Create your first initiative</button></div>
+    </section>
+    <section class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><div><h2 id="tasks-title">Delivery tasks</h2><span id="task-count" class="muted">Project work items</span></div><button id="operations-open" class="button quiet">Framework health ↗</button></div><p class="muted">Inspect the actual delivery work. Ready, blocked, and backlog tasks can be edited while agents are idle.</p><div id="tasks-list" class="tasks-grid"></div></section>
+    <section class="delivery-strip" aria-label="Delivery activity"><div><span class="pulse-dot" aria-hidden="true"></span><strong id="activity-title">Agent activity</strong></div><p id="activity-summary">Waiting for the project connection.</p><span class="muted" id="updated-at"></span></section>
+  </main>
+  <dialog id="create-dialog" class="create-dialog" aria-labelledby="create-title">
+    <form id="create-form"><div class="dialog-heading"><div><p class="eyebrow">NEW INITIATIVE</p><h2 id="create-title">What should change?</h2></div><button type="button" class="icon-button close-create" aria-label="Close new initiative">×</button></div><p class="muted">Start intake in one click. An agent will inspect the project and surface the decisions that need you.</p><label for="initiative-title">Initiative title<input id="initiative-title" name="title" required maxlength="160" placeholder="A short name for the outcome"></label><label for="initiative-request">Desired outcome<textarea id="initiative-request" name="request" required rows="6" maxlength="24000" placeholder="Who is this for, what should they be able to do, and what constraints matter?"></textarea></label><div id="dictation-controls" hidden><button type="button" class="button quiet" id="dictate">Use dictation</button><span id="dictation-status" class="muted" role="status"></span></div><label class="checkbox-label"><input type="checkbox" name="reviewMode" id="review-mode"><span><strong>More detailed intake and planning review</strong><small>Ask the agent to challenge assumptions and explain tradeoffs before you approve.</small></span></label><p id="create-error" class="inline-error" role="alert" hidden></p><div class="dialog-footer"><button type="button" class="button quiet close-create">Cancel</button><button type="submit" class="button primary" id="create-submit">Start intake →</button></div></form>
+  </dialog>
+  <dialog id="detail-dialog" class="detail-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="task-dialog" class="create-dialog" aria-labelledby="task-dialog-title"><div class="dialog-heading"><div><p class="eyebrow">DELIVERY TASK</p><h2 id="task-dialog-title">Task details</h2></div><button class="icon-button" id="task-close" aria-label="Close task details">×</button></div><div id="task-content"></div></dialog>
+  <dialog id="operations-dialog" class="detail-dialog" aria-labelledby="operations-title"><div class="detail-header dialog-heading"><div><p class="eyebrow">PROJECT OPERATIONS</p><h2 id="operations-title">Framework health</h2></div><button class="icon-button" id="operations-close" aria-label="Close framework health">×</button></div><div class="detail-body" id="operations-content"></div></dialog>
+  <div class="sr-only" role="status" aria-live="polite" id="live-status"></div>
+</body>
+</html>

@@ -44,9 +44,10 @@ try {
     if (current.status !== 0) throw new Error(`Cannot read task before description update: ${(current.stderr || current.stdout).slice(0, 1000)}`);
     const status = JSON.parse(current.stdout).task?.status;
     if (!status) throw new Error('Task response has no status; refusing description update.');
-    // task_edit's schema defaults status to Backlog. Carry the observed status explicitly.
+    // Core applies a partial update under its task lock. Omit status so an
+    // unrelated concurrent status transition cannot be reverted by this edit.
     toolName = 'task_edit';
-    argumentsBody = { id: args[2], description: content, status };
+    argumentsBody = { id: args[2], description: content };
   }
   const require = createRequire(resolve(cliPath));
   const { resolveBinaryPath } = require(join(dirname(resolve(cliPath)), 'resolveBinary.cjs'));

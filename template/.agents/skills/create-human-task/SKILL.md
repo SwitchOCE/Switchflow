@@ -1,11 +1,13 @@
 ---
 name: create-human-task
-description: 'Create or revise the {{PROJECT_NAME_YAML_SINGLE}} Backlog.md task for action by {{OWNER_NAME_YAML_SINGLE}} or a person {{OWNER_NAME_YAML_SINGLE}} coordinates. Always assigns Human and writes a concise step-by-step checklist.'
+description: 'Create or revise a {{PROJECT_NAME_YAML_SINGLE}} task requiring human action, with a Human assignee and executable checklist.'
 ---
 
 # Create Human Task
 
 Use this skill when completion requires human access, judgement, physical observation, or coordination.
+
+Keep routine human participation at Intake, Planning and UAT. Do not turn approved phase starts or technical checks into human tasks. Prefer a guided session with `guided-uat` for acceptance: prepare the candidate, present one visible action, record the observation, and retain the next unfinished scenario. Use an exception task only for genuinely human-only work and explain why the agent cannot perform it.
 
 Every milestone closes with one of these. `plan-milestone` builds the closing acceptance test from the scope contract's **UAT definition** and makes it depend on the final phase. Naming human-only work while planning is what prevents an orchestration run halting on it later.
 

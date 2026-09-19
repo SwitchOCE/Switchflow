@@ -1,6 +1,6 @@
 ---
 name: review-task
-description: 'Independently review a fixed {{PROJECT_NAME_YAML_SINGLE}} task diff against its accepted outcome and repository standards, escalating to blast-radius analysis only when a stated trigger fires.'
+description: 'Independently review a fixed {{PROJECT_NAME_YAML_SINGLE}} task diff for its accepted outcome and material risks. Does not fix or integrate changes.'
 ---
 
 # Review Task
@@ -11,7 +11,7 @@ Produce an independent verdict on a fixed change surface.
 
 Pin the accepted base, the exact HEAD, and the fixed diff. Read the complete task and its comments, the affected contracts, the review contract in `backlog/docs/doc-08 - Delivery-contract.md`, and the Delivery rules and applicable Risk and verification guidance in `backlog/docs/doc-04 - Engineering-standards.md`.
 
-Do not read the worker's reasoning beyond the factual handoff. Judge the artifact, not the argument. Reading the rationale converts independent review into agreement with it.
+Do not read the worker's reasoning beyond the factual handoff. Judge the artifact, not the argument.
 
 Identify open {{OWNER_NAME}} comments using `doc-07` and include unresolved input in the findings. Review is read-only, so do not close them.
 
@@ -40,8 +40,6 @@ blast-radius: Elevated — persisted shape changed at src/store/schema.ts:88
 Escalate only when a trigger fires: a suspiciously small diff for the change described, or a durable Elevated or Critical boundary. Nearby sensitive code does not make an ordinary change Critical.
 
 When escalating, identify changed symbols, persisted shapes, wire formats, artifacts, external calls, and downstream readers. Look past direct references when the change reaches serialised data, migrations, IPC, packaged paths, deterministic outputs, or another process. Name the one or two facts safety depends on and prove each with the cheapest credible evidence: exact contract, walked failure path, focused execution, or real artifact observation. Say where proof stopped.
-
-The declaration is required because an escalation phrased as permission gets run every time, which buys correlated findings from one model at double the cost instead of independent coverage.
 
 ## Report and stop
 

@@ -1,0 +1,358 @@
+diff --git a/src/cli.ts b/src/cli.ts
+index 6062ce1..d02e4b9 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -2800,6 +2800,7 @@ addHelpSchema(taskCmd.command("edit [taskId]"), {
+ 	],
+ })
+ 	.description("edit an existing task")
++	.option("--expected-revision <sha256>", "reject edits when the raw task revision changed")
+ 	.option("-t, --title <title>")
+ 	.option("-d, --description <text>", "task description")
+ 	.option("--desc <text>", "alias for --description")
+@@ -3177,7 +3178,7 @@ addHelpSchema(taskCmd.command("edit [taskId]"), {
+ 		const commentsAppendValues = toStringArray(options.comment);
+ 		const finalSummaryAppendValues = toStringArray(options.appendFinalSummary);
+ 
+-		const editArgs: TaskEditArgs = {};
++		const editArgs: TaskEditArgs = { expectedRevision: options.expectedRevision };
+ 		if (options.title) {
+ 			editArgs.title = String(options.title);
+ 		}
+diff --git a/src/core/backlog.ts b/src/core/backlog.ts
+index 580733f..3c94be6 100644
+--- a/src/core/backlog.ts
++++ b/src/core/backlog.ts
+@@ -1726,6 +1726,19 @@ export class Core {
+ 	}
+ 
+ 	async updateTask(task: Task, autoCommit?: boolean): Promise<string> {
++		const existing = await this.loadTaskForMutation(task.id);
++		if (!existing) throw new Error(`Task not found: ${task.id}`);
++		return await this.fs.withTaskLock(existing, async () => {
++			const current = await this.loadTaskForMutation(task.id);
++			if (!current) throw new Error(`Task not found: ${task.id}`);
++			if (task.revision !== undefined && task.revision !== current.revision) {
++				throw new Error("REVISION_CONFLICT: Task changed. Reload before editing.");
++			}
++			return await this.updateTaskLocked(task, autoCommit);
++		});
++	}
++
++	private async updateTaskLocked(task: Task, autoCommit?: boolean): Promise<string> {
+ 		normalizeAssignee(task);
+ 
+ 		// Load original task to detect status changes for callbacks
+@@ -2338,6 +2351,9 @@ export class Core {
+ 		}
+ 
+ 		const requestedStatus = input.status?.trim().toLowerCase();
++		if (input.expectedRevision !== undefined && process.env.USE_GLOBAL_TASK_ID_LOCK?.toLowerCase() === "false") throw new Error("CAS requires the canonical task lock");
++		if (input.expectedRevision !== undefined && !/^[a-f0-9]{64}$/.test(input.expectedRevision)) throw new Error("Invalid expectedRevision");
++		if (requestedStatus === "draft" && input.expectedRevision !== undefined) throw new Error("CAS draft transitions are not supported");
+ 		if (requestedStatus === "draft") {
+ 			// demoteTaskWithUpdates takes the task lock itself, so it must not be nested here.
+ 			return await this.demoteTaskWithUpdates(task, input, autoCommit, options);
+@@ -2353,6 +2369,10 @@ export class Core {
+ 				throw new Error(`Task not found: ${taskId}`);
+ 			}
+ 
++			if (input.expectedRevision !== undefined && current.revision !== input.expectedRevision) {
++				throw new Error("REVISION_CONFLICT: Task changed. Reload before editing.");
++			}
++
+ 			const { mutated } = await this.applyTaskUpdateInput(current, input, async (status) =>
+ 				this.requireCanonicalStatus(status),
+ 			);
+@@ -2362,7 +2382,7 @@ export class Core {
+ 			}
+ 
+ 			await this.updateTask(current, autoCommit);
+-			return current;
++			return (await this.loadTaskForMutation(taskId, options)) ?? current;
+ 		});
+ 	}
+ 
+@@ -2403,6 +2423,7 @@ export class Core {
+ 	}
+ 
+ 	async editTaskOrDraft(taskId: string, input: TaskUpdateInput, autoCommit?: boolean): Promise<Task> {
++		if (input.expectedRevision !== undefined) return await this.updateTaskFromInput(taskId, input, autoCommit);
+ 		const draft = await this.fs.loadDraft(taskId);
+ 		if (draft) {
+ 			const requestedStatus = input.status?.trim();
+@@ -2602,6 +2623,16 @@ export class Core {
+ 		}
+ 	}
+ 
++	private async withTaskLocks<T>(participants: Task[], fn: () => Promise<T>): Promise<T> {
++		const byIdentity = new Map(participants.map((task) => [task.id.toLowerCase(), task]));
++		const tasks = [...byIdentity.values()].sort((a, b) => a.id.toLowerCase().localeCompare(b.id.toLowerCase()));
++		const lockNext = async (index: number): Promise<T> => {
++			const task = tasks[index];
++			return task ? await this.fs.withTaskLock(task, () => lockNext(index + 1)) : await fn();
++		};
++		return await lockNext(0);
++	}
++
+ 	async reorderTask(params: {
+ 		taskId: string;
+ 		targetStatus: string;
+@@ -2610,6 +2641,31 @@ export class Core {
+ 		commitMessage?: string;
+ 		autoCommit?: boolean;
+ 		defaultStep?: number;
++	}): Promise<{ updatedTask: Task; changedTasks: Task[] }> {
++		// Lock every possible rebalance participant before refreshing snapshots. Sorted
++		// acquisition avoids deadlocks; contention fails before any task is written.
++		const byIdentity = new Map<string, Task>();
++		for (const id of params.orderedTaskIds) {
++			const task = await this.fs.loadTask(normalizeTaskId(String(id).trim()));
++			if (task) byIdentity.set(task.id.toLowerCase(), task);
++		}
++		const tasks = [...byIdentity.values()].sort((a, b) => a.id.toLowerCase().localeCompare(b.id.toLowerCase()));
++		const lockNext = async (index: number): Promise<{ updatedTask: Task; changedTasks: Task[] }> => {
++			const task = tasks[index];
++			if (!task) return await this.reorderTaskLocked(params);
++			return await this.fs.withTaskLock(task, () => lockNext(index + 1));
++		};
++		return await lockNext(0);
++	}
++
++	private async reorderTaskLocked(params: {
++		taskId: string;
++		targetStatus: string;
++		orderedTaskIds: string[];
++		targetMilestone?: string | null;
++		commitMessage?: string;
++		autoCommit?: boolean;
++		defaultStep?: number;
+ 	}): Promise<{ updatedTask: Task; changedTasks: Task[] }> {
+ 		const taskId = normalizeTaskId(String(params.taskId || "").trim());
+ 		const targetStatus = String(params.targetStatus || "").trim();
+@@ -2726,6 +2782,12 @@ export class Core {
+ 	}
+ 
+ 	async archiveTask(taskId: string, autoCommit?: boolean): Promise<boolean> {
++		const task = await this.loadTaskForMutation(taskId);
++		if (!task) return false;
++		return await this.withTaskLocks([task, ...(await this.fs.listTasks())], () => this.archiveTaskLocked(taskId, autoCommit));
++	}
++
++	private async archiveTaskLocked(taskId: string, autoCommit?: boolean): Promise<boolean> {
+ 		const taskToArchive = await this.loadTaskForMutation(taskId);
+ 		if (!taskToArchive) {
+ 			return false;
+@@ -2842,6 +2904,12 @@ export class Core {
+ 	}
+ 
+ 	async completeTask(taskId: string, autoCommit?: boolean): Promise<boolean> {
++		const task = await this.loadTaskForMutation(taskId);
++		if (!task) return false;
++		return await this.withTaskLocks([task], () => this.completeTaskLocked(taskId, autoCommit));
++	}
++
++	private async completeTaskLocked(taskId: string, autoCommit?: boolean): Promise<boolean> {
+ 		const task = await this.loadTaskForMutation(taskId);
+ 		if (!task) return false;
+ 		// Get paths before moving the file
+@@ -2960,6 +3028,12 @@ export class Core {
+ 	}
+ 
+ 	async demoteTask(taskId: string, autoCommit?: boolean): Promise<boolean> {
++		const task = await this.loadTaskForMutation(taskId);
++		if (!task) return false;
++		return await this.withTaskLocks([task], () => this.demoteTaskLocked(taskId, autoCommit));
++	}
++
++	private async demoteTaskLocked(taskId: string, autoCommit?: boolean): Promise<boolean> {
+ 		const task = await this.loadTaskForMutation(taskId);
+ 		if (!task) return false;
+ 		const movedPaths: Array<{ previousPath: string; savedPath: string }> = [];
+diff --git a/src/file-system/operations.ts b/src/file-system/operations.ts
+index cbcab13..a7a885d 100644
+--- a/src/file-system/operations.ts
++++ b/src/file-system/operations.ts
+@@ -1,3 +1,5 @@
++import { AsyncLocalStorage } from "node:async_hooks";
++import { createHash } from "node:crypto";
+ import { mkdir, rename, stat, unlink } from "node:fs/promises";
+ import { dirname, isAbsolute, join, resolve } from "node:path";
+ import lockfile from "proper-lockfile";
+@@ -276,6 +278,7 @@ export function taskLockErrorMessage(taskId: string): string {
+ }
+ 
+ export class FileSystem {
++	private readonly taskLockContext = new AsyncLocalStorage<ReadonlyMap<string, { active: boolean }>>();
+ 	private resolvedBacklogDir: string;
+ 	private resolvedBacklogDirName: string;
+ 	private resolvedConfigPath: string;
+@@ -621,12 +624,21 @@ export class FileSystem {
+ 			.toLowerCase()
+ 			.replace(/[^a-z0-9._-]+/g, "-")
+ 			.replace(/^\.+/, "");
++		const held = this.taskLockContext.getStore() ?? new Map<string, { active: boolean }>();
++		if (held.get(lockKey)?.active) return await fn();
+ 		return await this.withLockTarget(
+ 			filePath,
+ 			join(await this.getBacklogDir(), ".locks", `task-${lockKey || "unknown"}`),
+ 			{ staleMs: DEFAULT_CREATE_LOCK_STALE_MS, retries: 0, retryDelayMs: 0 },
+ 			(error) => this.toTaskLockError(error, task.id),
+-			fn,
++			async () => {
++				const lease = { active: true };
++				try {
++					return await this.taskLockContext.run(new Map([...held, [lockKey, lease]]), fn);
++				} finally {
++					lease.active = false;
++				}
++			},
+ 		);
+ 	}
+ 
+@@ -802,13 +814,15 @@ export class FileSystem {
+ 		if (cacheEpoch === this.taskParseCacheEpoch) {
+ 			this.taskFileReadGenerations.set(cacheKey, generation);
+ 		}
+-		const content = await this.withTaskFileReadSlot(async () => await Bun.file(filepath).text());
++		const bytes = await this.withTaskFileReadSlot(async () => await Bun.file(filepath).arrayBuffer());
++		const content = new TextDecoder().decode(bytes);
++		const revision = createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
+ 		const cached = this.parsedTaskFiles.get(cacheKey);
+-		if (cached?.content === content) {
++		if (cached?.content === content && cached.task.revision === revision) {
+ 			return structuredClone(cached.task);
+ 		}
+ 
+-		const parsed = parseTask(content);
++		const parsed = { ...parseTask(content), revision };
+ 		if (cacheEpoch === this.taskParseCacheEpoch && this.taskFileReadGenerations.get(cacheKey) === generation) {
+ 			this.parsedTaskFiles.set(cacheKey, { content, task: parsed });
+ 		}
+diff --git a/src/formatters/json-output.ts b/src/formatters/json-output.ts
+index 5da9486..6757355 100644
+--- a/src/formatters/json-output.ts
++++ b/src/formatters/json-output.ts
+@@ -33,6 +33,7 @@ type TaskCommentJson = {
+ };
+ 
+ type TaskDetailsJson = TaskSummaryJson & {
++	revision: string | null;
+ 	path: string | null;
+ 	description: string | null;
+ 	dependencies: string[];
+@@ -126,6 +127,7 @@ function toChecklistJson(items: Task["acceptanceCriteriaItems"]): ChecklistItemJ
+ function toTaskDetailsJson(task: Task, projectRoot: string): TaskDetailsJson {
+ 	return {
+ 		...toTaskSummaryJson(task),
++		revision: task.revision ?? null,
+ 		path: toProjectRelativePath(projectRoot, task.filePath),
+ 		description: nullableDescription(task.description),
+ 		dependencies: task.dependencies ?? [],
+diff --git a/src/mcp/utils/schema-generators.ts b/src/mcp/utils/schema-generators.ts
+index 6cc5b72..e816c73 100644
+--- a/src/mcp/utils/schema-generators.ts
++++ b/src/mcp/utils/schema-generators.ts
+@@ -239,6 +239,8 @@ export function generateTaskCreateSchema(config: BacklogConfig): JsonSchema {
+  * Generates the task_edit input schema with dynamic status enum and MCP-specific operations.
+  */
+ export function generateTaskEditSchema(config: BacklogConfig): JsonSchema {
++	const statusSchema = { ...generateStatusFieldSchema(config) };
++	delete statusSchema.default;
+ 	return {
+ 		type: "object",
+ 		properties: {
+@@ -255,7 +257,8 @@ export function generateTaskEditSchema(config: BacklogConfig): JsonSchema {
+ 				type: "string",
+ 				maxLength: 10000,
+ 			},
+-			status: generateStatusFieldSchema(config),
++			status: statusSchema,
++			expectedRevision: { type: "string", minLength: 64, maxLength: 64, description: "Raw task SHA256 from task_view; stale revisions are rejected under the task lock." },
+ 			priority: generatePriorityFieldSchema(config),
+ 			type: generateTypeFieldSchema(config),
+ 			ordinal: {
+diff --git a/src/mcp/utils/task-response.ts b/src/mcp/utils/task-response.ts
+index c7ceada..7e4718a 100644
+--- a/src/mcp/utils/task-response.ts
++++ b/src/mcp/utils/task-response.ts
+@@ -7,7 +7,7 @@ export async function formatTaskCallResult(
+ 	summaryLines: string[] = [],
+ 	options: Parameters<typeof formatTaskPlainText>[1] = {},
+ ): Promise<CallToolResult> {
+-	const formattedTask = formatTaskPlainText(task, options);
++	const formattedTask = formatTaskPlainText(task, options) + (task.revision ? `\nRevision: ${task.revision}` : "");
+ 	const summary = summaryLines.filter((line) => line.trim().length > 0).join("\n");
+ 	const text = summary ? `${summary}\n\n${formattedTask}` : formattedTask;
+ 
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 02e3ed8..860ea3f 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -1079,6 +1079,7 @@ export class BacklogServer {
+ 			}
+ 			return Response.json({ success: true });
+ 		} catch (error) {
++			if (isTaskLockError(error)) return Response.json({ error: error.message }, { status: 409 });
+ 			if (isAmbiguousTaskIdError(error)) {
+ 				return Response.json({ error: error.message }, { status: 409 });
+ 			}
+@@ -1097,6 +1098,7 @@ export class BacklogServer {
+ 			this.broadcastTasksUpdated();
+ 			return Response.json({ success: true });
+ 		} catch (error) {
++			if (isTaskLockError(error)) return Response.json({ error: error.message }, { status: 409 });
+ 			const message = error instanceof Error ? error.message : "Failed to complete task";
+ 			if (!isAmbiguousTaskIdError(error)) {
+ 				console.error("Error completing task:", error);
+@@ -1628,7 +1630,7 @@ export class BacklogServer {
+ 			return Response.json({ success: true, task: updatedTask, changedTasks });
+ 		} catch (error) {
+ 			const message = error instanceof Error ? error.message : "Failed to reorder task";
+-			if (isAmbiguousTaskIdError(error)) {
++			if (isAmbiguousTaskIdError(error) || isTaskLockError(error)) {
+ 				return Response.json({ error: message }, { status: 409 });
+ 			}
+ 			// Cross-branch and validation errors are client errors (400), not server errors (500)
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 00a1f43..b69e66d 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -70,6 +70,7 @@ export interface Task {
+ 	branch?: string;
+ 	ordinal?: number;
+ 	filePath?: string;
++	revision?: string;
+ 	// Metadata fields
+ 	lastModified?: Date;
+ 	source?: "local" | "remote" | "completed" | "local-branch";
+@@ -127,6 +128,7 @@ export interface TaskCreateInput {
+ }
+ 
+ export interface TaskUpdateInput {
++	expectedRevision?: string;
+ 	title?: string;
+ 	description?: string;
+ 	status?: TaskStatus;
+diff --git a/src/types/task-edit-args.ts b/src/types/task-edit-args.ts
+index 5268013..64be9a4 100644
+--- a/src/types/task-edit-args.ts
++++ b/src/types/task-edit-args.ts
+@@ -1,4 +1,5 @@
+ export interface TaskEditArgs {
++	expectedRevision?: string;
+ 	title?: string;
+ 	description?: string;
+ 	status?: string;
+diff --git a/src/utils/task-edit-builder.ts b/src/utils/task-edit-builder.ts
+index 5f478cc..6f27f44 100644
+--- a/src/utils/task-edit-builder.ts
++++ b/src/utils/task-edit-builder.ts
+@@ -32,6 +32,7 @@ function toAcceptanceCriteriaEntries(values: string[] | undefined) {
+ 
+ export function buildTaskUpdateInput(args: TaskEditArgs): TaskUpdateInput {
+ 	const updateInput: TaskUpdateInput = {};
++	if (args.expectedRevision !== undefined) updateInput.expectedRevision = args.expectedRevision;
+ 
+ 	if (typeof args.title === "string") {
+ 		updateInput.title = args.title;

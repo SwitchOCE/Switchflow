@@ -28,6 +28,8 @@ The task branch pattern is `task/{0}`, where `{0}` is the task ID. Replace this 
 
 ## Normal verification
 
+Before approving a project plan, record its authoritative board checkout, integration/candidate branch, worktree manager (Codex, orchestrator or human), external operations/scratch location, evidence retention, visual/headless/mixed verification posture, and Intake/Planning review-mode defaults. The plan identifies the actual values and phase sequence used by that run. Choose these from the current project and available host; do not assume a Codex-managed worktree also isolates user profiles or test data.
+
 No application-specific build, test, lint, type-check, or artifact commands have been recorded yet. Add the smallest normal gate before the first runtime change.
 
 ## Approval posture

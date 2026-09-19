@@ -20,11 +20,29 @@ npm --prefix .switchflow ci --ignore-scripts # initial setup only, while this in
 
 The server listens on <http://127.0.0.1:6420>. Agents use `.switchflow/scripts/backlog.ps1` instead of editing task frontmatter. The wrapper reuses a matching pinned Backlog.md installation from the primary checkout when possible, so isolated worktrees do not need a full install for board access.
 
+For project initiation and orchestration controls, use `.switchflow/scripts/backlog.ps1 control`. This local control surface complements the native task/document board. It keeps initiative revisions, owner messages, approval history and agent checkpoints in the external project operations directory, keyed by the canonical Git common directory so worktrees share one run history. It serializes active agent processes for that project. A restarted service marks uncertain execution interrupted; resume from the recorded checkpoint and never blindly replay an external action.
+
 Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
 
 `milestone list` reports active and completed records. Completed records remain outside the active board and count once by task ID.
 
 ## Ownership and authority
+
+### Three routine human steps
+
+1. **Intake:** agree the intended outcome, current capability gaps, exclusions, and UAT definition. Preserve a resumable checkpoint across all proposed phases.
+2. **Planning:** review the concrete phase sequence, candidate and environment, technical gates, scope revision, and external-action boundaries. In project orchestration mode, approving this plan authorizes its listed phases automatically through technical review and local integration until UAT.
+3. **UAT:** use the delivered candidate in a guided walkthrough and record acceptance or observed failures. Technical completion never substitutes for the owner's acceptance.
+
+The browser's initiation action starts or resumes this lifecycle. It must expose the current gate, progress, next action and owner, and recoverable run identity. Starting intake does not pre-approve the plan. Phase starts and technical milestone checks are agent work after plan approval, with no routine human start or milestone-acceptance step. Review mode in Intake or Planning requests an independent critique before the corresponding human decision; it does not add another human gate.
+
+Scope changes and bugs use the revision procedure when they alter accepted outcomes; read-only project updates report progress without changing authority. Missing access, consequential unplanned decisions, or protected external actions remain explicit exceptions. Record each human interruption externally so a separately requested framework review can improve the process.
+
+### Project and phase grants
+
+An explicit `orchestrate-project` request or owner approval of its concrete browser plan designates the project orchestrator. The durable approval identifies the scope revision, ordered phases, integration branch, UAT boundary, and any separately approved external actions. Continue the next listed phase after its dependencies and integrated gate pass. Re-read board state and owner comments before each dispatch; a stale or edited plan requires reconciliation before affected work continues. Persist approval and run checkpoints so restarting never loses authority or repeats completed delivery. A run state or agent-written approval string alone is not evidence of owner approval.
+
+A standalone `orchestrate-phase` request still authorizes only the named phase. The project orchestrator invokes that same phase procedure under its approved plan; the inner phase exit checkpoints progress and returns to the project loop rather than asking the owner to start the next phase. Neither mode grants unlisted scope, remote push, deployment, live-data mutation, or general branch deletion.
 
 The project owner or user owns product goals, priority, accepted risk, and final milestone accountability. Codex prepares and delivers work against that direction. Their decisions are binding unless unsafe or impossible.
 
@@ -38,7 +56,7 @@ Explicit `$orchestrate-phase` invocation designates the orchestrator for one nam
 
 One narrow exception to branch deletion stands: the orchestrator may run `.switchflow/scripts/cleanup-phase.ps1` at a phase boundary. The script deletes a branch and removes its worktree only when the task is **Done**, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else it reports as an exception for a decision. This grant covers that predicate and nothing wider; deleting a branch outside it still requires explicit authorization.
 
-`deliver-task` implements one referenced task, whether invoked directly or briefed by an orchestrator, and stops at Review. `review-task` independently reviews a fixed change surface and does not change accepted scope. A milestone's scope contract is established by `intake` and decomposed by `plan-milestone`; neither authorizes execution.
+`deliver-task` implements one referenced task, whether invoked directly or briefed by an orchestrator, and stops at Review. `review-task` independently reviews a fixed change surface and does not change accepted scope. A milestone's scope contract is established by `intake` and decomposed by `plan-milestone`. Producing those artifacts does not authorize execution; owner approval of a project execution plan supplies the project grant described above.
 
 ## Status lifecycle
 

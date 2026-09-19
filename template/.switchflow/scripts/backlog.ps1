@@ -1,6 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $PSScriptRoot 'tooling.ps1')
+if ($args.Count -ge 1 -and $args[0] -eq 'control') {
+    & (Join-Path $PSScriptRoot 'start-control.ps1') @($args | Select-Object -Skip 1)
+    exit $LASTEXITCODE
+}
 $cliPath = Resolve-BacklogCli -ProjectRoot $projectRoot
 
 $isMilestoneList = $args.Count -ge 2 -and $args[0] -in @('milestone', 'milestones') -and $args[1] -eq 'list'

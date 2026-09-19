@@ -1,11 +1,11 @@
 ---
 name: orchestrate-phase
-description: 'Deliver one phase of a prepared {{PROJECT_NAME_YAML_SINGLE}} milestone through direct serial delivery or parallel workers, independent review, integration, and a phase record. Use only when explicitly invoked.'
+description: 'Deliver one authorized {{PROJECT_NAME_YAML_SINGLE}} phase through independent review, integration, and closure. Use explicitly or within an approved project plan.'
 ---
 
 # Orchestrate Phase
 
-Deliver the named phase and record what the next phase needs. Explicit invocation designates this agent as orchestrator for that phase with the authority described in `backlog/docs/doc-03 - Kanban-workflow.md`. Reusing this context does not authorize another phase.
+Deliver the named phase and record what the next phase needs. Explicit invocation or dispatch from `orchestrate-project` under its approved plan designates this agent for that phase with the authority described in `backlog/docs/doc-03 - Kanban-workflow.md`. Context reuse alone does not authorize another phase; a current project grant does.
 
 Retain useful context for related serial work. Add delivery agents when parallel work or a stated capability or isolation benefit justifies the extra coordination.
 
@@ -85,7 +85,7 @@ Then close the phase:
    It removes a branch only when its task is Done, the branch matches the task-branch pattern, and Git reports it fully merged into the integration branch. Everything else is reported and left alone. Do not force past an exception: an unmerged branch or a dirty worktree holds work nobody has reviewed. Resolve it or record it in the phase record.
 
 2. Write the phase record as a comment on the phase parent task.
-3. Append friction entries to `.switchflow/friction/<milestone-id>.md`. See that directory's README for what belongs there — framework-level findings only, never task-level ones.
+3. Reconcile external friction entries for every clarification or permission request and framework-level finding. Use the configured external operations store; retain historical `.switchflow/friction/` entries without creating new competing logs. Task-level defects remain on their tasks. Record prompt reason, existing authority checked, response and next action without secrets.
 4. Finish the authorized phase. Apply the context guidance below before another phase.
 
 ```markdown
@@ -102,14 +102,10 @@ Then close the phase:
 - Open for next phase: facts the next orchestrator needs
 ```
 
-The last line makes a cold start possible. If the next orchestrator would need something the record does not carry, the record is wrong.
-
 ## Continue or restart
 
-For a separately authorized related phase, reuse this orchestrator when its context remains focused and useful. Refresh current board state and owner comments before dispatching. Start fresh when accumulated context is stale, crowded or no longer relevant. Ending a turn does not clear context or guarantee a cache reset.
+For a related phase authorized individually or by the approved project plan, reuse this orchestrator when its context remains focused and useful. In project mode return the phase record to `orchestrate-project`, which advances automatically within that grant. Refresh current board state and owner comments before dispatching. Start fresh when accumulated context is stale, crowded or no longer relevant. Ending a turn does not clear context or guarantee a cache reset.
 
 Use the host's compaction when available; do not restart solely because a phase ended. Without compaction, checkpoint and hand off before context is exhausted, even mid-phase. Record active task and worker IDs, branch/worktree locations, integration SHA, completed actions, pending reviews, blockers and the next step so a resumed agent does not duplicate work.
-
-Cache reuse depends on a matching prompt prefix and cache availability. A restart or compaction can reduce reuse; fewer input tokens can still reduce total cost. Judge this tradeoff using measured cost and outcomes, not cumulative token volume alone.
 
 When an unforeseen issue makes continued delivery the wrong call, or a decision belongs to {{OWNER_NAME}}, record the open question and pending work, then return control. Resume only after the blocker is resolved; a new context is optional.

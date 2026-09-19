@@ -15,6 +15,17 @@ Drawing decision logic here previously duplicated every rule in two places and m
 
 ## 1. Artifact pipeline
 
+The outer project lifecycle has three routine human decisions. Planning approval authorizes the listed phase loop; each phase's technical acceptance is agent work. Scope changes and access/authority exceptions return only the affected decision to the owner.
+
+```mermaid
+flowchart LR
+    START[Browser initiation] --> INTAKE[Human: Intake]
+    INTAKE --> PLAN[Human: Planning approval]
+    PLAN --> AUTO[Agents: planned phases, review, integration and cleanup]
+    AUTO --> UAT[Human: guided UAT]
+    UAT --> ACCEPT[Recorded candidate verdict]
+```
+
 Each role reads the artifact the previous role produced instead of re-deriving it from source. Every artifact is smaller than the context that produced it.
 
 ```mermaid
@@ -46,7 +57,7 @@ flowchart LR
 
 Rounded nodes are roles. Rectangles are artifacts. Intake can resume from its checkpoint; scope and phase revisions return through their editing procedures before affected delivery continues. [Scope and revisions](/documentation/09/scope-and-revisions) owns those rules.
 
-Three levels bound the work. A **milestone** ends where {{OWNER_NAME}} can use the software and form an opinion, so it closes with a Human-assigned acceptance test. A **phase** ends at a gate the orchestrator verifies alone. A **task** is one delivery boundary with one useful result.
+Three levels bound the work. A **milestone** defines a useful outcome and Human-assigned acceptance scenarios. An approved project plan may collect several milestones' scenarios into its final UAT session. A **phase** ends at a gate the orchestrator verifies alone. A **task** is one delivery boundary with one useful result.
 
 ## 2. Phase loop
 
@@ -77,7 +88,7 @@ flowchart TD
     HC --> S
 ```
 
-When the orchestrator needs a decision from {{OWNER_NAME}}, it records the question and pending work and returns control. Resume after the decision in the same or a fresh context as appropriate. Retaining context never grants authority for another phase.
+When the orchestrator needs a decision from {{OWNER_NAME}}, it records the question and pending work and returns control. Resume after the decision in the same or a fresh context as appropriate. Retaining context never grants authority for another phase; an existing approved project plan can supply that authority without another prompt.
 
 Every task starts with the three-line approach. The phase agent confirms delegated approaches and checks its own against the accepted task. Both delivery modes produce the same evidence and independent review boundary.
 

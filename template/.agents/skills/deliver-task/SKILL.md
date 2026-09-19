@@ -1,6 +1,6 @@
 ---
 name: deliver-task
-description: 'Implement one {{PROJECT_NAME_YAML_SINGLE}} Backlog.md task and hand it off for independent review. Used directly, by a delegated worker, or by the authorized phase agent for serial delivery.'
+description: 'Implement one {{PROJECT_NAME_YAML_SINGLE}} task, verify its accepted outcome, and hand off at Review for independent acceptance.'
 ---
 
 # Deliver Task
@@ -22,8 +22,6 @@ Account for every open {{OWNER_NAME}} comment as `doc-07` requires before relyin
 ## State the approach first
 
 Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
-
-This exists so a wrong direction is corrected in a sentence rather than after the work is done.
 
 ## Implement
 
@@ -54,7 +52,5 @@ head: <sha>
 criteria: 3/3 checked
 blocking: none
 ```
-
-Detail belongs in the task comment, where the reviewer will fetch it. Repeating it in the return value puts it in the orchestrator's context, where it is paid for on every subsequent turn.
 
 Delivery stops at Review. Never review your own work. Without separate phase authority, do not integrate, merge into `main`, or start another task. If acceptance becomes impossible, complete safe independent work, record the obstruction as `doc-08` requires, and move to **Blocked**.

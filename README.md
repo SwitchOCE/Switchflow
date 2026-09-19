@@ -4,7 +4,7 @@ A governance layer for agent-assisted development. It starts with a simple claim
 
 Coding agents are capable and easy to start. When work lives only in a conversation, a new agent must reconstruct it. Repeated history increases input volume, but caching and compaction affect the cost; a longer session is not automatically more expensive than restarting.
 
-This system keeps durable state in the repository. Plans go on the board. Decisions go in the docs. Progress goes on task records. A new agent can start cold, read the relevant files, and get to work.
+Plans go on the board, decisions in the docs, and progress on task records. Browser approvals, sessions, and operational evidence live in shared external project state. A new agent can start cold, read the relevant records, and get to work.
 
 I built this for one person directing several agents on a codebase they care about. That person wants to approve the work before it starts, reviews the result, and pays the token bill. This is not a team process or a CI system. It is a way for one owner to manage work without becoming buried in agent transcripts.
 
@@ -18,12 +18,19 @@ I built this for one person directing several agents on a codebase they care abo
 
 ## What I do
 
-1. Say what I want. `intake` records decisions and unanswered questions as we go, so another instance can resume by intake ID. It writes the scope contract when I accept it.
-2. Approve the plan. `plan-milestone` turns the contract into phases and board tasks. Each task gets a risk class and a required evidence set. I review the board, not a transcript.
-3. Run a phase. Invoke `orchestrate-phase` and leave it alone.
-4. Accept the milestone. The result should be usable enough that I can try it and give real feedback.
+1. **Intake:** describe the outcome in the browser. The agent checks what already exists, retains discovery state, and brings back questions or a proposed scope. Accept that scope.
+2. **Planning:** review the ordered work and its acceptance evidence. Approving the plan authorizes agents to deliver every listed phase, obtain independent review, and prepare UAT.
+3. **UAT:** follow a short walkthrough against the real candidate. Accept the result or describe the rework it needs.
 
-Between steps 2 and 3, changing my mind is cheap. Once step 3 starts, changing direction costs tokens and discarded work. That is why step 1 exists.
+Phase starts and technical milestone acceptance belong to the agents. Scope changes revoke the current plan grant and return to Intake; project updates are durable input for the next checkpoint. Genuine missing access or an interrupted process is an exception shown with its next action. A plan grant does not authorize remote pushes, deployment, credentials, or live-data changes.
+
+## Start from the browser
+
+After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. The local board has **New initiative → Start intake**, scope and plan approval, live agent activity, delivery tasks, guided UAT, and framework-health records. The launcher reuses the matching local service. `.switchflow/scripts/backlog.ps1 control` opens the same board; `backlog.ps1 browser` retains the original Backlog UI.
+
+The service uses the installed, signed-in local Codex CLI. Runs keep its workspace sandbox, use structured results, and stop visibly when required authority or access is missing. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
+
+Approved scope, plan grants, revisions, sessions, and recovery state live outside the code checkout, shared by Git worktrees. Backlog retains delivery tasks and durable project documents. See [browser control and storage](docs/browser-control.md) for the exact boundaries, recovery procedure, and local security model.
 
 Use `edit-milestone` to change an accepted outcome or UAT definition, and `edit-phase` to change tasks, order or gates within that outcome. Both preserve history and coordinate affected active work. Long intakes can expand into linked research, prototype or discussion questions; short intakes stay in one board record. [Scope and revisions](<template/backlog/docs/doc-09 - Scope-and-revisions.md>) describes resumption and the shared editing procedure.
 
@@ -39,7 +46,7 @@ Prepare the next ready group; prewarm gated worktrees only for a stated setup be
 
 Work that costs more than expected goes into the friction log. The log is for me. Delivery agents never read it.
 
-Finally, the orchestrator records what the next phase needs. Another phase still requires authorization, but may reuse the same focused context. Compaction or a fresh context is appropriate when capacity or relevance requires it; without compaction, checkpoint and hand off before context is exhausted.
+Finally, the orchestrator records what the next phase needs. `orchestrate-project` continues phases covered by the approved plan; a separately invoked `orchestrate-phase` remains limited to its named phase. Compaction or a fresh context uses the durable checkpoint without requiring another routine human start.
 
 ## What it imports
 
@@ -49,19 +56,20 @@ In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker 
 - An empty Backlog.md board with a fixed status lifecycle.
 - Durable Backlog documents and native decision records.
 - A project profile for the few values each repository must own.
-- Eight agent skills for resumable intake, milestone and phase editing, planning, orchestration, delivery, review, and human-owned work.
+- Eleven agent skills for resumable intake, scope editing, planning, project and phase orchestration, delivery, independent review, guided UAT, human-owned exceptions, and explicit framework review.
+- A local browser control service, Codex runner, and external operations ledgers.
 - Pinned Backlog.md tooling and documentation validation under `.switchflow/`.
 
 It does not import tasks, milestones, roadmaps, product decisions, application dependencies, credentials, or deployment configuration.
 
 The template is intentionally isolated from the projects that produced it. Changes can be tested here and imported into a disposable repository before they reach ongoing work.
 
-Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define role boundaries and evidence. The [architecture and delivery model](docs/architecture.md) defines module ownership, and [Skills](docs/skills.md) indexes the eight imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
+Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define role boundaries and evidence. The [architecture and delivery model](docs/architecture.md) defines module ownership, and [Skills](docs/skills.md) indexes the imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
 
 Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.3.0` and is still experimental. I have measured some parts of it. Others are working assumptions that I have not proved yet, and the docs say which is which.
+Switchflow is at version `0.4.0`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
 
 Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

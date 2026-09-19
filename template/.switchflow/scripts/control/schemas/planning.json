@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "properties": {
+    "stage": {
+      "type": "string",
+      "enum": [
+        "planning"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "questions",
+        "ready",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nextAction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "scope": {
+      "type": "string"
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "phase",
+          "task",
+          "outcome",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "uat": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "stage",
+    "status",
+    "summary",
+    "nextAction",
+    "questions",
+    "scope",
+    "plan",
+    "evidence",
+    "blockers",
+    "uat"
+  ],
+  "additionalProperties": false
+}

@@ -13,6 +13,8 @@ Read `backlog/docs/doc-01 - Project-overview.md`, `doc-02 - Project-profile.md`,
 
 Create or refresh the intake record using doc-09. Capture meaningful answers as they land. A fresh instance must distinguish agreement, recommendation, accepted deferral and unanswered questions without the previous transcript.
 
+Summarize current capabilities, their evidence and limitations before asking what should change. Capture the whole requested progression, including multiple phases or milestones, without decomposing delivery prematurely. Apply the recorded Intake review-mode toggle from doc-09; independent critique runs before the existing scope decision. Log every human clarification or permission request in the external operations store and reconcile the answer there.
+
 Use doc-09's `task edit --description-file` route for checkpoint bodies, then read back JSON. Avoid transporting the checkpoint through a long command-line argument.
 
 Keep product questioning above implementation detail. Read bounded fact-finding reports when a question depends on current behaviour or feasibility; source exploration belongs to a separately scoped investigation or planner. Do not read implementation tasks or diffs as a substitute for discovering the desired outcome.
@@ -37,4 +39,4 @@ Synthesize Goal, In scope, Out of scope, Decisions taken, Alternatives rejected,
 
 Set `$Scope` using a single-quoted PowerShell here-string carrying real newlines. After creation, record the returned milestone ID on the intake and read back its scope before closing discovery. Inspect matching milestones before retrying an uncertain write. For an existing milestone, pass the proposed contract to `edit-milestone`; preserve its accepted baseline until that procedure applies the revision.
 
-If discovery remains open, save its next question/action and report the intake ID. If accepted, report the contract and milestone ID. Stop at the contract boundary; phases and delivery require their own invocation and authority. A material deferred question returns to discovery, not an invented answer during planning.
+If discovery remains open, save its next question/action and report the intake ID. If accepted, report the contract and milestone ID. Standalone intake stops at the contract boundary. Under `orchestrate-project`, return that artifact to its lifecycle so Planning follows without a separate initiation; delivery still awaits the concrete plan approval. A material deferred question returns to discovery, not an invented answer during planning.

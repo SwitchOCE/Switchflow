@@ -11,6 +11,10 @@ This document owns intake checkpoints, accepted scope baselines, and the shared 
 
 ## Intake state
 
+Intake covers a whole project outcome or multiple delivery phases, as well as a small change. Begin with a concise **Current capabilities** inventory: what already works, evidence/source, known limitations, and the gap to the requested outcome. Distinguish reported, observed and proposed behaviour. Reuse current documentation and bounded investigations; do not make the owner rediscover repository facts or silently treat old memory as current proof.
+
+Record the selected review mode (**standard** or **independent review**) for Intake and Planning. The browser initiative's `reviewMode` toggle covers both gates. Independent review critiques missing decisions, coherence and acceptance coverage before the owner's existing gate. Its findings return to the current writer; it neither approves product scope nor creates another mandatory human step. Changing the toggle does not erase prior answers or execute delivery.
+
 Start an editable Backlog task when intake begins, before the contract is settled. Use `discovery` and `coordination` labels and title it `Clarify <outcome>`. Keep it outside delivery milestones and phase labels, including when revising a milestone: link that milestone through references instead. Discovery is not delivered product work and must not inflate milestone completion or executable worker queues.
 
 The description is the current checkpoint; comments retain answers and superseded decisions; references point to evidence and accepted milestones. This is active work, so it belongs on the board rather than in product documentation or a temporary handoff file. The normal short description limit does not apply, but prefer links over repeated history.
@@ -21,6 +25,13 @@ The outcome to clarify; milestone ID when revising one.
 
 ## Draft contract
 Goal, in scope, out of scope, and how the owner will judge the result.
+
+## Current capabilities
+Observed or reported behaviour, evidence, limitations, and required changes.
+
+## Project progression
+Proposed outcomes across milestones/phases, dependencies, review mode,
+and the final UAT boundary. Planning owns executable decomposition.
 
 ## Confirmed decisions
 Stable question IDs, answers, rationale, and pointers to owner answers.
@@ -108,3 +119,24 @@ Save a UTF-8 JSON file with exactly these fields. `description` is the full new 
 Paths resolve from the caller's directory. The adapter checks input and expected revision, excludes concurrent wrapper edits with a lock, saves the prior record, and replaces through a staged write. Approval text is an audit reference, not a machine-verified grant. Coordinate browser/native edits during replacement; those writers do not participate in the lock.
 
 Snapshots under `backlog/archive/milestone-revisions/<id>/` hold exact previous content, before/proposed hashes, reason and approval reference. `milestone view` lists them. Keep them in version control. Failed replacement can leave an unused snapshot: the current milestone is authoritative, and a snapshot alone does not prove completion. Restore by extracting the previous description and submitting a new edit against today's revision. After a process crash, check no writer is active before removing that exact leftover `.scope-lock` and reconciling current content.
+
+## Shared glossary
+
+| Term | Meaning |
+| --- | --- |
+| Intake | Human agreement on the intended outcome and acceptance boundary. |
+| Planning | Human review and approval of a concrete execution plan. |
+| Scope contract | Accepted outcomes, exclusions, decisions and UAT definition. |
+| Milestone | A coherent product outcome with a recorded acceptance boundary. |
+| Phase | Agent-managed delivery group ending in an integrated technical gate. |
+| Task | One independently reviewable unit of useful delivery. |
+| Technical acceptance | Independent review and required checks passed for the candidate. |
+| UAT | User acceptance testing: the human's observations and explicit product verdict. |
+| Candidate | Exact revision and environment presented for review or UAT. |
+| Project grant | Owner approval to execute the listed plan until its UAT boundary. |
+| Scope change | An agreed revision to accepted outcomes or exclusions. |
+| Update | A read-only progress report; it grants no new delivery authority. |
+| Friction | A recorded process obstacle or human interruption for later framework review. |
+| Scratch | Transient, unaccepted working material outside canonical governance. |
+
+Use these meanings consistently and add domain terms to the project's durable vocabulary. Technical phase completion does not mean UAT has passed. In a project grant spanning several milestones, collect their UAT scenarios into the final guided human session unless the owner explicitly requires an intermediate human gate.

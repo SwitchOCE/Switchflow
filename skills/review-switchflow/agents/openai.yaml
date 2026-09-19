@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Switchflow"
+  short_description: "Review framework friction and human interruptions"
+  default_prompt: "Use $review-switchflow to assess this project's recorded framework friction and recommend the next improvements."

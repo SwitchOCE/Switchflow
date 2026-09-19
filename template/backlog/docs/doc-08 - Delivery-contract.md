@@ -35,6 +35,14 @@ Keep the board running during ordinary orchestration. Application dependencies a
 
 ## Git workflow
 
+### Worktree ownership
+
+Planning names one worktree manager: **Codex managed**, **orchestrator managed**, or **human managed**. Record each worktree's canonical path, branch, base, owner, task, integration target, profile/output locations and cleanup responsibility in the phase checkpoint. Codex-managed trees use host lifecycle support when available; orchestrator-managed trees use the project preflight and bounded cleanup; human-managed trees are preserved unless their owner grants specific cleanup. Never have two managers delete the same tree. A separate tree isolates files, not running processes or application data: use separate profiles, mutable data and generated output when the task needs them.
+
+Browser delivery can supply a managed Git helper because the local agent sandbox protects Git metadata. Use the supplied helper and its recorded candidate paths for mutating Git operations; keep read-only inspection and product checks in the sandbox. Its approved baseline, candidate branches, exact-file commits, managed integration and durable receipts are the execution route for that run. It cannot integrate into the primary checkout or authorize remote actions. Preserve an uncertain operation or unsupported repository policy for explicit recovery; never bypass the helper with a less restricted runner.
+
+Keep the accepted project integration branch explicit; use an isolated candidate branch when the owner reserves `main` acceptance. The default below applies only when no such reservation exists. Plan approval authorizes local integration within that named target, not remote publication. PR, CI and push requirements belong in the project profile and concrete plan; confirm remote identity and use existing action-specific authority before executing them.
+
 `main` is the integration branch. An orchestrator is designated by explicit `$orchestrate-phase` invocation or specific user authority. Other agents are workers unless the user grants integration authority.
 
 Use the task branch pattern recorded in the [project profile](/documentation/02/project-profile#task-branch-naming) when creating task branches and when passing `-BranchPattern` to phase cleanup.
@@ -55,6 +63,12 @@ For sequential work in the current `main` worktree, an execution instruction aut
 6. A worker stops at Review. An authorized independent reviewer or designated orchestrator accepts or returns the task.
 
 ## Execution obstruction
+
+### External interruption record
+
+Record every human clarification or permission request through the external operations issue store. Resolve the project with `node .switchflow/scripts/operations/operations.mjs context <project-root>`. Add an event with `issue-add <project-root> <json>` using `kind` (`clarification` or `permission`), `summary`, optional `phase` and `taskId`, and `nextAction`. Include the reason and existing authority checked in `summary`. Resolve it with `issue-resolve <project-root> <json>` using the returned `id` and a non-sensitive `resolution` recording the answer and effect. Serialize JSON rather than composing it with shell interpolation.
+
+These events never dispatch tasks. A product obstruction also needs its normal task blocker record below; external friction is for process improvement, not a replacement board. If recording fails, save the pending event in the current run checkpoint and reconcile it at the next successful access. Delivery roles write their events without reading unrelated friction history.
 
 Use **Blocked** for prepared work waiting on a named prerequisite before execution, or for an obstruction discovered during execution or review. Continue safe independent work when useful; do not require a failed implementation attempt before recording a known blocker. Ordinary review or integration queues stay in **Review**. Record:
 

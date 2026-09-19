@@ -4,6 +4,8 @@ This file tracks framework issues while Switchflow is experimental. It is delibe
 
 ## User-raised issues
 
+- [x] **Three routine human steps and browser initiation.** The 0.4.0 candidate adds a local orchestration Kanban, Intake/Planning/UAT state machine, plan-wide phase authorization, durable Codex sessions and recovery, guided UAT, external friction/evidence/worktree/scratch operations, review-mode guidance, terminology and scope-change handling. [Implementation map](docs/three-step-delivery.md) and [browser operations](docs/browser-control.md) distinguish verified mechanisms from real project outcomes. Existing consumer projects are not automatically updated.
+
 - [x] **Retain intake state and edit milestones/phases.** Version 0.3.0 adds resumable intake, optional linked discovery, shared revision policy, `edit-milestone` and `edit-phase`, identity-preserving scope edits with snapshots, and safe checkpoint transport. See [implementation and verification](analysis/scope-workflows-2026-09-06.md). Consumer-project updates remain deliberate imports.
 
 - [x] **Set one quality target in engineering standards.** `template/backlog/docs/doc-04 - Engineering-standards.md` now owns one active VAPS target. Project phase remains context and no longer selects a second quality baseline; a method for changing the target remains deferred.

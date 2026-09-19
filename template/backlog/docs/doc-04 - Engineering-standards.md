@@ -65,6 +65,14 @@ Evidence is required at two levels. Task evidence proves the changed outcome and
 
 Do not re-run any suite that no change has invalidated since its last run.
 
+### Evidence reuse and execution environment
+
+Record each reusable check with its command/check identity, exact candidate commit or content hash, covered paths and boundaries, configuration and dependency fingerprint, runtime/environment identity, result, time, and artifact location. A reviewer may inspect authoritative evidence without repeating execution. Reuse requires matching inputs and coverage; a different worktree alone does not invalidate identical inputs, but changed code, dependencies, configuration, data, environment, or an unexplained failure does. Document a concrete impact argument before reusing a narrower check across a new candidate. Phase evidence must still prove the integrated candidate and its interactions.
+
+Give each check one owner in the plan. Workers run focused outcome checks, reviewers inspect them, and the orchestrator owns integrated suites. Do not independently schedule the same expensive suite in all three roles. Containers are optional reproducible environments when they reduce real setup variance; pin image and dependencies, isolate mutable volumes, and record those inputs. Docker availability is not proof of native or hosted behaviour.
+
+Choose **headless**, **visual**, or **mixed** evidence during Planning. Headless work uses backend, contract, package, database and operational checks; when the owner prohibits UI rendering, do not launch a browser or substitute screenshots. UI/UX acceptance needs actual rendered interaction and accessibility evidence on the target surface when authorized. Fixtures, mockups and package tests cannot establish native/hosted behaviour or human acceptance. Separate unavailable evidence into an explicit unresolved UAT or external prerequisite; never silently mark it proved.
+
 If documentation changes a safety-sensitive operating procedure, classify it by the underlying risk rather than as Documentation-only.
 
 ## Review threshold

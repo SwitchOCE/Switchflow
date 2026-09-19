@@ -13,6 +13,9 @@ Backlog.md owns active work and durable documentation. Use `.switchflow/scripts/
 | `edit-phase` | Reshape a phase within its accepted milestone scope. |
 | `plan-milestone` | Turn a frozen scope contract into ordered phases and ready tasks. |
 | `orchestrate-phase` | Deliver and checkpoint one authorized phase. |
+| `orchestrate-project` | Continue every phase in an approved project plan automatically until UAT. |
+| `guided-uat` | Walk the owner through acceptance of the exact delivered candidate. |
+| `review-framework` | Review external process friction only when explicitly requested. |
 | `deliver-task` | Implement one task and stop at Review. |
 | `review-task` | Independently review a fixed diff. |
 | `create-human-task` | Define work requiring {{OWNER_NAME}} or someone they coordinate. Always assigns `Human`. |
@@ -35,6 +38,9 @@ Build the simplest implementation and smallest validation set that satisfy the a
 
 ## Hard boundaries
 
+- The three routine human steps are **Intake**, **Planning**, and **UAT**. Under `orchestrate-project`, approving a concrete plan authorizes its listed phases, technical reviews, local integration, and bounded cleanup without another start or milestone-acceptance prompt. Standalone `orchestrate-phase` remains limited to its named phase. Scope changes, bugs, updates, and genuinely missing external authority are exceptions; never manufacture routine approval gates.
+- Before every human clarification or permission request, record the reason and next action in the external operations friction log, then record the answer when available. If logging is unavailable, checkpoint the event for reconciliation without delaying a necessary question. Do not dispatch framework improvement work from that log during product delivery.
+
 - Never commit credentials, secrets, personal data, or restricted data, in code or documentation.
 - Never commit unrelated changes.
 - Pushing, rewriting shared history, and deleting branches require explicit {{OWNER_NAME}} authorization. The one standing exception is `cleanup-phase.ps1`, whose predicate `doc-03` grants.
@@ -46,6 +52,8 @@ Build the simplest implementation and smallest validation set that satisfy the a
 ## How to write
 
 Write task fields, documentation, and replies as the smallest text that clearly carries the problem, the proposed step, or the decision required. Link tasks by short name in prose; use raw `{{TASK_PREFIX}}-xx` IDs only where a machine identifier is required.
+
+Lead every progress reply with the next action and who owns it (agent or human). Then give the result, decisive evidence, and any decision needed. Keep background separate and brief. Use familiar product language for outcomes and guided human steps; put file and layer details in the task context map. Accept concise typed or dictated answers; summarize consequential decisions for confirmation rather than requiring a long form.
 
 Contract artifacts are required output: the three-line plan, the five-line envelope, the handoff comment, the review verdict with its blast-radius declaration, and the phase record. Produce each in the shape its skill defines.
 
