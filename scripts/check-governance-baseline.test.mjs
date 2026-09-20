@@ -60,12 +60,14 @@ function preflightFixture(root) {
 test("preflight rejects missing, invalid and mismatched governance before tools", () => fixture((root) => {
   const { configPath, dispatchConfigPath, check } = preflightFixture(root);
   assert.match(check().stderr, /has no Switchflow project metadata/);
-  for (const value of [null, [], {}, { ...baseline, taskPrefix: "val" }, { ...baseline, templateVersion: "" }, { ...baseline, schemaVersion: 2 }]) {
+  for (const value of [null, [], [baseline], "text", true, 1, {}, { ...baseline, taskPrefix: "val" }, { ...baseline, templateVersion: "" }, { ...baseline, schemaVersion: 2 }]) {
     json(configPath, value);
     const result = check();
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Invalid Switchflow project metadata/);
+    assert.match(result.stderr, /Invalid Switchflow project metadata/, JSON.stringify(value));
   }
+  writeFileSync(configPath, '{invalid');
+  assert.match(check().stderr, /Invalid Switchflow project metadata/);
   for (const value of [{ ...baseline, templateVersion: "0.0.0" }, { ...baseline, taskPrefix: "OLD" }]) {
     json(configPath, value);
     const result = check();

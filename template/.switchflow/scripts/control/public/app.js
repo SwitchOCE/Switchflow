@@ -1,3 +1,9 @@
+import { mountKnowledge } from './knowledge.js';
+import { mountTasks } from './tasks.js';
+import { mountInsights } from './insights.js';
+import { createNativeClient, workspaceLocation } from './workspace-client.js';
+import { mountSearch } from './workspace-search.js';
+import { createMilestonePanel } from './milestones.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'Human checkpoint 01'],
@@ -15,9 +21,51 @@ let busy = false;
 let refreshing = false;
 let returnFocus = null;
 let recognition = null;
-const drafts = new Map();
-const taskDrafts = new Map();
-const uatGenerations = new Map();
+let drafts = new Map();
+let taskDrafts = new Map();
+let uatGenerations = new Map();
+const projectDrafts = new Map();
+const milestoneDrafts = new Map();
+function savePageDrafts() {
+  if (!selectedProjectId) return;
+  try {
+    sessionStorage.setItem(`switchflow:drafts:${selectedProjectId}`, JSON.stringify({
+      drafts: [...drafts], taskDrafts: [...taskDrafts], uatGenerations: [...uatGenerations],
+      title: $('#initiative-title').value, request: $('#initiative-request').value,
+      review: $('#review-mode').checked, filter: $('#filter').value,
+    }));
+  } catch { /* In-memory drafts still work when browser storage is unavailable. */ }
+}
+function restorePageDrafts(id) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(`switchflow:drafts:${id}`) || '{}');
+    return { ...saved, drafts: new Map(saved.drafts || []), taskDrafts: new Map(saved.taskDrafts || []), uatGenerations: new Map(saved.uatGenerations || []) };
+  } catch { return {}; }
+}
+document.addEventListener('input', () => queueMicrotask(savePageDrafts));
+document.addEventListener('change', () => queueMicrotask(savePageDrafts));
+window.addEventListener('pagehide', savePageDrafts);
+let selectedProjectId = null;
+let projectEpoch = 0;
+let sharedToken = '';
+let projectList = [];
+const views = ['board', 'tasks', 'milestones', 'documents', 'decisions', 'drafts', 'statistics', 'settings'];
+let activeView = workspaceLocation(location.href).view;
+const panels = new Map();
+let panelRefreshedAt = 0;
+let nativeWrites = 0;
+let connected = false;
+let projectsRefreshedAt = 0;
+function scopedPath(route, projectId = selectedProjectId) {
+  if (!projectId) throw new Error('Select a connected project first.');
+  return `/api/projects/${encodeURIComponent(projectId)}${route.replace(/^\/api(?=\/|$)/, '')}`;
+}
+async function readProject(route, projectId = selectedProjectId) {
+  const response = await fetch(scopedPath(route, projectId), { credentials: 'same-origin', cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Unable to load project (${response.status}).`);
+  return data;
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -92,12 +140,12 @@ function nextAction(item) {
   if (item.status === 'cancelled') return 'Review and retry when ready';
   return { intake: 'Review the scope', planning: 'Review the delivery plan', delivery: 'Follow agent delivery', uat: 'Try the result and record your checks', complete: 'View the accepted outcome' }[item.stage] || 'View initiative';
 }
-async function request(path, data, method = 'POST') {
-  const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Switchflow-Token': state?.csrfToken || '' }, body: JSON.stringify(data) });
+async function request(path, data, method = 'POST', projectId = selectedProjectId) {
+  const response = await fetch(scopedPath(path, projectId), { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Switchflow-Token': state?.csrfToken || '' }, body: JSON.stringify(data) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = readable(result.error) || result.message || `Request failed (${response.status}).`;
-    const error = new Error(response.status === 409 ? 'The project changed while you were reviewing it. The latest state has loaded; your draft is preserved. Review it before trying again.' : message);
+    const error = new Error(response.status === 409 ? 'The record changed while you were reviewing it. Your draft is preserved. Load the latest record and compare before trying again.' : message);
     error.status = response.status;
     throw error;
   }
@@ -136,6 +184,7 @@ async function act(action, payload = {}) {
   } finally { busy = false; setBusy(); }
 }
 function setBusy() {
+  $('#project-select').disabled = busy || nativeWrites > 0; $('#add-project').disabled = busy || nativeWrites > 0;
   for (const node of document.querySelectorAll('#detail-content button[data-action], #create-submit')) node.disabled = busy;
 }
 function actionButton(label, action, payload, kind = 'primary') {
@@ -239,7 +288,7 @@ async function openArtifact(initiativeId, stepId, index, trigger) {
   dialog.addEventListener('close', () => { dialog.remove(); (trigger.isConnected ? trigger : $('#detail-close'))?.focus({ preventScroll: true }); }); dialog.showModal();
   try {
     const query = new URLSearchParams({ stepId, index: String(index) });
-    const response = await fetch(`/api/initiatives/${encodeURIComponent(initiativeId)}/artifacts?${query}`, { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch(scopedPath(`/api/initiatives/${encodeURIComponent(initiativeId)}/artifacts?${query}`), { credentials: 'same-origin', cache: 'no-store' });
     const result = await response.json(); if (!response.ok) throw new Error(readable(result.error) || 'Artifact preview is unavailable.');
     body.replaceChildren(el('p', 'gate-note', 'This is the file recorded in the delivered commit. Unsaved working files are not included.'));
     body.append(el('h3', '', result.path), el('p', 'artifact-head', `Commit ${result.head}`));
@@ -286,8 +335,7 @@ function renderTasks(item) {
   for (const task of tasks) {
     const row = el('button', 'task-row task-open'); row.type = 'button'; row.append(el('span', '', `${task.id} · ${task.title}`), el('span', 'badge', task.status || 'Planned')); row.addEventListener('click', () => openTask(task.id)); container.append(row);
   }
-  const url = safeLink(state.project?.backlogUrl);
-  if (url) { const link = el('a', 'button quiet', 'Open and edit tasks in Backlog ↗'); link.href = url; link.target = '_blank'; link.rel = 'noopener'; container.append(link); }
+  container.append(button('Open delivery tasks', () => { closeDetail(); showView('tasks'); }));
   return container;
 }
 function renderActivity(item) {
@@ -381,14 +429,19 @@ $('#detail-dialog').addEventListener('close', () => {
 });
 async function refresh(forceDetail = false) {
   if (refreshing) return;
+  if (!selectedProjectId) return;
   refreshing = true;
+  const epoch = projectEpoch;
   try {
-    const response = await fetch('/api/state', { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch(scopedPath('/api/state'), { credentials: 'same-origin', cache: 'no-store' });
     if (!response.ok) throw new Error(`Project connection failed (${response.status}).`);
-    state = await response.json();
+    const loaded = await response.json();
+    if (epoch !== projectEpoch) return;
+    state = loaded; sharedToken = state.csrfToken; connected = true;
+    document.title = `${state.project.name} · Switchflow`;
+    if (Date.now() - projectsRefreshedAt > 8000) loadProjects().catch(() => {});
     $('#connection').textContent = 'Connected locally'; $('#connection').className = 'connection connected';
     $('#project-name').textContent = state.project?.name || 'Project control';
-    const backlog = safeLink(state.project?.backlogUrl); $('#backlog-link').hidden = !backlog; if (backlog) $('#backlog-link').href = backlog;
     renderBoard();
     $('#updated-at').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     if (selectedId && current()) {
@@ -399,10 +452,17 @@ async function refresh(forceDetail = false) {
     if (availability === false || availability?.available === false) notice('Agent runtime is unavailable. You can review project state; configure the Codex runtime to start delivery.');
     else if ($('#notice-banner').textContent.startsWith('Agent runtime')) notice('');
     showError('');
+    if (activeView !== 'board') {
+      showView(activeView, false);
+      if (!busy && !nativeWrites && !document.querySelector('dialog[open]') && !document.activeElement?.matches('input,textarea,select') && Date.now() - panelRefreshedAt > 10000) {
+        panelRefreshedAt = Date.now(); panels.get(activeView)?.refresh();
+      }
+    }
   } catch (error) {
-    $('#connection').textContent = 'Connection lost'; $('#connection').className = 'connection offline';
+    if (epoch !== projectEpoch) return;
+    connected = false; $('#connection').textContent = 'Connection lost'; $('#connection').className = 'connection offline';
     showError(`${error.message} Your entries are preserved. Check that the local control server is running, then refresh.`);
-  } finally { refreshing = false; }
+  } finally { if (epoch === projectEpoch) refreshing = false; }
 }
 function openCreate() { showError('', $('#create-error')); $('#create-dialog').showModal(); $('#initiative-title').focus(); }
 $('#new-initiative').addEventListener('click', openCreate);
@@ -436,98 +496,35 @@ function renderTaskBoard() {
   container.replaceChildren();
   const tasks = state?.tasks || [];
   $('#task-count').textContent = `${tasks.length} task${tasks.length === 1 ? '' : 's'}`;
-  if (!tasks.length) { container.append(el('p', 'muted', 'No delivery tasks have been recorded in Backlog yet.')); return; }
-  for (const task of tasks) {
+  if (!tasks.length) { container.append(el('p', 'muted', 'No delivery tasks have been recorded yet.')); return; }
+  for (const task of tasks.slice(0, 8)) {
     const card = el('button', 'initiative-card task-card'); card.type = 'button'; card.dataset.taskId = task.id;
     const meta = el('div', 'card-meta'); meta.append(el('span', 'card-id', task.id), el('span', 'badge', task.status || 'Unspecified'));
     const footer = el('div', 'card-next'); footer.append(el('span', '', taskEditable(task) ? 'Inspect or edit task' : 'Inspect task'), el('span', 'arrow', '↗'));
-    card.append(meta, el('h3', 'card-title', task.title), footer);
+    card.append(meta, el('h3', 'card-title', task.title));
+    if (task.blockReason) card.append(el('p', 'task-block-reason', task.blockReason === 'dependent' ? 'Waiting for dependencies' : `Blocked: ${task.blockReason}`));
+    card.append(footer);
     card.addEventListener('click', () => openTask(task.id)); container.append(card);
   }
   if (focusedId) [...container.querySelectorAll('button')].find(node => node.dataset.taskId === focusedId)?.focus({ preventScroll: true });
 }
-let taskBeingViewed = null;
-let taskLoadSequence = 0;
-function renderTaskDraft(id) {
-  const draft = taskDrafts.get(id); if (!draft) return null;
-  const block = section('Your unsaved draft', 'This draft is kept in this browser tab until you save or explicitly discard it.');
-  const text = el('textarea'); text.readOnly = true; text.rows = 6; text.setAttribute('aria-label', 'Unsaved task draft'); text.value = `${draft.title}\n\n${draft.description}`;
-  const controls = el('div', 'detail-actions');
-  controls.append(button('Select draft to copy', () => { text.focus(); text.select(); }), button('Discard unsaved draft', () => { taskDrafts.delete(id); openTask(id); }));
-  block.append(text, controls); return block;
+async function openTask(id) {
+  if ($('#detail-dialog').open) closeDetail();
+  const panel = showView('tasks');
+  if (panel) { await panel.refresh(); await panel.openTask(id); }
 }
-async function openTask(id, preserveDraft = false, editing = false) {
-  const sequence = ++taskLoadSequence;
-  const previous = taskDrafts.get(id);
-  taskBeingViewed = id;
-  const dialog = $('#task-dialog'); const container = $('#task-content');
-  $('#task-dialog-title').textContent = id;
-  container.replaceChildren(el('p', 'muted', 'Loading the current task…'));
-  if (!dialog.open) dialog.showModal();
-  try {
-    const response = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(readable(result.error) || `Unable to load task (${response.status}).`);
-    if (sequence !== taskLoadSequence || !dialog.open) return;
-    const task = result.task;
-    if (!task) throw new Error('The server returned no task details.');
-    container.replaceChildren();
-    container.append(el('span', 'badge', task.status));
-    const allowed = taskEditable(task);
-    if (!allowed || !editing) {
-      if (!allowed) container.append(el('p', 'gate-note', task.atomicRevision === false ? 'Safe task editing is unavailable with this Backlog installation. Run node .switchflow/scripts/backlog-fork/setup.mjs, then restart the control server.' : agentsBusy() ? 'Task editing is paused while an agent run is active or queued. You can inspect the task now.' : 'This task has moved beyond the editable checkpoint. Use an initiative scope change for work that is running, in review, or complete.'));
-      container.append(section('Task outcome', task.title), section('Description', task.description || 'No description recorded.'));
-      const extra = Object.fromEntries(Object.entries(task).filter(([key]) => !['id', 'title', 'description', 'revision', 'status'].includes(key)));
-      if (Object.keys(extra).length) container.append(detail('Task details and acceptance criteria', renderValue(extra)));
-      const draft = renderTaskDraft(id); if (draft) container.append(draft);
-      if (allowed) container.append(button(previous ? 'Continue editing draft' : 'Edit task', () => openTask(id, true, true), 'primary'));
-      return;
-    }
-    if (previous) {
-      container.append(el('p', 'gate-note', 'The latest saved task is shown below. Your unsaved text is preserved in the editor. Compare both before saving.'));
-      container.append(section('Latest saved title', task.title), section('Latest saved description', task.description || 'No description recorded.'));
-    }
-    const form = el('form');
-    const titleLabel = el('label', '', 'Task title'); const title = el('input'); title.id = 'task-edit-title'; title.required = true; title.maxLength = 240; title.value = previous?.title ?? task.title; titleLabel.append(title);
-    const descriptionLabel = el('label', '', 'Description'); const description = el('textarea'); description.id = 'task-edit-description'; description.rows = 8; description.required = true; description.maxLength = 10000; description.value = previous?.description ?? task.description ?? ''; descriptionLabel.append(description);
-    const keepDraft = () => taskDrafts.set(id, { title: title.value, description: description.value });
-    title.addEventListener('input', keepDraft); description.addEventListener('input', keepDraft);
-    const error = el('p', 'inline-error'); error.hidden = true; error.setAttribute('role', 'alert');
-    const footer = el('div', 'dialog-footer'); const save = el('button', 'button primary', 'Save task'); save.type = 'submit'; footer.append(button('Back to task', () => openTask(id)), save);
-    form.append(titleLabel, descriptionLabel, error, footer); container.append(form);
-    form.addEventListener('submit', async event => {
-      event.preventDefault(); if (save.disabled) return;
-      if (agentsBusy()) { showError('An agent run has started. Wait for it to finish before editing this task.', error); return; }
-      if (!title.value.trim() || !description.value.trim()) { showError('Enter a task title and description.', error); return; }
-      save.disabled = true; showError('', error);
-      try {
-        await request(`/api/tasks/${encodeURIComponent(id)}`, { expectedRevision: task.revision, title: title.value.trim(), description: description.value.trim() }, 'PATCH');
-        taskDrafts.delete(id); dialog.close(); notice(`Task ${id} was saved. Backlog validation completed.`); await refresh();
-      } catch (failure) {
-        showError(failure.status === 409 ? 'This task or its delivery checkpoint changed. Your draft is preserved. Load the latest task and compare before saving again.' : failure.message, error);
-        if (failure.status === 409) {
-          save.hidden = true;
-          footer.append(button('Load latest and keep my draft', () => openTask(id, true)));
-        }
-      } finally { save.disabled = false; }
-    });
-  } catch (failure) { if (sequence === taskLoadSequence) { container.replaceChildren(el('p', 'inline-error', failure.message)); container.append(button('Try loading again', () => openTask(id))); } }
-}
-$('#task-close').addEventListener('click', () => $('#task-dialog').close());
-$('#task-dialog').addEventListener('close', () => {
-  taskLoadSequence++;
-  const card = [...document.querySelectorAll('[data-task-id]')].find(node => node.dataset.taskId === taskBeingViewed);
-  if (!$('#detail-dialog').open) (card || $('#tasks-title')).focus({ preventScroll: true });
-});
+$('#all-tasks').addEventListener('click', () => showView('tasks'));
 $('#operations-close').addEventListener('click', () => $('#operations-dialog').close());
 $('#operations-dialog').addEventListener('close', () => $('#operations-open').focus());
 async function openOperations() {
+  const epoch = projectEpoch;
   const dialog = $('#operations-dialog'); const container = $('#operations-content');
   container.replaceChildren(el('p', 'muted', 'Reading recorded project operations…'));
   if (!dialog.open) dialog.showModal();
   try {
-    const response = await fetch('/api/operations', { credentials: 'same-origin', cache: 'no-store' });
+    const response = await fetch(scopedPath('/api/operations'), { credentials: 'same-origin', cache: 'no-store' });
     const operations = await response.json().catch(() => ({}));
+    if (epoch !== projectEpoch || !dialog.open) return;
     if (!response.ok) throw new Error(readable(operations.error) || `Unable to load framework health (${response.status}).`);
     container.replaceChildren(el('p', 'gate-note', 'Recorded operational evidence for this project. Reviewing an issue here does not dispatch work or change the approved scope.'));
     for (const [key, title, empty] of [
@@ -545,6 +542,106 @@ async function openOperations() {
 }
 $('#operations-open').addEventListener('click', openOperations);
 
+async function loadProjects() {
+  const response = await fetch('/api/projects', { credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) throw new Error('Cannot load the shared project registry.');
+  const data = await response.json(); sharedToken = data.csrfToken; projectList = data.projects; projectsRefreshedAt = Date.now();
+  const picker = $('#project-select'); picker.replaceChildren();
+  for (const project of projectList) {
+    const option = el('option', '', `${project.name}${!project.available ? ' · unavailable' : project.activeRun ? ' · agent working' : project.attention ? ` · ${project.attention} need attention` : ''}`);
+    option.value = project.id; option.disabled = !project.available; option.selected = project.id === selectedProjectId; picker.append(option);
+  }
+  const active = projectList.filter(project => project.activeRun).length;
+  const attention = projectList.reduce((sum, project) => sum + (project.attention || 0), 0);
+  $('#project-overview').textContent = `${projectList.length} projects · ${active} running · ${attention} need attention`;
+}
+function writeLocation(values, replace = false) {
+  const url = new URL(location.href); url.pathname = '/';
+  url.search = ''; url.searchParams.set('project', selectedProjectId);
+  url.searchParams.set('view', values.view || activeView);
+  for (const key of ['task','record']) if (values[key]) url.searchParams.set(key, values[key]);
+  if (url.href !== location.href) history[replace ? 'replaceState' : 'pushState'](null, '', url);
+}
+function nativeClient(id) {
+  return createNativeClient({projectId:id, token:() => sharedToken,
+    canWrite:() => selectedProjectId === id && connected && !!state && !agentsBusy() && !busy,
+    onWrite:delta => { nativeWrites += delta; setBusy(); },
+  });
+}
+function showView(view, updateLocation = true) {
+  activeView = views.includes(view) ? view : 'board';
+  $('.skip-link').href = `#workspace-${activeView}`;
+  $('.skip-link').textContent = 'Skip to workspace content';
+  $(`#workspace-${activeView}`).tabIndex = -1;
+  for (const name of views) $(`#workspace-${name}`).hidden = name !== activeView;
+  for (const tab of document.querySelectorAll('[data-view]')) {
+    if (tab.dataset.view === activeView) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+  }
+  if (updateLocation && selectedProjectId) writeLocation({view:activeView});
+  if (!state || activeView === 'board') return;
+  if (panels.has(activeView)) return panels.get(activeView);
+  const id = selectedProjectId, epoch = projectEpoch, viewName = activeView;
+  const api = nativeClient(id), container = $(`#workspace-${viewName}`);
+  const options = {api,projectId:id,canWrite:() => id === selectedProjectId && connected && !agentsBusy() && !busy,
+    onChange:() => { if (epoch === projectEpoch) { panelRefreshedAt = 0; void refresh(); } },
+    onNavigate:values => { if (epoch === projectEpoch && activeView === viewName) writeLocation(values); },
+  };
+  let panel;
+  if (['tasks','drafts'].includes(viewName)) { panel = mountTasks(container,options); if (viewName === 'drafts') panel.setMode('drafts'); else void panel.refresh(); }
+  else if (['documents','decisions'].includes(viewName)) panel = mountKnowledge(container,{...options,kind:viewName});
+  else if (viewName === 'milestones') { panel = createMilestonePanel({container,...options,projectKey:() => id,drafts:milestoneDrafts,onSaved:options.onChange,onTask:openTask}); void panel.refresh(); }
+  else panel = mountInsights(container,{...options,kind:viewName});
+  panels.set(viewName,panel); panelRefreshedAt = Date.now(); return panel;
+}
+async function switchProject(id, {preserveLocation = false} = {}) {
+  if (!id || busy || nativeWrites || (id === selectedProjectId && state)) return;
+  if (!projectList.some(project => project.id === id && project.available)) throw new Error('The selected project is unavailable. Choose a connected project.');
+  savePageDrafts();
+  if (selectedProjectId) projectDrafts.set(selectedProjectId, { drafts, taskDrafts, uatGenerations, title: $('#initiative-title').value, request: $('#initiative-request').value, review: $('#review-mode').checked, filter: $('#filter').value });
+  recognition?.abort();
+  for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+  for (const panel of panels.values()) panel.destroy(); panels.clear();
+  $('#connection').textContent = 'Connecting…'; $('#connection').className = 'connection';
+  selectedProjectId = id; projectEpoch++; refreshing = false; selectedId = null; state = null; connected = false;
+  const saved = projectDrafts.get(id) || restorePageDrafts(id);
+  drafts = saved.drafts || new Map(); taskDrafts = saved.taskDrafts || new Map(); uatGenerations = saved.uatGenerations || new Map();
+  $('#initiative-title').value = saved.title || ''; $('#initiative-request').value = saved.request || ''; $('#review-mode').checked = saved.review || false; $('#filter').value = saved.filter || '';
+  $('#board').replaceChildren(el('p', 'muted', 'Loading project…')); $('#tasks-list').replaceChildren();
+  for (const view of views.filter(v => v !== 'board')) $(`#workspace-${view}`).replaceChildren();
+  $('#project-select').value = id;
+  if (!preserveLocation) writeLocation({view:activeView});
+  await refresh(); showView(activeView, false);
+}
+async function followLocation() {
+  const route = workspaceLocation(location.href);
+  if (busy || nativeWrites) { writeLocation({view:activeView},true); return; }
+  for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+  if (route.project && route.project !== selectedProjectId) await switchProject(route.project,{preserveLocation:true});
+  if (route.project && route.project !== selectedProjectId) return;
+  const panel = showView(route.view,false);
+  if (route.task && route.view === 'tasks' && panel) { await panel.refresh(); await panel.openTask(route.task); }
+  else if (route.record && panel?.open) await panel.open(route.record);
+}
+window.addEventListener('popstate', () => { void followLocation().catch(error => showError(error.message)); });
+$('#project-select').addEventListener('change', event => { void switchProject(event.target.value).catch(error => showError(error.message)); });
+for (const tab of document.querySelectorAll('[data-view]')) tab.addEventListener('click', () => showView(tab.dataset.view));
+$('.brand').addEventListener('click', event => { event.preventDefault(); showView('board'); });
+$('#add-project').addEventListener('click', () => { showError('', $('#project-error')); $('#project-dialog').showModal(); $('#project-path').focus(); });
+$('#project-close').addEventListener('click', () => $('#project-dialog').close());
+$('#project-dialog').addEventListener('close', () => $('#add-project').focus());
+$('#project-form').addEventListener('submit', async event => {
+  event.preventDefault(); if (busy) return;
+  busy = true; setBusy(); $('#project-submit').disabled = true; showError('', $('#project-error'));
+  let id;
+  try {
+    const response = await fetch('/api/projects', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Switchflow-Token': sharedToken }, body: JSON.stringify({ projectRoot: $('#project-path').value.trim() }) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Cannot add the project.');
+    id = result.project.id; await loadProjects(); $('#project-dialog').close(); $('#project-form').reset();
+  } catch (error) { showError(error.message, $('#project-error')); }
+  finally { busy = false; setBusy(); $('#project-submit').disabled = false; }
+  if (id) await switchProject(id);
+});
+
 // Speech recognition is optional and starts only after a deliberate button click.
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SpeechRecognition) {
@@ -552,9 +649,11 @@ if (SpeechRecognition) {
   let listening = false;
   $('#dictate').addEventListener('click', () => {
     if (listening) { recognition?.stop(); return; }
+    const dictationEpoch = projectEpoch;
     recognition = new SpeechRecognition(); recognition.continuous = true; recognition.interimResults = false; recognition.lang = navigator.language || 'en-AU';
     recognition.onstart = () => { listening = true; $('#dictate').textContent = 'Stop dictation'; $('#dictation-status').textContent = 'Listening…'; };
     recognition.onresult = event => {
+      if (dictationEpoch !== projectEpoch) return;
       const field = $('#initiative-request');
       for (let index = event.resultIndex; index < event.results.length; index++) if (event.results[index].isFinal) field.value = `${field.value.trim()} ${event.results[index][0].transcript}`.trim().slice(0, 24000);
     };
@@ -563,6 +662,30 @@ if (SpeechRecognition) {
     try { recognition.start(); } catch { $('#dictation-status').textContent = 'Dictation could not start. You can keep typing.'; }
   });
 }
-await refresh();
-setInterval(() => { if (!document.hidden && !busy) refresh(); }, 3000);
+async function connectWorkspace() {
+  try {
+    await loadProjects();
+    const requestedProject = workspaceLocation(location.href).project;
+    const id = requestedProject || projectList.find(project => project.available)?.id;
+    if (!id) throw new Error('No connected projects. Add a project to begin.');
+    await switchProject(id,{preserveLocation:true});
+    await followLocation();
+    if (!requestedProject) writeLocation({view:activeView},true);
+  } catch (error) { showError(error.message); }
+}
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('#theme-toggle').textContent = theme === 'dark' ? 'Light' : 'Dark';
+  $('#theme-toggle').setAttribute('aria-label', theme === 'dark' ? 'Use light theme' : 'Use dark theme');
+  try { localStorage.setItem('switchflow:theme',theme); } catch {}
+}
+let initialTheme; try { initialTheme = localStorage.getItem('switchflow:theme'); } catch {}
+setTheme(initialTheme === 'dark' || (!initialTheme && matchMedia('(prefers-color-scheme:dark)').matches) ? 'dark' : 'light');
+$('#theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+mountSearch({dialog:$('#search-dialog'),trigger:$('#workspace-search'),project:() => selectedProjectId,
+  api:(route) => nativeClient(selectedProjectId)(route),initiatives:() => state?.initiatives || [],
+  navigate:async item => { if (item.view === 'board') { showView('board'); openDetail(item.id,$('#workspace-search')); } else { const panel = showView(item.view); if (item.task) { await panel.refresh(); await panel.openTask(item.task); } else await panel.open(item.record); } },
+});
+await connectWorkspace();
+setInterval(() => { if (!document.hidden && !busy) { if (selectedProjectId) refresh(); else connectWorkspace(); } }, 3000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

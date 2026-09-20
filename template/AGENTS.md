@@ -2,6 +2,8 @@
 
 Backlog.md owns active work and durable documentation. Use `.switchflow/scripts/backlog.ps1` for every task and document read or mutation; editing task frontmatter directly corrupts metadata, comments, and relationships.
 
+The primary checkout owns the one authoritative `backlog/` (tasks, milestones and documents) and `.switchflow` governance runtime for every linked worktree. Worktrees isolate code, profiles and outputs; their tracked governance copies are historical snapshots, never a second board. The wrappers resolve the common Git directory and route governance reads and writes to the primary checkout. If that authority is unavailable, restore it; do not initialize or serve a replacement board in the candidate. Keep application builds and tests in the assigned code checkout. Never delete or merge copied governance data automatically.
+
 **Read what your role requires, not everything.** Each skill states what it reads and what it must not read. Those limits are deliberate. Do not load policy above your task's risk class.
 
 ## Roles
@@ -61,8 +63,11 @@ Contract artifacts are required output: the three-line plan, the five-line envel
 
 ```powershell
 npm --prefix .switchflow ci --ignore-scripts          # setup; never repair with an unpinned install
+npm --prefix .switchflow run setup:backlog-fork        # verified runtime required for writes and MCP
 .\.switchflow\scripts\backlog.ps1 task view {{TASK_PREFIX}}-02 --json
-.\.switchflow\scripts\backlog.ps1 browser             # human board and documents
+.\.switchflow\scripts\backlog.ps1 browser             # shared project board and documents
 .\.switchflow\scripts\backlog.ps1 doctor              # after task mutations
 .\.switchflow\scripts\check-docs.ps1                  # after documentation changes
 ```
+
+For MCP clients, register the absolute primary `.switchflow/scripts/backlog.ps1` path as a PowerShell command with arguments `-NoProfile -ExecutionPolicy Bypass -File <absolute-wrapper-path> mcp start`. The wrapper routes MCP to canonical governance just like the CLI. Do not register a raw `backlog mcp start` command whose working directory follows a code worktree. Existing raw MCP registrations must be replaced deliberately; imports do not rewrite personal client configuration. `browser-native` is an explicit legacy diagnostic board, also routed to the primary checkout.

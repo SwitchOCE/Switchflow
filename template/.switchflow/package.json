@@ -1,12 +1,12 @@
 {
   "name": "switchflow-project-tools",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Pinned local tooling for the imported Switchflow governance system.",
   "scripts": {
     "board": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-control.ps1",
-    "board:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backlog.ps1 browser",
+    "board:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backlog.ps1 browser-native",
     "control": "node scripts/control/server.mjs --project ..",
     "setup:backlog-fork": "node scripts/backlog-fork/setup.mjs",
     "operations": "node scripts/operations/operations.mjs",

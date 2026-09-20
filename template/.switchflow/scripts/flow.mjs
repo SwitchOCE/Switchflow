@@ -19,7 +19,7 @@ export function buildFlowSnapshot(tasks, blockedViews = new Map()) {
     discovery: tasks.filter(isDiscovery).map(summarize),
     blocked: workers.filter(task => task.status === 'Blocked').map(task => {
       const view = blockedViews.get(task.id);
-      return { ...summarize(task), dependencies: view?.dependencies ?? [], waitingNotes: view?.implementationNotes ?? null };
+      return { ...summarize(task), blockReason: view?.blockReason ?? task.blockReason ?? null, dependencies: view?.dependencies ?? [], waitingNotes: view?.implementationNotes ?? null };
     }),
     recent: [...tasks].filter(task => task.updatedAt).sort((a, b) =>
       Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id)
@@ -36,6 +36,7 @@ export function renderFlow(snapshot) {
   lines.push('\nBlocked details');
   for (const task of snapshot.blocked) {
     lines.push(`- ${task.title} [${task.id}]`);
+    if (task.blockReason) lines.push(`  Block reason: ${task.blockReason}`);
     if (task.dependencies.length) lines.push(`  Dependencies: ${task.dependencies.join(', ')}`);
     lines.push(task.waitingNotes ? `  ${task.waitingNotes.replace(/\n/g, '\n  ')}` : '  Waiting reason, unblock owner and resume condition not recorded in implementation notes; inspect task comments.');
   }

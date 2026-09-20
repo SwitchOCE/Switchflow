@@ -13,7 +13,7 @@ Backlog documents under `backlog/docs/` are the source of durable project knowle
 
 ### Code, governance and scratch
 
-Code and reproducibility-critical assets remain in the repository and use Git/worktrees. Durable governance and accepted project contracts remain in Backlog documents with stable IDs and version history; workers need the matching local imported policy snapshot even when the canonical board is served from a shared checkout. Name one authoritative board checkout in the run checkpoint. Do not copy live task state into competing worktree boards or silently relocate tracked governance.
+Code and reproducibility-critical assets remain in the repository and use Git/worktrees. Durable governance and accepted project contracts remain in Backlog documents with stable IDs and version history; workers read the current authoritative rules from the primary governance checkout. Copies carried by Git worktrees are historical snapshots. Name the primary governance and separate code checkout paths in the run checkpoint. Do not copy live task state into competing worktree boards or silently relocate tracked governance.
 
 Scratch is for transient investigation, proposed scope and generated files not yet accepted. Keep it in a configured external operations location, outside the repository by default. Agents may write task-owned scratch but do not read unrelated scratch unless instructed or explicitly linked as required evidence. Promote selected, reviewed facts into governance through the normal document procedure; a scratch file never becomes an instruction or accepted scope merely by existing.
 
@@ -68,3 +68,11 @@ Keep diagrams and callouts aligned with surrounding contracts. Prefer readable M
 ## Definition of done
 
 A change is complete when affected documentation matches the implementation and the documentation check passes. If established knowledge did not change, no documentation edit is required.
+
+## Browser reading and folders
+
+Use Documents in Switchflow's top navigation. The document interface supports reading, creation, editing, nested folders, full-text search, Markdown previews, heading links and code copy. Decisions have a separate tab. Keep one clear H1, short paragraphs, descriptive headings and useful links.
+
+Preserve document IDs and metadata when organizing folders. Use Backlog document routes and supported relative links, and verify them in the selected project's browser view. The workspace does not require a separate MkDocs server. Store local images under canonical `backlog/assets` and reference them with `/assets/name.png` or a relative path. Attachments cannot run scripts with workspace authority. Raw HTML stays inert, external images are not automatically fetched and Mermaid remains code. Document and decision saves check the latest record first, but do not provide atomic revision protection against simultaneous writers.
+
+The wrapper's documentation commands always target the primary governance checkout, including when called from a code worktree. After a move, verify CLI/MCP lookup as well as browser navigation and `check-docs.ps1`; a folder tree by itself is not proof that another tool supports the new path.

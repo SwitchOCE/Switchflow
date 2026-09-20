@@ -41,6 +41,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $PSScriptRoot 'tooling.ps1')
+$governanceRoot = Resolve-GovernanceRoot -ProjectRoot $projectRoot
 
 function Get-Frontmatter {
     param([Parameter(Mandatory)][string]$Path)
@@ -135,7 +137,7 @@ if ((Invoke-Git @('rev-parse', '--git-dir')).ExitCode -ne 0) {
     throw "Not a Git repository: $projectRoot"
 }
 
-$tasks = @(Get-PhaseTasks -ProjectRoot $projectRoot -Label $PhaseLabel)
+$tasks = @(Get-PhaseTasks -ProjectRoot $governanceRoot -Label $PhaseLabel)
 if ($tasks.Count -eq 0) {
     Write-Host "No tasks carry the label '$PhaseLabel'. Nothing to clean up."
     return

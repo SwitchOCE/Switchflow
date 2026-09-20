@@ -26,7 +26,7 @@ Phase starts and technical milestone acceptance belong to the agents. Scope chan
 
 ## Start from the browser
 
-After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. The local board has **New initiative → Start intake**, scope and plan approval, live agent activity, delivery tasks, guided UAT, and framework-health records. The launcher reuses the matching local service. `.switchflow/scripts/backlog.ps1 control` opens the same board; `backlog.ps1 browser` retains the original Backlog UI.
+After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. The workspace uses Switchflow's top navigation and design, with task boards/lists, full editors, milestones, documents, decisions, drafts, insights and settings. Open **Initiatives** for **New initiative → Start intake**, scope and plan approval, live agent activity, guided UAT and framework health. The top bar switches projects on one local service; linked code worktrees always resolve to their primary governance checkout. `.switchflow/scripts/backlog.ps1 control` and `backlog.ps1 browser` open the same workspace. `browser-native` retains the standalone Backlog server for diagnostics. See the [functionality review](docs/backlog-ui-review.md) for the corrected omissions and retained boundaries.
 
 The service uses the installed, signed-in local Codex CLI. Runs keep its workspace sandbox, use structured results, and stop visibly when required authority or access is missing. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
 
@@ -50,7 +50,7 @@ Finally, the orchestrator records what the next phase needs. `orchestrate-projec
 
 ## What it imports
 
-In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker queues, separate coordination parents, blocker notes, and recently updated records. Add `--json` for structured output. Backlog needs definition; Blocked is prepared work waiting on a named prerequisite; Ready passes the full readiness gate. Planning and orchestration maintain these statuses without granting execution authority.
+In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker queues, separate coordination parents, blocker notes, and recently updated records. Add `--json` for structured output. Backlog needs definition; Blocked is prepared work waiting on a named prerequisite; Ready passes the full readiness gate. The fork reconciles dependency readiness after task writes: Ready tasks with unfinished dependencies become Blocked with reason `dependent`; once those dependencies are Done, they become Ready. Other block reasons and unexplained legacy blocks remain until explicitly resolved. Backlog, active, review and completed tasks are never automatically promoted or regressed. Readiness does not grant execution authority.
 
 - `AGENTS.md` repository instructions.
 - An empty Backlog.md board with a fixed status lifecycle.
@@ -66,10 +66,12 @@ The template is intentionally isolated from the projects that produced it. Chang
 
 Start with [SETUP.md](SETUP.md). The [role contracts](docs/role-contracts.md) define role boundaries and evidence. The [architecture and delivery model](docs/architecture.md) defines module ownership, and [Skills](docs/skills.md) indexes the imported skills. The [workflow diagrams](<template/backlog/docs/doc-06 - Workflow-diagrams.md>) show how artifacts move between roles.
 
+See [multi-project workspace and structured records](docs/workspace-0.5.0.md) for milestone metadata, ordering, dependency rules, documentation features and upgrade boundaries.
+
 Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.4.0`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
+Switchflow is at version `0.5.0`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
 
 Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

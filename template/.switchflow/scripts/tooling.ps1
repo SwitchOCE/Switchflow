@@ -60,8 +60,30 @@ function Get-ToolingRoots {
     return $roots
 }
 
-function Resolve-BacklogCli {
+function Resolve-GovernanceRoot {
     param([Parameter(Mandatory)][string]$ProjectRoot)
+
+    $root = [System.IO.Path]::GetFullPath($ProjectRoot)
+    $primary = Get-PrimaryCheckoutRoot -ProjectRoot $root
+    if ($null -eq $primary) {
+        if (Test-Path -LiteralPath (Join-Path $root '.git')) {
+            throw "Cannot resolve the primary governance checkout for $root. Repair the Git worktree registration; do not use its copied board."
+        }
+        # Standalone imports are supported before Git initialization.
+        return $root
+    }
+    $hasConfig = (Test-Path -LiteralPath (Join-Path $primary 'backlog.config.yml') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $primary 'backlog\config.yml') -PathType Leaf)
+    if (-not $hasConfig -or
+        -not (Test-Path -LiteralPath (Join-Path $primary 'backlog') -PathType Container) -or
+        -not (Test-Path -LiteralPath (Join-Path $primary '.switchflow\scripts\backlog.ps1') -PathType Leaf)) {
+        throw "Canonical governance is unavailable in primary checkout $primary. Restore that checkout's Switchflow configuration and backlog; copied worktree governance is never a fallback."
+    }
+    return $primary
+}
+
+function Resolve-BacklogCli {
+    param([Parameter(Mandatory)][string]$ProjectRoot, [switch]$RequireFork)
 
     $forkResolver = Join-Path $ProjectRoot '.switchflow\scripts\backlog-fork\resolve.mjs'
     if (Test-Path -LiteralPath $forkResolver -PathType Leaf) {
@@ -70,6 +92,10 @@ function Resolve-BacklogCli {
             if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath ([string]$forkCli).Trim() -PathType Leaf)) { return ([string]$forkCli).Trim() }
         } catch { # Existing imports retain readable original tooling until explicit fork setup.
         }
+    }
+
+    if ($RequireFork) {
+        throw "The verified Switchflow Backlog fork is required for mutations, MCP and the native board. Run 'npm --prefix .switchflow run setup:backlog-fork' in canonical governance $ProjectRoot. The official fallback is read-only."
     }
 
     $projectPackage = Get-Content -Raw -Encoding utf8 (Join-Path $ProjectRoot '.switchflow\package.json') | ConvertFrom-Json

@@ -89,10 +89,10 @@ The **Outcome** is written for the person using the product: who can do what, an
 
 ## Task links
 
-In prose, link a task with its short name instead of a bare ID:
+In prose, use the task's short name, such as **Export contract**. Include its structured reference or a verified link from the running board when needed; never invent a task deep link or assume a fixed localhost port. Agents can retrieve the exact record through:
 
-```markdown
-[Export contract](http://127.0.0.1:6420/tasks/{{TASK_PREFIX}}-04/define-export-contract)
+```powershell
+.\.switchflow\scripts\backlog.ps1 task view {{TASK_PREFIX}}-04 --json
 ```
 
 Keep raw IDs in CLI commands, metadata, branch names, commit messages, fixtures, and other machine-facing contexts.
@@ -169,3 +169,7 @@ Run the project check after task mutations:
 ```
 
 The check rejects a Ready task whose listed dependency is missing or not Done, resolving status from active and completed task records.
+
+## Structured dependency blockers
+
+Use dependency IDs for prerequisite relationships and optional `blockReason` for the current obstruction. `dependent` is reserved for dependencies as the sole blocker; other nonempty text records an independent blocker and prevents automatic promotion. A task prepared for execution can wait as Blocked/dependent and becomes Ready automatically once every dependency is Done or completed. Undefined Backlog tasks remain Backlog. Clearing a manual reason permits dependency rules to reassess readiness, but does not authorize implementation. Comments explain the unblock owner and condition; they do not replace this machine-readable field.

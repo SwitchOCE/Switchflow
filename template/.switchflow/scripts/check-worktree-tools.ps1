@@ -19,8 +19,12 @@ function Read-GovernanceConfig {
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
         throw "$Root has no Switchflow project metadata. Create a fresh worktree from the accepted project base and rerun this preflight."
     }
-    $config = Get-Content -Raw -Encoding utf8 -LiteralPath $configPath | ConvertFrom-Json
-    if ($null -eq $config -or $config -isnot [pscustomobject]) {
+    $configText = Get-Content -Raw -Encoding utf8 -LiteralPath $configPath
+    try { $config = $configText | ConvertFrom-Json }
+    catch { throw "Invalid Switchflow project metadata in $Root. Expected a JSON object." }
+    # Windows PowerShell can wrap JSON arrays/scalars as PSObjects, making
+    # '-is [pscustomobject]' true. Require the actual JSON object runtime type.
+    if ($null -eq $config -or $config.GetType() -ne [System.Management.Automation.PSCustomObject]) {
         throw "Invalid Switchflow project metadata in $Root. Expected a JSON object."
     }
     foreach ($field in @('schemaVersion', 'templateVersion', 'taskPrefix', 'templateRevision', 'templateDirty')) {
@@ -41,8 +45,16 @@ function Read-GovernanceConfig {
     return $config
 }
 
-$projectConfig = Read-GovernanceConfig -Root $worktreeRoot
+. (Join-Path $PSScriptRoot 'tooling.ps1')
+$governanceRoot = Resolve-GovernanceRoot -ProjectRoot $worktreeRoot
+$projectConfig = Read-GovernanceConfig -Root $governanceRoot
 $dispatchRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$dispatchRoot = Resolve-GovernanceRoot -ProjectRoot $dispatchRoot
+if ($null -ne (Get-PrimaryCheckoutRoot -ProjectRoot $worktreeRoot) -and
+    $null -ne (Get-PrimaryCheckoutRoot -ProjectRoot $dispatchRoot) -and
+    -not $governanceRoot.Equals($dispatchRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "The assigned checkout belongs to a different Git project ($governanceRoot). Dispatch using that project's own canonical governance."
+}
 $dispatchConfig = Read-GovernanceConfig -Root $dispatchRoot
 if ($projectConfig.schemaVersion -ne $dispatchConfig.schemaVersion -or
     $projectConfig.templateVersion -ne $dispatchConfig.templateVersion -or
@@ -56,18 +68,17 @@ $taskPattern = '^' + [regex]::Escape([string]$projectConfig.taskPrefix) + '-\d+(
 if ($TaskId -notmatch $taskPattern) {
     throw "TaskId must match $($projectConfig.taskPrefix)-<number>."
 }
-. (Join-Path $PSScriptRoot 'tooling.ps1')
-$backlogCli = Resolve-BacklogCli -ProjectRoot $worktreeRoot
+$backlogCli = Resolve-BacklogCli -ProjectRoot $governanceRoot
 
-Push-Location -LiteralPath $worktreeRoot
+Push-Location -LiteralPath $governanceRoot
 try {
     & node $backlogCli task view $TaskId --json | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "Backlog task read failed for $TaskId in $worktreeRoot"
+        throw "Backlog task read failed for $TaskId in canonical governance $governanceRoot"
     }
 
     if ($RequireDocs) {
-        & node (Join-Path $PSScriptRoot 'check-docs.mjs') $worktreeRoot $backlogCli
+        & node (Join-Path $governanceRoot '.switchflow\scripts\check-docs.mjs') $governanceRoot $backlogCli
         if ($LASTEXITCODE -ne 0) {
             throw "Backlog documentation preflight failed in $worktreeRoot"
         }
@@ -100,4 +111,4 @@ finally {
     Pop-Location
 }
 
-Write-Host "Worktree tooling ready: $TaskId"
+Write-Host "Worktree tooling ready: $TaskId; code: $worktreeRoot; governance: $governanceRoot"

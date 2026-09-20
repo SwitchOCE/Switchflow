@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { resolveBacklogFork } from '../template/.switchflow/scripts/backlog-fork/runtime.mjs';
 import { editMilestone, viewMilestone } from '../template/.switchflow/scripts/milestone-scope.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const nativeCli = process.env.BACKLOG_TEST_CLI;
+const runtime = await resolveBacklogFork();
 const original = '---\r\nid: m-0\r\ntitle: "Keep identity"\r\ncustom: preserve-me\r\n---\r\n\r\n## Description\r\n\r\nOriginal scope\r\n';
 const run = (cmd, args, cwd) => spawnSync(cmd, args, { cwd, encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
 const ok = result => { assert.ifError(result.error); assert.equal(result.status, 0, result.stderr || result.stdout); return result.stdout; };
@@ -17,6 +19,7 @@ const change = (root, description = 'Revised scope') => ({ expectedRevision: vie
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'switchflow-scope-'));
   try {
+    ok(run(runtime.executable, ['init', 'Scope fixture', '--defaults', '--no-git', '--integration-mode', 'none', '--task-prefix', 'VAL'], root));
     mkdirSync(join(root, 'backlog/milestones'), { recursive: true });
     writeFileSync(join(root, 'backlog/milestones/m-0 - keep.md'), original);
     fn(root);
@@ -32,10 +35,13 @@ test('scope edit preserves metadata and exact prior record; supports long Unicod
   assert.equal(result.description, long.trim());
   assert.equal(result.path, join('backlog', 'milestones', 'm-0 - keep.md'));
   const saved = readFileSync(join(root, result.path), 'utf8');
-  assert.equal(saved.split('## Description')[0], original.split('## Description')[0]);
+  assert.match(saved, /custom: preserve-me/);
+  assert.match(saved, /title:.*Keep identity/);
   const snapshot = JSON.parse(readFileSync(join(root, result.snapshot), 'utf8'));
   assert.equal(snapshot.previousContent, original);
-  assert.equal(snapshot.proposedRevision, result.revision);
+  assert.equal(snapshot.status, 'prepared');
+  const receipt = JSON.parse(readFileSync(join(root, result.snapshot.replace(/\.json$/, '.applied.json')), 'utf8'));
+  assert.equal(receipt.proposedRevision, result.revision);
   assert.equal(snapshot.approval, change(root).approval);
   const restored = editMilestone(root, 'm-0', change(root, 'Original scope'));
   assert.equal(restored.description, 'Original scope');
@@ -50,12 +56,13 @@ test('stale baseline, simultaneous writer and malformed input leave accepted con
   for (const input of [{ ...change(root), approval: '' }, { ...change(root), id: 'm-1' }, { ...change(root), description: '' }]) {
     assert.throws(() => editMilestone(root, 'm-0', input), /Input requires/);
   }
-  const lock = join(root, current.path) + '.scope-lock';
-  writeFileSync(lock, 'another writer');
-  assert.throws(() => editMilestone(root, 'm-0', change(root)), /EEXIST/);
-  assert.equal(readFileSync(lock, 'utf8'), 'another writer');
+  const lock = join(root, 'backlog/.locks/workflow');
+  mkdirSync(lock, {recursive:true});
+  assert.throws(() => editMilestone(root, 'm-0', change(root, 'Contending edit')), /lock|modified|editing/i);
+  assert.ok(readdirSync(join(root,'backlog/.locks')).includes('workflow'));
+  rmSync(lock, {recursive:true});
   assert.deepEqual(readFileSync(join(root, current.path)), before);
-  assert.equal(viewMilestone(root, 'm-0').snapshots.length, 1);
+  assert.equal(viewMilestone(root, 'm-0').snapshots.length, 2); // the unsuccessful prepared snapshot does not assert application
 }));
 
 test('exact IDs exclude path traversal, absent, duplicate and archived milestones', () => fixture(root => {
@@ -75,8 +82,8 @@ test('a legacy milestone without description can gain scope; identical edit crea
   assert.equal(second.snapshots.length, 1);
 }));
 
-test('failure to save history leaves current scope intact and releases the writer lock', () => fixture(root => {
-  mkdirSync(join(root, 'backlog/archive'));
+test('failure to save history leaves current scope intact before native mutation', () => fixture(root => {
+  mkdirSync(join(root, 'backlog/archive'), { recursive: true });
   writeFileSync(join(root, 'backlog/archive/milestone-revisions'), 'not a directory');
   const input = change(root);
   assert.throws(() => editMilestone(root, 'm-0', input), /ENOTDIR|ENOENT/);

@@ -47,7 +47,7 @@ The board carries a second responsibility that is easy to underuse: it is the du
 | --- | --- |
 | Milestone | Backlog.md milestone record. Carries the scope contract and the UAT definition. |
 | Intake and revision discovery | Unmilestoned task labelled `discovery` and `coordination`; optional discovery children. Current checkpoint in description, answers in comments. |
-| Previous scope baseline | Exact record snapshot under `backlog/archive/milestone-revisions/<id>/`, written before an adapter replacement. |
+| Previous scope baseline | Exact record snapshot under `backlog/archive/milestone-revisions/<id>/`, prepared before a native CAS edit; a separate receipt records successful application. |
 | Phase | A native parent task whose children are created with `--parent`, carrying a board-unique phase label and the `coordination` label. Carries the phase plan in its description. |
 | Phase record | A comment on the phase parent task. |
 | Worker task | A child task carrying a context map, assigned to the milestone and labelled with its phase. |
@@ -56,7 +56,7 @@ The board carries a second responsibility that is easy to underuse: it is the du
 Verified against Backlog.md 1.50.1:
 
 - `milestone add --description` accepts multi-line Markdown and stores it verbatim under a `## Description` heading, so the scope contract fits. A literal `\n` is stored as text, so the description must carry real newlines.
-- Native CLI/MCP have no milestone description edit. Switchflow adds `milestone view` and `milestone edit --input-file` through its wrapper, preserving identity and prior content with an expected-revision check. Native rename remains available. The adapter protocol and recovery limits live in doc-09.
+- The pinned fork supports milestone metadata edits through CLI and MCP with an expected-revision check and a shared mutation lock. Title, description, labels and explicit execution order preserve the milestone ID. Scope revisions retain the wrapper's prior-content snapshot and application receipt; ordinary metadata edits use native CAS directly. The adapter protocol and recovery limits live in doc-09.
 - `task create --parent` produces real hierarchical children (`TASK-1` / `TASK-1.1`) with `parent_task_id` in frontmatter. Phase parents are native, not a convention.
 - Labels are not restricted to those declared in `backlog.config.yml`, so board-unique phase labels work without configuration changes.
 

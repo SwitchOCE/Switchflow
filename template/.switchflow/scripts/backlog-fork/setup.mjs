@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { directory, forkPaths, resolveBacklogFork, sha256, launcherFiles, forkIdentity } from './runtime.mjs';
+import { directory, forkPaths, resolveBacklogFork, sha256, launcherFiles, forkIdentity, webIntegrity } from './runtime.mjs';
 
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== '--cache')) throw new Error('Usage: node setup.mjs [--cache <external directory>]');
@@ -42,12 +42,12 @@ try {
   await run('git', ['apply', '--check', patchFile], source);
   await run('git', ['apply', patchFile], source);
   const bun = path.join(toolchain, 'bin', process.platform === 'win32' ? 'bun.exe' : 'bun');
-  const env = { BUN_INSTALL_CACHE_DIR: path.join(location.root, 'dependency-cache'), BACKLOG_BUILD_VERSION: manifest.version, BACKLOG_BUILD_OUTFILE: location.executable };
+  const env = { BUN_INSTALL_CACHE_DIR: path.join(location.root, 'dependency-cache'), BACKLOG_BUILD_VERSION: manifest.version, BACKLOG_BUILD_OUTFILE: location.executable, BACKLOG_BUILD_WEB_OUTDIR: location.webRoot };
   await run(bun, ['install', '--frozen-lockfile', '--ignore-scripts'], source, env);
   await run(bun, ['scripts/build.ts'], source, env);
   await run(location.executable, ['--version'], location.root);
   for (const [file, contents] of Object.entries(launcherFiles(location))) await fs.writeFile(path.join(location.root, file), contents);
   if (await forkIdentity() !== location.identity) throw new Error('Fork inputs changed during setup; rerun setup for the new version.');
-  await fs.writeFile(path.join(location.root, 'receipt.json'), JSON.stringify({ identity: location.identity, version: manifest.version, executableSha256: sha256(await fs.readFile(location.executable)), builtAt: new Date().toISOString() }, null, 2));
+  await fs.writeFile(path.join(location.root, 'receipt.json'), JSON.stringify({ identity: location.identity, version: manifest.version, executableSha256: sha256(await fs.readFile(location.executable)), webSha256: await webIntegrity(location.webRoot), builtAt: new Date().toISOString() }, null, 2));
   console.log(JSON.stringify(location));
 } finally { await lock.close(); await fs.unlink(lockPath); }

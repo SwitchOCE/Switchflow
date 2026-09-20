@@ -35,6 +35,12 @@ Keep the board running during ordinary orchestration. Application dependencies a
 
 ## Git workflow
 
+### Canonical governance across code worktrees
+
+Every linked worktree shares one governance authority: `backlog/` and the governance tooling in the primary checkout owning the common Git directory. Use `backlog.ps1` for task/document/milestone and MCP reads and writes. `check-docs.ps1` checks those authoritative documents. `check-worktree-tools.ps1` reads canonical governance and tasks while checking application dependencies in the assigned code checkout. Resolve source content files relative to the caller before invoking a governance mutation; the wrapper preserves that input when switching to the authority.
+
+Tracked `backlog/` copies in candidate worktrees are baseline snapshots, not active project state. Do not serve a board, initialize Backlog, register raw MCP, edit task frontmatter or maintain a second documentation tree there. Do not remove existing copies, sparse-checkout paths, or discard divergent records automatically. If past work created divergent governance, preserve both records and reconcile explicitly into the primary authority before resuming affected work. Keep product changes, builds, tests and scoped commits in the candidate; governance mutations and document checks use the primary checkout. Before committing a candidate, inspect its diff and exclude copied governance changes. The shared board deduplicates projects by common Git identity, so selecting another worktree cannot create another project authority.
+
 ### Worktree ownership
 
 Planning names one worktree manager: **Codex managed**, **orchestrator managed**, or **human managed**. Record each worktree's canonical path, branch, base, owner, task, integration target, profile/output locations and cleanup responsibility in the phase checkpoint. Codex-managed trees use host lifecycle support when available; orchestrator-managed trees use the project preflight and bounded cleanup; human-managed trees are preserved unless their owner grants specific cleanup. Never have two managers delete the same tree. A separate tree isolates files, not running processes or application data: use separate profiles, mutable data and generated output when the task needs them.

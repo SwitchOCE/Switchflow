@@ -15,10 +15,11 @@ Run the local board with:
 
 ```powershell
 npm --prefix .switchflow ci --ignore-scripts # initial setup only, while this installation is not serving the board
+npm --prefix .switchflow run setup:backlog-fork # required for mutations, MCP and the native board
 .\.switchflow\scripts\backlog.ps1 browser
 ```
 
-The server listens on <http://127.0.0.1:6420>. Agents use `.switchflow/scripts/backlog.ps1` instead of editing task frontmatter. The wrapper reuses a matching pinned Backlog.md installation from the primary checkout when possible, so isolated worktrees do not need a full install for board access.
+The launcher opens the shared local control service and reuses its port across projects; choose the active project in the top navigation. `browser-native` explicitly opens the legacy board for diagnostics. Agents use `.switchflow/scripts/backlog.ps1` instead of editing task frontmatter. The wrapper routes every task, document, milestone and MCP operation to the primary checkout resolved from the common Git directory, using its pinned tooling. Linked worktrees never become independent governance stores. Missing primary governance is an error, not permission to fall back to a stale copy.
 
 For project initiation and orchestration controls, use `.switchflow/scripts/backlog.ps1 control`. This local control surface complements the native task/document board. It keeps initiative revisions, owner messages, approval history and agent checkpoints in the external project operations directory, keyed by the canonical Git common directory so worktrees share one run history. It serializes active agent processes for that project. A restarted service marks uncertain execution interrupted; resume from the recorded checkpoint and never blindly replay an external action.
 
@@ -69,7 +70,13 @@ One narrow exception to branch deletion stands: the orchestrator may run `.switc
 | **Blocked** | Prepared work cannot proceed because of a named dependency, decision, resource, or obstruction, before or after execution starts. | Codex or orchestrator records and later clears the obstruction. |
 | **Done** | The result passed independent acceptance review and required integration checks. | Authorized reviewer or the designated phase orchestrator. |
 
-Tasks normally move **Backlog → Ready → In Progress → Review → Done**. Prepared work may enter **Blocked** from Backlog, Ready, In Progress, or Review. Resolution requires reassessment: return to Ready when the full gate passes, or Backlog when scope needs definition. A task blocked during Review may return to Review only when its reviewed surface and evidence remain valid. Actionable review corrections return **Review → Ready → In Progress**; an external obstacle uses Blocked instead. Keep work in Review until acceptance and required integration checks finish.
+Tasks normally move **Backlog → Ready → In Progress → Review → Done**. Prepared work may enter **Blocked** from Backlog, Ready, In Progress, or Review. For non-dependency blockers, resolution requires reassessment: return to Ready when the full gate passes, or Backlog when scope needs definition. A task blocked during Review may return to Review only when its reviewed surface and evidence remain valid. Actionable review corrections return **Review → Ready → In Progress**; an external obstacle uses Blocked instead. Keep work in Review until acceptance and required integration checks finish.
+
+### Dependency readiness and block reasons
+
+`blockReason` is an optional task string, separate from labels and dependency IDs. The reserved value `dependent` means unfinished dependencies are the only blocker. Prepared Ready tasks with unfinished dependencies become Blocked with `dependent`. When all prerequisites are Done or completed, dependency-only Blocked tasks automatically become Ready and clear that reason. A missing, archived-without-completion, or otherwise unresolved prerequisite does not count as Done. A task with another reason remains Blocked until that obstruction is explicitly cleared; automatic dependency reconciliation must never discard that reason. Do not use `dependent` for a decision, resource, failed check or missing authority.
+
+Automatic readiness is limited to previously prepared work. It never approves undefined Backlog scope, starts execution, changes active In Progress/Review work, or substitutes for UAT. Dependency edits and completion through the board, CLI or MCP use the same structured rule. Re-read the returned task revision after mutations because reconciliation can change affected dependent records.
 
 Readiness does not authorize implementation. A request such as “execute {{TASK_PREFIX}}-02” authorizes **Backlog → Ready → In Progress** only when no material decision or execution obstruction remains.
 

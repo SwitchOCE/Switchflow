@@ -97,7 +97,9 @@ test('runtime rejects changed CLI and MCP launcher files', async () => {
   try {
     const location=await forkPaths(cache);await fs.mkdir(location.root,{recursive:true});
     const bytes=Buffer.from('isolated integrity fixture');await fs.writeFile(location.executable,bytes);
-    await fs.writeFile(path.join(location.root,'receipt.json'),JSON.stringify({identity:location.identity,executableSha256:sha256(bytes)}));
+    await fs.cp(runtime.webRoot,location.webRoot,{recursive:true});
+    const receipt=JSON.parse(await fs.readFile(path.join(runtime.root,'receipt.json'),'utf8'));
+    await fs.writeFile(path.join(location.root,'receipt.json'),JSON.stringify({identity:location.identity,executableSha256:sha256(bytes),webSha256:receipt.webSha256}));
     for(const [file,value]of Object.entries(launcherFiles(location))) await fs.writeFile(path.join(location.root,file),value);
     await resolveBacklogFork({cache});
     for(const [file,value]of Object.entries(launcherFiles(location))){

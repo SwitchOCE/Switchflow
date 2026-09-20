@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,7 +43,7 @@ export function viewMilestone(projectRoot, id) {
   const content = readFileSync(path);
   const source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(content);
   const snapshotsPath = join(root, 'backlog', 'archive', 'milestone-revisions', id);
-  const snapshots = existsSync(snapshotsPath) ? readdirSync(inside(root, snapshotsPath)).filter(name => name.endsWith('.json')).sort().map(name => relative(root, join(snapshotsPath, name))) : [];
+  const snapshots = existsSync(snapshotsPath) ? readdirSync(inside(root, snapshotsPath)).filter(name => name.endsWith('.json') && !name.endsWith('.applied.json')).sort().map(name => relative(root, join(snapshotsPath, name))) : [];
   return { id, path: relative(root, path), revision: hash(content), description: split(source).description, snapshots };
 }
 
@@ -53,43 +54,44 @@ export function editMilestone(projectRoot, id, input) {
     throw new Error('Input requires expectedRevision (SHA-256), description, reason, and approval; no other fields.');
   }
   const { root, path } = locate(projectRoot, id);
-  const lockPath = path + '.scope-lock';
-  let lock;
-  let staged;
+  const before = readFileSync(path);
+  if (hash(before) !== input.expectedRevision) throw new Error('Stale milestone revision; read it again and reconcile the proposed change.');
+  const source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(before);
+  if (split(source).description === input.description.trim()) return { ...viewMilestone(root, id), changed: false };
+  // Native CAS owns the mutation lock. A separate scope lock cannot protect against
+  // native UI/MCP writers, so the adapter never replaces milestone bytes itself.
+  const resolver = fileURLToPath(new URL('./backlog-fork/resolve.mjs', import.meta.url));
+  const resolved = spawnSync(process.execPath, [resolver], { cwd: root, encoding: 'utf8', windowsHide: true });
+  if (resolved.error || resolved.status !== 0) throw new Error(resolved.error?.message || resolved.stderr || 'Set up the pinned milestone CAS runtime first.');
+  const cli = resolved.stdout.trim();
+  let storage = root;
+  for (const part of ['backlog', 'archive', 'milestone-revisions', id]) {
+    storage = join(storage, part);
+    if (!existsSync(storage)) mkdirSync(storage);
+    inside(root, storage);
+  }
+  const receiptId = `${Date.now()}-${randomUUID()}`;
+  const snapshot = join(storage, `${receiptId}.json`);
+  const request = join(storage, `${receiptId}.request.tmp`);
+  const record = { id, beforeRevision: input.expectedRevision, description: input.description,
+    reason: input.reason, approval: input.approval, savedAt: new Date().toISOString(),
+    previousContent: source, status: 'prepared' };
+  writeFileSync(snapshot, JSON.stringify(record, null, 2) + '\n', { flag: 'wx', encoding: 'utf8' });
   try {
-    lock = openSync(lockPath, 'wx');
-    const before = readFileSync(path);
-    if (hash(before) !== input.expectedRevision) throw new Error('Stale milestone revision; read it again and reconcile the proposed change.');
-    const source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(before);
-    const parts = split(source);
-    if (parts.description === input.description.trim()) return { ...viewMilestone(root, id), changed: false };
-    const after = parts.prefix + '\n' + input.description.trim() + '\n';
-    // Create each directory separately so a pre-existing link cannot redirect a write.
-    let storage = root;
-    for (const part of ['backlog', 'archive', 'milestone-revisions', id]) {
-      storage = join(storage, part);
-      if (!existsSync(storage)) mkdirSync(storage);
-      inside(root, storage);
-    }
-    const snapshot = join(storage, `${Date.now()}-${randomUUID()}.json`);
-    writeFileSync(snapshot, JSON.stringify({
-      id, beforeRevision: input.expectedRevision, proposedRevision: hash(after),
-      reason: input.reason, approval: input.approval, savedAt: new Date().toISOString(),
-      previousContent: source,
-    }, null, 2) + '\n', { flag: 'wx', encoding: 'utf8' });
-    staged = path + '.' + randomUUID() + '.tmp';
-    writeFileSync(staged, after, { flag: 'wx', encoding: 'utf8' });
-    if (lstatSync(path).isSymbolicLink() || hash(readFileSync(path)) !== input.expectedRevision) {
-      throw new Error('Milestone changed during the edit; current content was preserved. Reconcile before retrying.');
-    }
-    renameSync(staged, path);
-    staged = undefined;
+    writeFileSync(request, JSON.stringify({ expectedRevision: input.expectedRevision, description: input.description.trim() }), { flag: 'wx', encoding: 'utf8' });
+    const result = spawnSync(process.execPath, [cli, 'milestone', 'edit', id, '--input-file', request, '--json'], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024,
+    });
+    if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr || result.stdout || 'Milestone edit failed.');
+    const applied = JSON.parse(result.stdout);
     const saved = viewMilestone(root, id);
-    if (saved.revision !== hash(after)) throw new Error('Milestone changed after replacement; inspect current state before retrying.');
+    // Append a separate receipt; a prepared snapshot alone never asserts success.
+    writeFileSync(join(storage, `${receiptId}.applied.json`), JSON.stringify({ id, status: 'applied', beforeRevision: input.expectedRevision,
+      proposedRevision: applied.revision, observedRevision: saved.revision, snapshot: relative(root, snapshot) }, null, 2) + '\n', { flag: 'wx', encoding: 'utf8' });
+    if (saved.revision !== applied.revision) throw new Error('Milestone changed after native CAS succeeded; inspect current state and the applied receipt before retrying.');
     return { ...saved, changed: true, snapshot: relative(root, snapshot) };
   } finally {
-    if (staged && existsSync(staged)) unlinkSync(staged);
-    if (lock !== undefined) { closeSync(lock); unlinkSync(lockPath); }
+    if (existsSync(request)) unlinkSync(request);
   }
 }
 
@@ -98,7 +100,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const [root, group, action, id, ...args] = process.argv.slice(2);
     if (group !== 'milestone') throw new Error(usage);
     if (action === 'view' && (args.length === 0 || args.length === 1 && args[0] === '--json')) {
-      const result = viewMilestone(root, id);
+      let result = viewMilestone(root, id);
+      const resolved = spawnSync(process.execPath, [fileURLToPath(new URL('./backlog-fork/resolve.mjs', import.meta.url))], { cwd: root, encoding: 'utf8', windowsHide: true });
+      if (resolved.status === 0) {
+        const viewed = spawnSync(process.execPath, [resolved.stdout.trim(), 'milestone', 'view', id, '--json'], { cwd: root, encoding: 'utf8', windowsHide: true });
+        if (viewed.status !== 0) throw new Error(viewed.stderr || viewed.stdout || 'Milestone read failed.');
+        result = { ...result, ...JSON.parse(viewed.stdout) };
+      }
       console.log(args.length ? JSON.stringify(result, null, 2) : `${id}\nRevision: ${result.revision}\n\n${result.description}\n\nRevision snapshots: ${result.snapshots.length}`);
     } else if (action === 'edit' && args.length === 2 && args[0] === '--input-file') {
       const input = JSON.parse(readFileSync(resolve(args[1]), 'utf8').replace(/^\uFEFF/, ''));

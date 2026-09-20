@@ -9,7 +9,7 @@ tags: ["governance", "start-here"]
 
 These Backlog documents record durable project knowledge and governance for {{PROJECT_NAME}}.
 
-> **Backlog.md is the source of truth for active work.** Start the local workspace with `.\.switchflow\scripts\backlog.ps1 browser`. It is available at <http://127.0.0.1:6420>.
+> **Backlog.md is the source of truth for active work.** Start the local workspace with `.\.switchflow\scripts\backlog.ps1 browser`. The launcher opens the shared local service and prints its current project URL. Select projects in the top bar; Switchflow's navigation opens initiatives, tasks, milestones, documents, decisions, drafts, insights and settings. Code worktrees share the primary governance checkout.
 
 Start with the [project profile](/documentation/02/project-profile), then use the [Kanban workflow](/documentation/03/kanban-workflow) for lifecycle, the [task contract](/documentation/07/task-contract) for task shape and readiness, the [delivery contract](/documentation/08/delivery-contract) for execution and review, and [engineering standards](/documentation/04/engineering-standards) for quality and risk. Use [Maintaining documentation](/documentation/05/maintaining-documentation) when established knowledge changes.
 

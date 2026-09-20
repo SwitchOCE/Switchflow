@@ -86,7 +86,7 @@ Confirmed product vocabulary belongs in the most relevant existing durable docum
 
 The wrapper returns the description and its `revision` (SHA-256 of the whole record). Plans and phase records name the scope revision they used. A changed hash calls for comparison, not automatic rejection of valid work: a rename also changes it. Legacy milestones need no conversion; their current record is the initial baseline.
 
-The pinned native CLI and MCP do not edit milestone descriptions. Switchflow's `milestone edit` adapter replaces only the description, preserving ID, filename, frontmatter, task assignments and dependencies. Use native `milestone rename` for title changes and refresh the revision afterwards. Never remove/recreate a milestone to revise scope.
+The pinned Switchflow fork supports revision-checked milestone title, description, labels and execution-order edits through CLI and MCP. The scope-revision adapter preserves exact previous content and approval evidence, then delegates the description change to that native CAS editor using its shared mutation lock. Identity, task assignments and dependencies remain stable. Never remove/recreate a milestone to revise scope.
 
 ## Shared revision procedure
 
@@ -116,9 +116,9 @@ Save a UTF-8 JSON file with exactly these fields. `description` is the full new 
 .\.switchflow\scripts\backlog.ps1 milestone view m-0 --json
 ```
 
-Paths resolve from the caller's directory. The adapter checks input and expected revision, excludes concurrent wrapper edits with a lock, saves the prior record, and replaces through a staged write. Approval text is an audit reference, not a machine-verified grant. Coordinate browser/native edits during replacement; those writers do not participate in the lock.
+Paths resolve from the caller's directory. The adapter checks input and expected revision, saves a prepared snapshot, and delegates the mutation to the native CAS editor. Browser, CLI and MCP writers participate in that shared mutation lock. A separate applied receipt records success. Approval text remains an audit reference, not a machine-verified grant; an expected revision protects state consistency without granting scope authority.
 
-Snapshots under `backlog/archive/milestone-revisions/<id>/` hold exact previous content, before/proposed hashes, reason and approval reference. `milestone view` lists them. Keep them in version control. Failed replacement can leave an unused snapshot: the current milestone is authoritative, and a snapshot alone does not prove completion. Restore by extracting the previous description and submitting a new edit against today's revision. After a process crash, check no writer is active before removing that exact leftover `.scope-lock` and reconciling current content.
+Prepared snapshots under `backlog/archive/milestone-revisions/<id>/` hold exact previous content, baseline hash, intended description, reason and approval reference. A separate `.applied.json` receipt records native CAS success and the resulting revision. `milestone view` lists the prepared snapshots. Keep this evidence in version control. An interrupted attempt can leave an unused snapshot: the current milestone is authoritative, and a snapshot alone does not prove completion. Restore by extracting the previous description and submitting a new edit against today's revision. Native task/milestone mutation locks coordinate writers; do not remove a lock while any writer is active. Re-read current state and receipts before retrying an uncertain operation.
 
 ## Shared glossary
 
@@ -140,3 +140,9 @@ Snapshots under `backlog/archive/milestone-revisions/<id>/` hold exact previous 
 | Scratch | Transient, unaccepted working material outside canonical governance. |
 
 Use these meanings consistently and add domain terms to the project's durable vocabulary. Technical phase completion does not mean UAT has passed. In a project grant spanning several milestones, collect their UAT scenarios into the final guided human session unless the owner explicitly requires an intermediate human gate.
+
+## Milestone identity and intended sequence
+
+Milestone IDs such as `m-7` are stable identifiers only. Their numbers never define delivery priority or execution order. Use optional `executionOrder` for the intended sequence, labels for grouping and filtering, title for the human outcome, and description for the scope contract. Dependencies and the approved plan still constrain execution; changing display order does not authorize new work or bypass a prerequisite. Unordered milestones remain explicitly unsequenced rather than acquiring an order from their ID.
+
+Milestones remain editable after creation. Use `milestone view <id> --json` to read the current revision and `milestone edit <id> --expected-revision <revision>` with `--title`, `--description`, `--labels`, `--execution-order` or `--clear-execution-order` for metadata changes. A stale revision must be reconciled, never overwritten blindly. Scope changes retain the accepted-scope procedure and its reason/approval snapshot route; metadata editing does not grant scope-change authority. Prepared revision snapshots record an attempted change; an applied receipt records native CAS success. An interrupted snapshot without its receipt requires reading current state before retrying.

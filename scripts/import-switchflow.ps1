@@ -94,6 +94,20 @@ if ($targetRoot.Equals($switchflowRoot, [System.StringComparison]::OrdinalIgnore
     throw 'Import into a separate project, not into the Switchflow repository.'
 }
 
+# Governance belongs to the checkout owning the common Git directory. Importing
+# into a linked code worktree would create a second mutable board before its
+# wrapper could route reads to the primary authority.
+if (Test-Path -LiteralPath (Join-Path $targetRoot '.git')) {
+    . (Join-Path $templateRoot '.switchflow\scripts\tooling.ps1')
+    $primaryTarget = Get-PrimaryCheckoutRoot -ProjectRoot $targetRoot
+    if ($null -eq $primaryTarget) {
+        throw 'Cannot identify the primary checkout for this Git target. Repair its Git registration before importing governance.'
+    }
+    if (-not $targetRoot.TrimEnd('\', '/').Equals($primaryTarget.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Import Switchflow into the primary checkout $primaryTarget, not linked code worktree $targetRoot. Existing governance copies were preserved."
+    }
+}
+
 if (-not [string]::IsNullOrWhiteSpace($RepoUrl)) {
     $repositoryUri = $null
     if (-not [System.Uri]::TryCreate($RepoUrl, [System.UriKind]::Absolute, [ref]$repositoryUri) -or

@@ -16,7 +16,22 @@ export const defaultCache = process.platform === 'win32'
 export async function forkPaths(cache = process.env.SWITCHFLOW_BACKLOG_CACHE || defaultCache) {
   const identity = await forkIdentity();
   const root = path.resolve(cache, `${identity}-${process.platform}-${process.arch}`);
-  return { root, identity, executable: path.join(root, process.platform === 'win32' ? 'backlog.exe' : 'backlog'), cliPath: path.join(root, 'cli.cjs') };
+  return { root, identity, executable: path.join(root, process.platform === 'win32' ? 'backlog.exe' : 'backlog'), cliPath: path.join(root, 'cli.cjs'), webRoot: path.join(root, 'web') };
+}
+export async function webIntegrity(webRoot) {
+  const files = {};
+  async function visit(directory, prefix = '') {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const name = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error(`Web bundle symlink rejected: ${name}`);
+      if (entry.isDirectory()) await visit(path.join(directory, entry.name), name + '/');
+      else if (entry.isFile()) files[name] = sha256(await fs.readFile(path.join(directory, entry.name)));
+      else throw new Error(`Unsupported web bundle entry: ${name}`);
+    }
+  }
+  await visit(webRoot);
+  if (!files['index.html']) throw new Error('Native web entrypoint missing');
+  return Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
 }
 export function launcherFiles(location) {
   const executable = JSON.stringify(path.basename(location.executable));
@@ -30,6 +45,7 @@ export async function resolveBacklogFork(options = {}) {
   try {
     const receipt = JSON.parse(await fs.readFile(path.join(location.root, 'receipt.json'), 'utf8'));
     if (receipt.identity !== location.identity || receipt.executableSha256 !== sha256(await fs.readFile(location.executable))) throw new Error('Runtime integrity mismatch');
+    if (JSON.stringify(receipt.webSha256) !== JSON.stringify(await webIntegrity(location.webRoot))) throw new Error('Web bundle integrity mismatch');
     for (const [file, expected] of Object.entries(launcherFiles(location))) {
       if (await fs.readFile(path.join(location.root, file), 'utf8') !== expected) throw new Error(`Launcher integrity mismatch: ${file}`);
     }
