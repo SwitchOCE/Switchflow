@@ -114,6 +114,13 @@ test('native stdio bridge preserves native workflows, revision conflicts and cle
   assert.equal((await request('PUT', '/api/decisions/' + structured.json.id, { title: 'Renamed structured decision', content: '## Context\n\n\n## Decision\n\nChanged option\n\n## Consequences\n\n' })).status, 200);
   persistedDecision = (await request('GET', '/api/decisions/' + structured.json.id)).json;
   assert.equal(persistedDecision.title, 'Renamed structured decision'); assert.equal(persistedDecision.context, ''); assert.equal(persistedDecision.decision, 'Changed option');
+  for (const [openFence, innerFence, closeFence] of [['````md', '```', '````'], ['~~~md', '~~~still content', '~~~~']]) {
+    const context = `${openFence}\n${innerFence}\n## Literal example\n${closeFence}`;
+    const content = `## Context\n\n${context}\n\n## Decision\n\nSelected\n\n## Consequences\n\nPreserved`;
+    assert.equal((await request('PUT', '/api/decisions/' + structured.json.id, { title: 'Nested code fences', content })).status, 200);
+    const saved = (await request('GET', '/api/decisions/' + structured.json.id)).json;
+    assert.equal(saved.context, context); assert.equal(saved.decision, 'Selected'); assert.equal(saved.consequences, 'Preserved');
+  }
   const decisionFiles = await fs.readdir(path.join(root, 'backlog/decisions'));
   const beforeDecisionBytes = await Promise.all(decisionFiles.map(async name => [name, await fs.readFile(path.join(root, 'backlog/decisions', name), 'utf8')]));
   assert.equal((await request('PUT', '/api/decisions/' + structured.json.id, { title: 'Do not overwrite', content: 'unsupported draft text' })).status, 400);

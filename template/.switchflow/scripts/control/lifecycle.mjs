@@ -55,7 +55,7 @@ export function applyAction(item, input) {
     case 'accept-uat': {
       requireState(item.stage === 'uat' && item.status === 'awaiting-human' && item.uat.length > 0 && item.approvedPlan && !item.approvedUat, 'Delivery must reach unaccepted UAT before acceptance.');
       const results = input.results;
-      requireState(Array.isArray(results) && results.length === item.uat.length && new Set(results.map(r => r.id)).size === item.uat.length, 'Record a result for every UAT step.');
+      requireState(Array.isArray(results) && results.length === item.uat.length && results.every(r => r && typeof r === 'object' && !Array.isArray(r) && typeof r.id === 'string') && new Set(results.map(r => r.id)).size === item.uat.length, 'Record a result for every UAT step.');
       item.uat = item.uat.map(step => {
         const result = results.find(r => r.id === step.id);
         requireState(result?.status === 'passed', 'Every UAT step must pass before acceptance. Request rework for failures.');

@@ -9,8 +9,11 @@ export function knowledgePayload(draft, kind) {
   if (kind === 'decisions') {
     const headings = new Set(); let section = ''; let fence = '';
     for (const line of draft.content.replace(/\r\n/g, '\n').split('\n')) {
-      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-      if (marker) { if (!fence) fence = marker[0]; else if (fence === marker[0]) fence = ''; }
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (marker) {
+        if (!fence && (marker[1][0] !== '`' || !marker[2].includes('`'))) fence = marker[1];
+        else if (fence[0] === marker[1][0] && marker[1].length >= fence.length && !marker[2].trim()) fence = '';
+      }
       const heading = !fence && /^##[ \t]+(.+?)[ \t]*$/.exec(line);
       if (heading) {
         section = heading[1].toLowerCase();

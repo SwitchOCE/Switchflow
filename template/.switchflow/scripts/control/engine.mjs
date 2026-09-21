@@ -40,9 +40,10 @@ export class ControlEngine {
         if (run) { run.status = 'interrupted'; run.finishedAt = now(); }
         event(item, 'interrupted', item.nextAction);
       }
-      if (!s.activeRun.pid || this.processAlive(s.activeRun.pid)) {
+      const knownProcess = Number.isSafeInteger(s.activeRun.pid) && s.activeRun.pid > 0;
+      if (!knownProcess || this.processAlive(s.activeRun.pid)) {
         s.activeRun.status = 'interrupted';
-        s.activeRun.unknownProcess = !s.activeRun.pid;
+        s.activeRun.unknownProcess = !knownProcess;
         if (item) item.nextAction = s.activeRun.unknownProcess ? 'The service stopped before recording the agent process identity. Confirm the previous process has stopped to release the recovery fence.' : `The prior agent process (${s.activeRun.pid}) is still running. Retry becomes available after it stops; its checkpoint is preserved.`;
       } else s.activeRun = null;
     });

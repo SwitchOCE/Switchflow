@@ -94,6 +94,19 @@ if ($targetRoot.Equals($switchflowRoot, [System.StringComparison]::OrdinalIgnore
     throw 'Import into a separate project, not into the Switchflow repository.'
 }
 
+$targetParent = Split-Path -Parent $targetRoot
+if (Test-Path -LiteralPath $targetParent -PathType Container) {
+    foreach ($prior in Get-ChildItem -LiteralPath $targetParent -Directory -Force -Filter '.switchflow-import-*') {
+        $journal = Join-Path $prior.FullName 'recovery.json'
+        if (Test-Path -LiteralPath $journal -PathType Leaf) {
+            $recovery = Get-Content -LiteralPath $journal -Raw -Encoding utf8 | ConvertFrom-Json
+            if ($recovery.target -eq $targetRoot) {
+                throw "An interrupted import needs reconciliation before retrying. Inspect $journal and preserve files whose hashes differ."
+            }
+        }
+    }
+}
+
 # Governance belongs to the checkout owning the common Git directory. Importing
 # into a linked code worktree would create a second mutable board before its
 # wrapper could route reads to the primary authority.
@@ -224,22 +237,40 @@ if ($collisions.Count -gt 0) {
     throw "Import would overwrite existing governance files:`n- $($collisions -join "`n- ")"
 }
 
+# Validate every existing ancestor before the first write. A leaf-only collision
+# check misses files where directories are needed and links that redirect writes
+# outside the intended project (including an existing linked .gitignore).
+$destinations = @($renderedFiles | ForEach-Object { Join-Path $targetRoot $_.RelativePath }) +
+    @($projectConfigPath, (Join-Path $targetRoot '.gitignore'))
+$checkedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($destination in $destinations) {
+    $cursor = $destination
+    $isLeaf = $true
+    while (-not [string]::IsNullOrEmpty($cursor)) {
+        if ($checkedPaths.Add($cursor)) {
+            $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+            if ($null -ne $item) {
+                if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Import destination uses a linked path: $cursor"
+                }
+                if (-not $isLeaf -and -not $item.PSIsContainer) {
+                    throw "Import requires a directory but found a file: $cursor"
+                }
+                if ($isLeaf -and $item.PSIsContainer) {
+                    throw "Import requires a file but found a directory: $cursor"
+                }
+            }
+        }
+        $cursor = Split-Path -Parent $cursor
+        $isLeaf = $false
+    }
+}
+
 if (-not $PSCmdlet.ShouldProcess($targetRoot, "Import Switchflow $version")) {
     return
 }
 
-[System.IO.Directory]::CreateDirectory($targetRoot) | Out-Null
 $utf8 = [System.Text.UTF8Encoding]::new($false)
-foreach ($file in $renderedFiles) {
-    $destination = Join-Path $targetRoot $file.RelativePath
-    [System.IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-    if ($null -ne $file.Bytes) {
-        [System.IO.File]::WriteAllBytes($destination, $file.Bytes)
-    }
-    else {
-        [System.IO.File]::WriteAllText($destination, $file.Content, $utf8)
-    }
-}
 
 $projectConfig = [ordered]@{
     schemaVersion = 1
@@ -252,11 +283,7 @@ $projectConfig = [ordered]@{
     repositoryUrl = $RepoUrl
     projectPhase = $ProjectPhase
 }
-[System.IO.File]::WriteAllText(
-    $projectConfigPath,
-    (($projectConfig | ConvertTo-Json -Depth 3) + "`n"),
-    $utf8
-)
+$renderedFiles.Add([pscustomobject]@{ RelativePath = '.switchflow\project.json'; Content = (($projectConfig | ConvertTo-Json -Depth 3) + "`n"); Bytes = $null })
 
 $gitignorePath = Join-Path $targetRoot '.gitignore'
 $gitignoreMarker = '# Switchflow local tooling'
@@ -266,19 +293,17 @@ $gitignoreBlock = @'
 /backlog/milestones/*.scope-lock
 /backlog/milestones/*.tmp
 '@
+$originalGitignoreBytes = $null
 $existingGitignore = if (Test-Path -LiteralPath $gitignorePath) {
-    [string](Get-Content -Raw -Encoding utf8 -LiteralPath $gitignorePath)
+    $originalGitignoreBytes = [System.IO.File]::ReadAllBytes($gitignorePath)
+    $utf8.GetString($originalGitignoreBytes).TrimStart([char]0xFEFF)
 }
 else {
     ''
 }
 if (-not $existingGitignore.Contains($gitignoreMarker)) {
     $separator = if ([string]::IsNullOrWhiteSpace($existingGitignore)) { '' } else { "`n" }
-    [System.IO.File]::WriteAllText(
-        $gitignorePath,
-        ($existingGitignore.TrimEnd("`r", "`n") + $separator + $gitignoreBlock.Trim() + "`n"),
-        $utf8
-    )
+    $renderedFiles.Add([pscustomobject]@{ RelativePath = '.gitignore'; Content = ($existingGitignore.TrimEnd("`r", "`n") + $separator + $gitignoreBlock.Trim() + "`n"); Bytes = $null; OriginalBytes = $originalGitignoreBytes })
 }
 
 if ($InitializeGit -and -not (Test-Path -LiteralPath (Join-Path $targetRoot '.git'))) {
@@ -287,6 +312,8 @@ if ($InitializeGit -and -not (Test-Path -LiteralPath (Join-Path $targetRoot '.gi
         throw "Git initialization failed for $targetRoot"
     }
 }
+
+& (Join-Path $PSScriptRoot 'install-rendered-template.ps1') -TargetRoot $targetRoot -Files $renderedFiles.ToArray()
 
 Write-Host "Imported Switchflow $version into $targetRoot"
 Write-Host 'Next: edit the project profile in backlog/docs, install .switchflow tools, and run the board and documentation checks.'

@@ -1,5 +1,10 @@
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const splitValues = value => String(value || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+// A save may finish after navigation opened another editor for the same task.
+// Only remove the exact recovery snapshot that this save submitted.
+export function clearSavedDraft(storage, key, snapshot) {
+  if (snapshot !== null && storage.getItem(key) === snapshot) storage.removeItem(key);
+}
 export function checklist(text) {
   return String(text || '').split('\n').map(line => ({text:line.replace(/^\s*(?:-\s*)?\[[ xX]\]\s*/, '').trim(),checked:/^\s*(?:-\s*)?\[[xX]\]/.test(line)})).filter(x => x.text).map((x,i) => ({...x,index:i+1}));
 }

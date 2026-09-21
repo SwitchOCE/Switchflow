@@ -57,7 +57,7 @@ Omit empty sections. Keep rejected alternatives with the relevant decision. Dist
 
 After meaningful answers or findings, append the outcome and rationale, then refresh the checkpoint. Before handing off, record the next step and incomplete writes. Return the intake ID so a fresh instance can resume.
 
-Create the task with a short description, then save checkpoint Markdown as a UTF-8 file containing real newlines and replace its description through the wrapper. This file route preserves the observed task status and uses the pinned MCP; keep one writer active while it reads and writes. Backlog limits descriptions to 10,000 characters: keep the checkpoint compact and link detailed question records rather than truncating answers.
+Create the task with a short description, then save checkpoint Markdown as a UTF-8 file containing real newlines and replace its description through the wrapper. This file route updates only the description through the pinned MCP, preserving concurrent status changes; keep one description writer active while it reads and writes. Backlog limits descriptions to 10,000 characters: keep the checkpoint compact and link detailed question records rather than truncating answers.
 
 ```powershell
 .\.switchflow\scripts\backlog.ps1 task edit TASK-ID --description-file .\intake-checkpoint.md

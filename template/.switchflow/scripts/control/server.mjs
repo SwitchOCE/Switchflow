@@ -109,6 +109,7 @@ export async function createControlServer({ projectRoot, context: suppliedContex
   const server = http.createServer(async (req, res) => {
     headers(res);
     try {
+      if (closed) throw new ControlError('The service is stopping.', 503);
       const allowedHosts = new Set([new URL(baseUrl).host, `localhost:${server.address().port}`]);
       if (!allowedHosts.has(req.headers.host)) throw new ControlError('Unrecognized Host.', 403);
       const origin = req.headers.origin;
@@ -239,13 +240,27 @@ export async function createControlServer({ projectRoot, context: suppliedContex
     } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.message }); else res.end(); }
   });
   server.requestTimeout = 40000; server.headersTimeout = 10000;
-  const closeSessions = async () => { await Promise.all([...projects.values()].map(async session => { await session.engine.close(); await session.native.close(); await session.release(); })); };
+  const closeSessions = async () => {
+    const outcomes = await Promise.allSettled([...projects.values()].map(async session => {
+      if (session.released) return;
+      // Both writers must settle before admission is released. A rejected
+      // native close does not prove its child stopped, so retain that fence.
+      await session.engine.close();
+      await session.native.close();
+      await session.release();
+      session.released = true;
+    }));
+    const failed = outcomes.find(outcome => outcome.status === 'rejected');
+    if (failed) throw failed.reason;
+  };
   try { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); }); }
   catch (error) { await closeSessions(); throw error; }
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   for (const session of projects.values()) session.engine.schedule();
   return { server, engine: initial.engine, context, projects, register, url: baseUrl, async close() {
-    closed = true; await admission; await closeSessions(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+    closed = true;
+    try { await admission; await closeSessions(); }
+    finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
   } };
 }
 

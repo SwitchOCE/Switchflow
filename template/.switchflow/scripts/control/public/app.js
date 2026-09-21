@@ -31,6 +31,7 @@ function savePageDrafts() {
   try {
     sessionStorage.setItem(`switchflow:drafts:${selectedProjectId}`, JSON.stringify({
       drafts: [...drafts], taskDrafts: [...taskDrafts], uatGenerations: [...uatGenerations],
+      milestoneDrafts: [...milestoneDrafts].filter(([key]) => key.startsWith(`${selectedProjectId}:`)),
       title: $('#initiative-title').value, request: $('#initiative-request').value,
       review: $('#review-mode').checked, filter: $('#filter').value,
     }));
@@ -583,7 +584,7 @@ function showView(view, updateLocation = true) {
   const id = selectedProjectId, epoch = projectEpoch, viewName = activeView;
   const api = nativeClient(id), container = $(`#workspace-${viewName}`);
   const options = {api,projectId:id,canWrite:() => id === selectedProjectId && connected && !agentsBusy() && !busy,
-    onChange:() => { if (epoch === projectEpoch) { panelRefreshedAt = 0; void refresh(); } },
+    onChange:() => { if (epoch === projectEpoch) { savePageDrafts(); panelRefreshedAt = 0; void refresh(); } },
     onNavigate:values => { if (epoch === projectEpoch && activeView === viewName) writeLocation(values); },
   };
   let panel;
@@ -604,6 +605,7 @@ async function switchProject(id, {preserveLocation = false} = {}) {
   $('#connection').textContent = 'Connecting…'; $('#connection').className = 'connection';
   selectedProjectId = id; projectEpoch++; refreshing = false; selectedId = null; state = null; connected = false;
   const saved = projectDrafts.get(id) || restorePageDrafts(id);
+  for (const [key, draft] of saved.milestoneDrafts || []) if (key.startsWith(`${id}:`) && !milestoneDrafts.has(key)) milestoneDrafts.set(key, draft);
   drafts = saved.drafts || new Map(); taskDrafts = saved.taskDrafts || new Map(); uatGenerations = saved.uatGenerations || new Map();
   $('#initiative-title').value = saved.title || ''; $('#initiative-request').value = saved.request || ''; $('#review-mode').checked = saved.review || false; $('#filter').value = saved.filter || '';
   $('#board').replaceChildren(el('p', 'muted', 'Loading project…')); $('#tasks-list').replaceChildren();

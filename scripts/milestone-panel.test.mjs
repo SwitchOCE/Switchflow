@@ -97,3 +97,36 @@ test('removal confirmation names archive outcome and explicit task handling', as
   assert.deepEqual(calls, [{ route: '/milestones/m-20', options: { method: 'DELETE', body: { taskHandling: 'clear' } } }]);
   assert.match(confirmation, /Archive this milestone record/); assert.match(confirmation, /No tasks are deleted/); assert.match(confirmation, /all matching local tasks/);
 });
+
+test('opening another milestone while saving cannot replace or discard its editor', async () => {
+  let finish; const reads = [];
+  const {panel, container, find} = setup({api:async (route, options) => {
+    if (options) return new Promise(resolve => {finish = resolve;});
+    reads.push(route); return route === '/milestones' || route.startsWith('/tasks') ? [] : milestone;
+  }});
+  await panel.open('m-20');
+  const saving = container.all().find(el => el.tagName === 'form').listeners.submit({preventDefault(){}});
+  await panel.open('m-21'); find('New milestone').listeners.click();
+  assert.equal(reads.includes('/milestones/m-21'), false);
+  assert.ok(find('Edit m-20')); assert.equal(find('Create milestone'), undefined);
+  finish(milestone); await saving;
+});
+
+test('late same-record loads cannot replace a newer response', async () => {
+  const reads = [];
+  const {panel, container} = setup({api:() => new Promise(resolve => reads.push(resolve))});
+  const first = panel.open('m-20'), second = panel.open('m-20');
+  reads[1]({...milestone,title:'Latest title'}); await second;
+  reads[0]({...milestone,title:'Stale title'}); await first;
+  assert.equal(container.all().find(el => el.name === 'title').value, 'Latest title');
+});
+
+test('loading latest retains edits typed while the comparison read was pending', async () => {
+  let finish, calls = 0;
+  const {panel, container, find} = setup({api:async () => ++calls === 1 ? milestone : new Promise(resolve => {finish = resolve;})});
+  await panel.open('m-20');
+  const loading = find('Load latest; keep my draft').listeners.click();
+  container.all().find(el => el.name === 'title').value = 'Typed during request';
+  finish({...milestone,revision:'revision-2'}); await loading;
+  assert.equal(container.all().find(el => el.name === 'title').value, 'Typed during request');
+});

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { digest, stable, git, readState, updateState, withLock } from './storage.mjs';
+import { stopCheckTree } from './check-process.mjs';
 
 export async function captureCandidate(context) {
   const head = git(context.sourceRoot, ['rev-parse', 'HEAD']);
@@ -25,6 +26,7 @@ export function createEnvironmentTag({ environment = process.env, inputs = {}, d
 export async function runCheck(context, { command, args = [], scope, environment = process.env, inputs = {}, docker = false, timeoutMs = 300000, reuse = true }) {
   if (typeof command !== 'string' || !command || !Array.isArray(args) || args.some(x => typeof x !== 'string')) throw new Error('Command and string argument array required');
   if (!scope || (typeof scope !== 'string' && typeof scope !== 'object')) throw new Error('Explicit evidence scope required');
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000) throw new Error('Invalid check timeout');
   const candidate = await captureCandidate(context);
   const environmentTag = createEnvironmentTag({ environment, inputs, docker });
   const key = digest(stable({ candidate, command, args, scope, environment: environmentTag.digest, cwd: context.sourceRoot }));
@@ -36,10 +38,10 @@ export async function runCheck(context, { command, args = [], scope, environment
     const startedAt = new Date().toISOString();
     const execution = await new Promise(resolve => {
       let output = '', timedOut = false, settled = false;
-      const child = spawn(command, args, { cwd: context.sourceRoot, env: environment, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(command, args, { cwd: context.sourceRoot, env: environment, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
       const collect = data => { output = (output + data.toString()).slice(-128 * 1024); };
       child.stdout.on('data', collect); child.stderr.on('data', collect);
-      const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs);
+      const timer = setTimeout(() => { timedOut = true; stopCheckTree(child); }, timeoutMs);
       const done = result => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ...result, timedOut, output }); };
       child.on('error', error => done({ exitCode: null, error: error.message }));
       child.on('close', (exitCode, signal) => done({ exitCode, signal }));

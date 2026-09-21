@@ -11,7 +11,7 @@ export function parseMilestoneOrder(value) {
   return order;
 }
 export function createMilestonePanel({ container, read, write, api, canWrite = () => true, onTask, projectKey, onSaved = async () => {}, drafts = new Map() }) {
-  let generation = 0, request = 0, selected = null, destroyed = false, milestones = [], tasks = [], archived = [], showArchived = false, busy = false;
+  let generation = 0, request = 0, editorRequest = 0, selected = null, destroyed = false, milestones = [], tasks = [], archived = [], showArchived = false, busy = false;
   const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
   const button = (text, action) => { const el = node('button', text, 'button quiet'); el.type = 'button'; el.addEventListener('click', action); return el; };
   const key = id => `${projectKey()}:${id}`;
@@ -26,8 +26,8 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
   const message = node('p'); message.setAttribute('role', 'status');
   const toolbar = node('div', undefined, 'milestone-actions');
   const search = node('input'); search.type = 'search'; search.placeholder = 'Search milestones'; search.setAttribute('aria-label', 'Search milestones'); search.addEventListener('input', renderList);
-  const create = button('New milestone', () => renderEditor({ id: '@new' }, drafts.get(key('@new')) || { title: '', description: '', labels: [], executionOrder: '' }));
-  const toggle = button('Show archived', async () => { showArchived = !showArchived; toggle.textContent = showArchived ? 'Show active' : 'Show archived'; selected = null; detail.replaceChildren(); await refresh(); });
+  const create = button('New milestone', () => { if (busy) return; editorRequest++; renderEditor({ id: '@new' }, drafts.get(key('@new')) || { title: '', description: '', labels: [], executionOrder: '' }); });
+  const toggle = button('Show archived', async () => { if (busy) return; editorRequest++; showArchived = !showArchived; toggle.textContent = showArchived ? 'Show active' : 'Show archived'; selected = null; detail.replaceChildren(); await refresh(); });
   if (api) toolbar.append(create, toggle); toolbar.append(search);
   const list = node('div', undefined, 'milestone-list');
   const detail = node('div', undefined, 'milestone-editor');
@@ -79,17 +79,17 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
     const editable = isNew || !!(milestone.revision && (api || milestone.atomicRevision));
     save.disabled = !editable || !canWrite() || busy;
     const reload = button('Load latest; keep my draft', async () => {
-      const retained = preserve(); reload.disabled = true;
+      const loadRequest = ++editorRequest; preserve(); reload.disabled = true;
       try {
         const fresh = unwrap(await load(milestone.id));
-        if (!current(editorTicket, editorProject) || selected !== milestone.id) return;
-        const updated = { ...retained, expectedRevision: fresh.revision };
+        if (!current(editorTicket, editorProject) || selected !== milestone.id || loadRequest !== editorRequest) return;
+        const updated = { ...preserve(), expectedRevision: fresh.revision };
         drafts.set(key(milestone.id), updated); renderEditor(fresh, updated, fresh);
       } catch (error) { if (current(editorTicket, editorProject)) notice.textContent = errorText(error); }
       finally { reload.disabled = false; }
     });
     controls.append(save); if (!isNew) controls.append(reload);
-    controls.append(button('Close editor', () => { preserve(); selected = null; detail.replaceChildren(); list.querySelector('button')?.focus(); })); form.append(notice, controls);
+    controls.append(button('Close editor', () => { if (busy) return; preserve(); editorRequest++; selected = null; detail.replaceChildren(); list.querySelector('button')?.focus(); })); form.append(notice, controls);
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !current(editorTicket, editorProject)) return;
       const retained = preserve(); let created;
@@ -97,7 +97,7 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
         assertWritable(); if (!editable) throw new Error('A revision-aware server is required for editing.');
         const body = { ...retained, title: retained.title.trim(), executionOrder: parseMilestoneOrder(retained.executionOrder) };
         if (!body.title) throw new Error('Title is required.');
-        busy = true;
+        busy = true; editorRequest++;
         for (const field of form.querySelectorAll('input,textarea,select,button')) field.disabled = true;
         if (isNew) {
           created = unwrap(await api('/milestones', { method: 'POST', body: { title: body.title, description: body.description, labels: body.labels, executionOrder: body.executionOrder } }));
@@ -144,7 +144,7 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
           try {
             assertWritable(); if (!task.revision) throw new Error('Reload tasks before assigning: the task has no revision.');
             if (!isAssigned && task.milestone && !window.confirm(`Move ${task.id} from ${task.milestone} to ${milestone.id}?`)) return;
-            busy = true; action.disabled = true;
+            busy = true; editorRequest++; action.disabled = true;
             await api(`/tasks/${encodeURIComponent(task.id)}`, { method: 'PUT', body: { milestone: isAssigned ? null : milestone.id, expectedRevision: task.revision } });
             if (!current(ticket, project)) return;
             await onSaved(); if (!current(ticket, project)) return;
@@ -176,7 +176,7 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
         assertWritable(); if (!archiveOnly && handling.value === 'reassign' && !target.value) throw new Error('Choose an active replacement milestone.');
         const outcome = archiveOnly || handling.value === 'keep' ? 'Keep task milestone links unchanged.' : handling.value === 'clear' ? 'Clear the milestone link on all matching local tasks.' : `Move all matching local tasks to ${target.value}.`;
         if (!window.confirm(`${archiveOnly ? 'Archive' : 'Remove'} ${milestone.id}: ${milestone.title}?\n\nArchive this milestone record and hide it from active milestones. ${outcome}\nNo tasks are deleted. Unsaved edits will not be applied. This server has no restore action.`)) return;
-        preserve(); busy = true;
+        preserve(); busy = true; editorRequest++;
         await api(`${route(milestone.id)}${archiveOnly ? '/archive' : ''}`, { method: archiveOnly ? 'POST' : 'DELETE', ...(!archiveOnly ? { body: { taskHandling: handling.value, ...(handling.value === 'reassign' ? { reassignTo: target.value } : {}) } } : {}) });
         await saved(`${milestone.id} archived. ${outcome}`, ticket, project);
       } catch (error) { if (current(ticket, project)) status.textContent = errorText(error); }
@@ -187,10 +187,11 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
     section.append(archiveButton, handling, target, removeButton, status); detail.append(section);
   }
   async function open(id) {
-    const ticket = generation, project = projectKey(); selected = id;
+    if (busy) return;
+    const ticket = generation, project = projectKey(), loadRequest = ++editorRequest; selected = id;
     try {
       const milestone = unwrap(await load(id));
-      if (!current(ticket, project) || selected !== id) return;
+      if (!current(ticket, project) || selected !== id || loadRequest !== editorRequest) return;
       renderEditor(milestone, drafts.get(key(id)) || { expectedRevision: milestone.revision, title: milestone.title, description: milestone.description || '', labels: milestone.labels || [], executionOrder: milestone.executionOrder ?? '' });
     } catch (error) { if (current(ticket, project)) message.textContent = errorText(error); }
   }
@@ -209,6 +210,6 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
       renderList();
     } catch (error) { if (current(ticket, project) && requestId === request) message.textContent = errorText(error); }
   }
-  function reset() { generation++; request++; busy = false; selected = null; milestones = []; tasks = []; archived = []; showArchived = false; search.value = ''; toggle.textContent = 'Show archived'; list.replaceChildren(); detail.replaceChildren(); message.textContent = ''; }
+  function reset() { generation++; request++; editorRequest++; busy = false; selected = null; milestones = []; tasks = []; archived = []; showArchived = false; search.value = ''; toggle.textContent = 'Show archived'; list.replaceChildren(); detail.replaceChildren(); message.textContent = ''; }
   return { refresh, reset, open, destroy() { reset(); destroyed = true; container.replaceChildren(); } };
 }

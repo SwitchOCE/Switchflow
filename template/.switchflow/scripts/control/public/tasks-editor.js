@@ -1,4 +1,4 @@
-import {escapeHTML as e, checklistText, taskPayload} from './tasks-model.js';
+import {escapeHTML as e, checklistText, taskPayload, clearSavedDraft} from './tasks-model.js';
 
 export function taskEditor({task, draft, statuses, types, milestones, storageKey, api, canWrite, saved, navigate}) {
   const dialog = document.createElement('dialog');
@@ -15,7 +15,7 @@ export function taskEditor({task, draft, statuses, types, milestones, storageKey
   const form = dialog.querySelector('form'), message = dialog.querySelector('.sf-editor-message'), comparison = dialog.querySelector('.sf-conflict');
   // Disabled editors still contain recoverable drafts when an agent starts.
   const values = () => Object.fromEntries([...form.elements].filter(field => field.name && (field.type !== 'checkbox' || field.checked)).map(field => [field.name,field.value]));
-  const stash = () => { try { sessionStorage.setItem(key, JSON.stringify({values:values(),revision:original.revision,baselineDoD})); } catch { message.textContent = 'Browser draft storage is unavailable. Keep this editor open until saved.'; } };
+  const stash = () => { try { const snapshot = JSON.stringify({values:values(),revision:original.revision,baselineDoD}); sessionStorage.setItem(key, snapshot); return snapshot; } catch { message.textContent = 'Browser draft storage is unavailable. Keep this editor open until saved.'; return null; } };
   const local = (() => {try {return JSON.parse(sessionStorage.getItem(key));} catch{return null;}})();
   if (local?.values) {
     baselineDoD = local.baselineDoD || baselineDoD;
@@ -27,6 +27,7 @@ export function taskEditor({task, draft, statuses, types, milestones, storageKey
   }
   const writable = () => canWrite() && !['remote','local-branch','completed'].includes(task.source);
   function sync() {
+    for (const button of dialog.querySelectorAll('[data-close]')) button.disabled = busy;
     form.querySelector('fieldset').disabled = busy || !writable();
     form.querySelector('[type=submit]').disabled = busy || !writable() || conflict || Boolean(task.id && !original.revision);
     dialog.querySelector('.sf-editor-policy').textContent = !canWrite() ? 'Editing is paused while an agent is active or queued.' : task.source === 'completed' ? 'Completed archive tasks are read-only.' : !writable() ? 'Tasks from another branch are read-only.' : task.id && !original.revision ? 'This record has no revision. Reload it before editing.' : 'Unsaved edits are kept in this browser tab for this project.';
@@ -57,16 +58,17 @@ export function taskEditor({task, draft, statuses, types, milestones, storageKey
   form.addEventListener('submit',async event => {
     event.preventDefault(); if (busy || !writable() || conflict) return;
     const submitted = values();
-    busy = true; stash(); sync(); message.textContent = 'Saving…';
+    busy = true; const snapshot = stash(); sync(); message.textContent = 'Saving…';
     try {
       const body = taskPayload(submitted,original); if (draft) body.status = 'Draft';
       const result = await api(task.id ? `/tasks/${encodeURIComponent(task.id)}` : '/tasks',{method:task.id ? 'PUT' : 'POST',body});
-      try { sessionStorage.removeItem(key); } catch {}
+      try { clearSavedDraft(sessionStorage, key, snapshot); } catch {}
       if (!alive) return; saved(result); dialog.close();
     } catch (error) { if (alive) { message.textContent = error.message; if (error.status === 409 && task.id) showConflict(); } }
     finally { busy = false; if (alive) sync(); }
   });
-  for (const button of dialog.querySelectorAll('[data-close]')) button.onclick = () => dialog.close();
+  for (const button of dialog.querySelectorAll('[data-close]')) button.onclick = () => { if (!busy) dialog.close(); };
+  dialog.addEventListener('cancel',event => { if (busy) event.preventDefault(); });
   const timer = setInterval(sync,1000);
   dialog.addEventListener('close',() => { alive = false; clearInterval(timer); dialog.remove(); });
   sync(); dialog.showModal();

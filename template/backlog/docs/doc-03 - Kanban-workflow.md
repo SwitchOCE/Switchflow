@@ -126,4 +126,4 @@ Run the project check after task mutations:
 .\.switchflow\scripts\backlog.ps1 doctor
 ```
 
-The wrapper extends Backlog doctor with Ready-dependency validation. Advisory readiness, risk, and review judgement remain in the governing contracts and skills until a reliable deterministic rule is justified by observed failures.
+The wrapper extends Backlog doctor with Ready-dependency validation. This checks dependency consistency only; a passing doctor result does not establish task completeness, review evidence, independent acceptance, or UAT. The status meanings above are role obligations, not guarantees enforced by every native task write. Agents must apply the task and delivery contracts before changing status. Advisory readiness, risk, and review judgement remain in the governing contracts and skills until a reliable deterministic rule is justified by observed failures.

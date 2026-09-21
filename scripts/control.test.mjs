@@ -40,6 +40,7 @@ test('only Intake, Planning and human UAT authorize transitions; stale/partial a
   item.pending = false; applyResult(item, result('execution', 'ready_for_uat'));
   assert.equal(item.stage, 'uat'); assert.equal(item.status, 'awaiting-human');
   assert.throws(() => action(item, 'accept-uat', { results: [] }), /every UAT/);
+  assert.throws(() => action(item, 'accept-uat', { results: item.uat.map(() => null) }), error => error.status === 409 && /every UAT/.test(error.message));
   assert.throws(() => action(item, 'accept-uat', { results: item.uat.map(s => ({ id: s.id, status: 'failed' })) }), /must pass/);
   action(item, 'accept-uat', { results: item.uat.map(s => ({ id: s.id, status: 'passed' })) });
   assert.equal(item.stage, 'uat'); assert.equal(item.pending, true); assert.ok(item.approvedUat);
@@ -180,4 +181,35 @@ test('HTTP uses loopback, token/origin guards, real state, stale revisions, and 
     assert.equal(stale.status, 409); assert.equal((await fetch(app.url + '/unknown.js')).status, 404);
     const home = await fetch(app.url + '/control'); assert.match(home.headers.get('content-security-policy'), /frame-ancestors 'none'/); assert.match(await home.text(), /Switchflow/);
   } finally { await app.close(); }
+}));
+
+test('recovery keeps an explicit human fence when a recorded process ID is invalid', () => fixture(async context => {
+  for (const pid of [-1, '123', 1.5]) {
+    const item = createInitiative({ title: 'Uncertain process', request: 'Request', start: false });
+    item.status = 'running'; item.runs = [{ id: 'old', status: 'running' }];
+    await updateState(context, 'control', () => ({ schemaVersion: 1, revision: 1, initiatives: [item], activeRun: { id: 'old', initiativeId: item.id, pid } }));
+    const engine = new ControlEngine(context, { protocol, runner: async () => { throw new Error('Unexpected launch'); }, processAlive: () => false });
+    try {
+      await engine.recover();
+      const state = await engine.read();
+      assert.equal(state.activeRun?.unknownProcess, true);
+      await assert.rejects(engine.action(item.id, { action: 'retry', expectedRevision: state.initiatives[0].revision }), /unidentified/);
+    } finally { await engine.close(); }
+  }
+}));
+
+test('native shutdown failure closes HTTP but retains admission until the writer settles', () => fixture(async context => {
+  const options = { context, capabilities: { codex: false }, lockProjects: true, backlog: { list: async () => [] } };
+  let failed = true;
+  const app = await createControlServer({ ...options, nativeFactory: () => ({ close: async () => { if (failed) throw new Error('Native cleanup failed'); } }) });
+  await assert.rejects(app.close(), /Native cleanup failed/);
+  assert.equal(app.server.listening, false);
+  await fs.access(path.join(context.stateDir, 'service.lock'));
+  await assert.rejects(createControlServer(options), /already has a running service/);
+  failed = false;
+  await app.close();
+  await assert.rejects(fs.access(path.join(context.stateDir, 'service.lock')), { code: 'ENOENT' });
+  const restarted = await createControlServer({ ...options, nativeFactory: () => ({ close: async () => {} }) });
+  await restarted.close();
+  await restarted.close();
 }));

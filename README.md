@@ -72,6 +72,6 @@ Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.5.0`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
+Switchflow is at version `0.5.1`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
 
 Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

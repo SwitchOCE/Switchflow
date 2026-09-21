@@ -95,6 +95,25 @@ test('retention is explicit and preserves referenced, changed, unknown and linke
   assert.equal((await readState(context, 'scratch')).entries.find(e => e.id === old.id).deletedAt.length > 0, true);
 });
 
+test('check timeouts reject invalid limits and terminate descendants holding output pipes', { timeout: 15000 }, async t => {
+  const { context } = await fixture(t);
+  const check = { command: process.execPath, scope: 'timeout' };
+  for (const timeoutMs of [0, -1, NaN, Infinity, '100', 0.5, 86400001]) {
+    await assert.rejects(runCheck(context, { ...check, timeoutMs }), /Invalid check timeout/);
+  }
+  const script = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e',"setInterval(()=>{},1000)"],{stdio:'inherit'}); console.log('descendant='+child.pid); setInterval(()=>{},1000);`;
+  const started = Date.now();
+  const result = await runCheck(context, { ...check, args: ['-e', script], timeoutMs: 1000 });
+  assert.equal(result.timedOut, true);
+  assert.notEqual(result.exitCode, 0);
+  assert.ok(Date.now() - started < 10000);
+  const descendant = Number(/descendant=(\d+)/.exec(result.output)?.[1]);
+  assert.ok(Number.isSafeInteger(descendant) && descendant > 0, result.output);
+  assert.throws(() => process.kill(descendant, 0), { code: 'ESRCH' });
+  const retry = await runCheck(context, { ...check, args: ['-e', 'process.exit(0)'] });
+  assert.equal(retry.exitCode, 0);
+});
+
 test('latest failed attempt invalidates an older success for the same evidence key', async t => {
   const { context, base } = await fixture(t);
   const trigger = path.join(base, 'fail-check');

@@ -28,3 +28,10 @@ test('comparison catches metadata and body changes without claiming CAS revision
   for (const patch of [{rawContent:'changed'},{title:'changed'},{tags:['new']},{path:'new/file.md'}]) assert.notEqual(recordFingerprint(record),recordFingerprint({...record,...patch}));
   assert.equal(recordFingerprint(record),recordFingerprint({...record,unrelated:'ignored'}));
 });
+
+test('decision examples retain nested shorter fences and fence-like text', () => {
+  for (const example of ['````md\n```md\n## Example heading\n```\n````', '```md\n```not-a-closing-fence\n## Example heading\n```']) {
+    const content = `## Context\n\n${example}\n\n## Decision\n\nChosen\n\n## Consequences\n\nImpact`;
+    assert.equal(knowledgePayload({title:'Example',content}, 'decisions').content, content);
+  }
+});

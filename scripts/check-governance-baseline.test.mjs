@@ -109,6 +109,7 @@ test("imports identify clean and dirty sources and keep archives unknown", () =>
   cpSync(template, join(source, "template"), { recursive: true, filter: (path) => !path.split(/[\\/]/).includes("node_modules") });
   mkdirSync(join(source, "scripts"));
   cpSync(join(repository, "scripts", "import-switchflow.ps1"), join(source, "scripts", "import-switchflow.ps1"));
+  cpSync(join(repository, "scripts", "install-rendered-template.ps1"), join(source, "scripts", "install-rendered-template.ps1"));
   cpSync(join(repository, "VERSION"), join(source, "VERSION"));
   const importTo = (name, extra = []) => {
     const target = join(root, name);

@@ -14,6 +14,10 @@ Run the importer from the Switchflow repository:
 
 `RepoUrl` and `InitializeGit` are optional. The importer may create the target directory, but it refuses to overwrite an existing governance file.
 
+Imports reject linked destinations and file/directory collisions before installation. Rendered files are staged beside the target with a recovery journal before any template file is installed. A caught failure rolls back only installed files whose bytes still match the journal; changed or unrelated files are preserved. Empty directories and an empty Git repository created by `InitializeGit` may remain.
+
+If a process is interrupted or rollback cannot finish, inspect the reported sibling `.switchflow-import-<id>/recovery.json` before retrying. Stop the old importer, compare the recorded destination hashes, remove only matching imported files, and restore `gitignore.original` only if the current `.gitignore` matches its staged hash. Preserve differing files for manual reconciliation. Remove the recovery directory only after accounting for every entry; an unresolved journal blocks another import into that target.
+
 After import:
 
 1. Edit `backlog/docs/doc-02 - Project-profile.md`. Confirm the product goal, phase, normal verification commands, approval posture, and project-specific protected boundaries.
@@ -66,7 +70,7 @@ The importer is for first-time installation and deliberately rejects collisions.
 5. Run the affected regression tests, board doctor, documentation validation, and the project's integrated gate. Obtain independent review and owner acceptance at the project's dispatch boundary. Record the resulting project commit and source provenance in the update evidence.
 6. Create subsequent worktrees from that accepted project commit. Run preflight from the accepted dispatch checkout against each worktree. It validates required metadata and compares schema, template version, and task prefix; when the dispatch checkout records a source revision, revision and dirty state must also match. Older imports without provenance retain version-based checks. Equal metadata cannot prove equal file contents, so starting from the accepted project commit remains necessary.
 
-Rollback restores the scoped source changes and document bodies from the accepted pre-update baseline. Restore Backlog bodies through the wrapper, retaining their IDs, metadata, comments, and history. Automatic merging and transactional import remain separate backlog work (SF-07 and SF-10).
+Rollback of a manual update restores the scoped source changes and document bodies from the accepted pre-update baseline. Restore Backlog bodies through the wrapper, retaining their IDs, metadata, comments, and history. Automatic upgrades remain separate backlog work (SF-07); first-time import staging and recovery do not make an existing-project update automatic.
 
 ### Updating to 0.3.0
 

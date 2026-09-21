@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {checklist,checklistText,filterTasks,taskPayload,escapeHTML} from '../template/.switchflow/scripts/control/public/tasks-model.js';
+import {checklist,checklistText,filterTasks,taskPayload,escapeHTML,clearSavedDraft} from '../template/.switchflow/scripts/control/public/tasks-model.js';
 
 test('task writes preserve captured revision and native indexed DoD operations',() => {
   const original = {id:'TASK-1',revision:'captured-sha',definitionOfDoneItems:[{index:2,text:'Remove',checked:true},{index:4,text:'Check',checked:false},{index:6,text:'Uncheck',checked:true}]};
@@ -25,4 +25,15 @@ test('criteria checked states round trip and untrusted card text is escaped',() 
   const items = checklist('- [x] Done\n[ ] Pending\nPlain');
   assert.deepEqual(checklist(checklistText(items)),items);
   assert.equal(escapeHTML('<img onerror="x">'), '&lt;img onerror=&quot;x&quot;&gt;');
+});
+
+test('a delayed successful save cannot erase edits from a reopened task editor', () => {
+  const drafts = new Map([['task', 'newer recovery snapshot']]);
+  const storage = {getItem:key => drafts.get(key), removeItem:key => drafts.delete(key)};
+  clearSavedDraft(storage, 'task', 'submitted snapshot');
+  assert.equal(drafts.get('task'), 'newer recovery snapshot');
+  clearSavedDraft(storage, 'task', null);
+  assert.equal(drafts.size, 1);
+  clearSavedDraft(storage, 'task', 'newer recovery snapshot');
+  assert.equal(drafts.size, 0);
 });
