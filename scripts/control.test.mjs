@@ -244,6 +244,7 @@ test('HTTP uses loopback, token/origin guards, real state, stale revisions, and 
     const stale = await fetch(`${app.url}/api/initiatives/${initiative.id}/actions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Switchflow-Token': state.csrfToken }, body: JSON.stringify({ action: 'update', expectedRevision: 0, message: 'Stale' }) });
     assert.equal(stale.status, 409); assert.equal((await fetch(app.url + '/unknown.js')).status, 404);
     const home = await fetch(app.url + '/control'); assert.match(home.headers.get('content-security-policy'), /frame-ancestors 'none'/); assert.match(await home.text(), /Switchflow/);
+    const taskLinks = await fetch(app.url + '/initiative-tasks.js'); assert.equal(taskLinks.status, 200); assert.match(await taskLinks.text(), /export function initiativeTasks/);
   } finally { await app.close(); }
 }));
 

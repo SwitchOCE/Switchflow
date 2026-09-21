@@ -57,6 +57,7 @@
             "minLength": 1
           },
           "task": {
+            "description": "Exact existing Backlog task ID, read back from the canonical project; one task per plan entry. Put the title and result in outcome.",
             "type": "string",
             "minLength": 1
           },

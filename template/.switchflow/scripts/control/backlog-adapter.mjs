@@ -3,7 +3,6 @@ import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { createInterface } from 'node:readline';
 import { withLock } from '../operations/storage.mjs';
 import { hash, text, ControlError } from './lifecycle.mjs';
 
@@ -25,34 +24,69 @@ export async function findBacklog(context) {
   throw new Error(`Install pinned Backlog ${expected}: npm --prefix .switchflow ci --ignore-scripts`);
 }
 
-export function callBacklogTool(cliPath, root, name, args) {
+export function callBacklogTool(cliPath, root, name, args, { spawnChild = spawn, executable, timeoutMs = 30000, maxOutputBytes = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
-    const require = createRequire(cliPath);
-    const { resolveBinaryPath } = require(path.join(path.dirname(cliPath), 'resolveBinary.cjs'));
-    const child = spawn(resolveBinaryPath(), ['mcp', 'start'], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-    let finished = false;
-    const finish = (error, result) => {
-      if (finished) return; finished = true; clearTimeout(timer); child.stdin.end(); child.kill();
-      error ? reject(error) : resolve(result);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes <= 0) throw new Error('Invalid Backlog transport limits');
+    if (!executable) {
+      const require = createRequire(cliPath);
+      executable = require(path.join(path.dirname(cliPath), 'resolveBinary.cjs')).resolveBinaryPath();
+    }
+    const child = spawnChild(executable, ['mcp', 'start'], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    let outcome = null;
+    let initialized = false;
+    let buffer = '';
+    let outputBytes = 0;
+    // Signalling a writer is not proof it stopped. Keep the caller's board and
+    // engine admission locks held until close, even when termination fails.
+    const stop = (error, result, kill = true) => {
+      if (outcome) return;
+      outcome = { error, result }; clearTimeout(timer); buffer = '';
+      try { child.stdin.end(); } catch { /* close remains the settlement fence. */ }
+      if (kill) try { child.kill(); } catch { /* Uncertain termination keeps admission. */ }
     };
-    const timer = setTimeout(() => finish(new Error('Backlog update timed out. Inspect the current task before retrying.')), 30000);
-    const send = message => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
-    child.on('error', error => finish(error)); child.stdin.on('error', error => finish(error)); child.stderr.resume();
-    child.on('exit', code => finish(new Error(`Backlog stopped before confirming the update (${code}). Inspect the current task.`)));
-    createInterface({ input: child.stdout }).on('line', line => {
-      if (finished) return;
+    const timer = setTimeout(() => stop(new Error('Backlog update timed out. Inspect the current task before retrying.')), timeoutMs);
+    const send = message => {
+      try { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n'); }
+      catch (error) { stop(error); }
+    };
+    child.on('error', error => stop(error));
+    for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on('error', error => stop(error));
+    child.stderr.resume();
+    child.on('exit', code => stop(new Error(`Backlog stopped before confirming the update (${code}). Inspect the current task.`), undefined, false));
+    child.once('close', code => {
+      clearTimeout(timer);
+      outcome ||= { error: new Error(`Backlog stopped before confirming the update (${code}). Inspect the current task.`) };
+      outcome.error ? reject(outcome.error) : resolve(outcome.result);
+    });
+    const receive = line => {
+      if (outcome || !line.trim()) return;
       try {
         const msg = JSON.parse(line);
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) throw new Error('Invalid Backlog response');
         if (msg.error) throw new Error(msg.error.message);
-        if (msg.id === 1) {
+        if (msg.id === 1 && !initialized) {
+          initialized = true;
           send({ method: 'notifications/initialized' });
-          send({ id: 2, method: 'tools/call', params: { name, arguments: args } });
-        } else if (msg.id === 2) {
-          if (!msg.result || msg.result.isError) throw new Error(msg.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || 'Backlog rejected the update.');
-          finish(null, msg.result);
-        }
-      } catch (error) { finish(error); }
+          if (!outcome) send({ id: 2, method: 'tools/call', params: { name, arguments: args } });
+        } else if (msg.id === 2 && initialized) {
+          if (!msg.result || typeof msg.result !== 'object' || Array.isArray(msg.result) || msg.result.isError) throw new Error(msg.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || 'Backlog rejected the update.');
+          stop(null, msg.result);
+        } else if (msg.id !== undefined || typeof msg.method !== 'string') throw new Error('Unexpected Backlog response');
+      } catch (error) { stop(error); }
+    };
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => {
+      if (outcome) return;
+      outputBytes += Buffer.byteLength(chunk);
+      if (outputBytes > maxOutputBytes) { stop(new Error('Backlog response exceeds the transport limit. Inspect the current task before retrying.')); return; }
+      buffer += chunk;
+      let newline;
+      while (!outcome && (newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+        receive(line);
+      }
     });
+    child.stdout.on('end', () => { if (!outcome && buffer) receive(buffer); });
     send({ id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'switchflow-control', version: '0.4.0' } } });
   });
 }

@@ -20,7 +20,7 @@ import { createNativeBacklog } from './native-backlog.mjs';
 
 const exec = promisify(execFile);
 const publicRoot = fileURLToPath(new URL('./public/', import.meta.url));
-const staticFiles = Object.fromEntries(['index.html','app.js','styles.css','documents.js','documents.css','milestones.js','milestones.css','tasks.js','tasks-model.js','tasks-editor.js','tasks.css','knowledge.js','knowledge-model.js','knowledge.css','insights.js','insights.css','workspace-client.js','workspace-search.js'].map(file => [`/${file}`, [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript']]));
+const staticFiles = Object.fromEntries(['index.html','app.js','styles.css','documents.js','documents.css','milestones.js','milestones.css','tasks.js','tasks-model.js','tasks-editor.js','tasks.css','initiative-tasks.js','knowledge.js','knowledge-model.js','knowledge.css','insights.js','insights.css','workspace-client.js','workspace-search.js'].map(file => [`/${file}`, [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript']]));
 staticFiles['/'] = staticFiles['/index.html'];
 const MAX_BODY = 512 * 1024;
 async function readBytes(req) {

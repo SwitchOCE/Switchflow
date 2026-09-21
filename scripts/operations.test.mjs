@@ -130,6 +130,14 @@ test('latest failed attempt invalidates an older success for the same evidence k
   assert.equal((await runCheck(context, check)).reused, true);
 });
 
+test('failed check startup settles on close and records an unreusable launch error', async t => {
+  const { context, base } = await fixture(t);
+  const check = { command: path.join(base, 'missing-check-executable'), scope: 'launch-failure', timeoutMs: 5000 };
+  const result = await runCheck(context, check);
+  assert.notEqual(result.exitCode, 0); assert.match(result.error, /ENOENT/);
+  assert.equal((await runCheck(context, check)).reused, false);
+});
+
 test('leading whitespace in the first tracked filename participates in candidate identity', async t => {
   const { context, repo, git } = await fixture(t);
   const filename = path.join(repo, ' leading.txt');

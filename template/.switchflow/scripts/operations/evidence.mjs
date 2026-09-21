@@ -37,14 +37,16 @@ export async function runCheck(context, { command, args = [], scope, environment
     if (reuse && previous?.exitCode === 0 && !previous.candidateChanged && !previous.timedOut) return { ...previous, reused: true };
     const startedAt = new Date().toISOString();
     const execution = await new Promise(resolve => {
-      let output = '', timedOut = false, settled = false;
+      let output = '', timedOut = false, settled = false, processError;
       const child = spawn(command, args, { cwd: context.sourceRoot, env: environment, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
       const collect = data => { output = (output + data.toString()).slice(-128 * 1024); };
       child.stdout.on('data', collect); child.stderr.on('data', collect);
       const timer = setTimeout(() => { timedOut = true; stopCheckTree(child); }, timeoutMs);
       const done = result => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ...result, timedOut, output }); };
-      child.on('error', error => done({ exitCode: null, error: error.message }));
-      child.on('close', (exitCode, signal) => done({ exitCode, signal }));
+      // Failed signals can emit error while the check still runs. Keep the
+      // evidence lock until close; spawn failures also emit close afterwards.
+      child.on('error', error => { processError = error.message; });
+      child.on('close', (exitCode, signal) => done({ exitCode, signal, ...(processError ? { error: processError } : {}) }));
     });
     const candidateChanged = (await captureCandidate(context)).digest !== candidate.digest;
     const entry = { key, candidate, command, args, scope, environment: environmentTag, startedAt, completedAt: new Date().toISOString(), ...execution, candidateChanged, reused: false, proof: 'local-process' };

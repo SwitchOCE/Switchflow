@@ -4,6 +4,7 @@ import { mountInsights } from './insights.js';
 import { createNativeClient, workspaceLocation } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
+import { initiativeTasks } from './initiative-tasks.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'Human checkpoint 01'],
@@ -331,12 +332,12 @@ function renderInputAction(title, id, label, action, payloadKey, help, kind = 'q
 }
 function renderTasks(item) {
   const container = el('div');
-  const tasks = (state.tasks || []).filter(task => task.initiativeId === item.id || (item.taskIds || []).includes(task.id));
-  if (!tasks.length) container.append(el('p', 'muted', 'Task details appear here when the plan creates delivery work.'));
+  const tasks = initiativeTasks(item, state.tasks || []);
+  if (!tasks.length) container.append(el('p', 'muted', 'No available tasks are linked to this initiative. Plan entries must name exact Backlog task IDs; titles alone do not identify delivery work.'));
   for (const task of tasks) {
     const row = el('button', 'task-row task-open'); row.type = 'button'; row.append(el('span', '', `${task.id} · ${task.title}`), el('span', 'badge', task.status || 'Planned')); row.addEventListener('click', () => openTask(task.id)); container.append(row);
   }
-  container.append(button('Open delivery tasks', () => { closeDetail(); showView('tasks'); }));
+  container.append(button('Open all project tasks', () => { closeDetail(); showView('tasks'); }));
   return container;
 }
 function renderActivity(item) {
@@ -372,7 +373,8 @@ function renderDetail() {
   if (!isRunning(item)) renderQuestions(item, body);
   if (item.blockers?.length) body.append(section('What needs attention', item.blockers));
   if (item.scope) body.append(section(item.approvedScope ? 'Approved scope' : 'Scope for your approval', item.scope));
-  if (item.plan?.length || (item.plan && !Array.isArray(item.plan))) body.append(section('Delivery plan', renderPlan(item.plan)));
+  const displayedPlan = item.approvedPlan ? item.approvedPlan.tasks : item.plan;
+  if (displayedPlan?.length || (displayedPlan && !Array.isArray(displayedPlan))) body.append(section('Delivery plan', renderPlan(displayedPlan)));
   const actions = el('div', 'detail-actions');
   const recoveryHold = state.activeRun?.status === 'interrupted' && state.activeRun?.unknownProcess && state.activeRun?.initiativeId === item.id;
   if (recoveryHold) {
