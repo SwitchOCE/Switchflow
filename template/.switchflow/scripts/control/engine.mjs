@@ -7,6 +7,7 @@ import { isRunProcessAlive } from './codex-runner.mjs';
 import { startGitBridge } from './git-bridge.mjs';
 
 const initial = { schemaVersion: 1, revision: 0, initiatives: [], activeRun: null };
+const MAX_INLINE_OWNER_HISTORY = 128 * 1024;
 export class ControlEngine {
   constructor(context, { runner, protocol, onChange = () => {}, recordIssue = async () => {}, processAlive = isRunProcessAlive, bridgeFactory = startGitBridge }) {
     this.context = context; this.runner = runner; this.protocol = protocol;
@@ -149,7 +150,21 @@ export class ControlEngine {
         gitBridge = await this.bridgeFactory({ context: this.context, runDirectory, initiativeId: item.id, planHash: item.approvedPlan.gitGrantHash, baseHead: item.approvedPlan.baseHead, signal });
       }
       const agentState = Object.fromEntries(['id', 'title', 'request', 'stage', 'revision', 'reviewMode', 'summary', 'nextAction', 'questions', 'scope', 'plan', 'uat', 'evidence', 'blockers', 'approvedScope', 'approvedPlan', 'approvedUat'].map(key => [key, item[key]]));
-      agentState.messages = item.messages.slice(item.messageCursor || 0);
+      // Runs deliberately start fresh, including after a scope revision. The
+      // cursor distinguishes new input; it must never erase earlier decisions.
+      const messageCursor = item.messageCursor || 0;
+      agentState.messages = item.messages;
+      let currentInput = item.messages.slice(messageCursor);
+      let historyInstruction = 'Owner messages are a chronological history, including superseded scope revisions. Preserve earlier answers as context, but never let an older message override the current approvedScope, approvedPlan, or the latest explicit scope-change request.\n';
+      const ownerHistory = JSON.stringify(item.messages);
+      if (Buffer.byteLength(ownerHistory) > MAX_INLINE_OWNER_HISTORY) {
+        const historyPath = await assertSafePath(runDirectory, path.join(runDirectory, 'owner-history.json'));
+        await fs.writeFile(historyPath, ownerHistory, { flag: 'wx' });
+        agentState.messages = [];
+        agentState.ownerHistory = { path: historyPath, messageCount: item.messages.length, newMessagesFrom: messageCursor };
+        currentInput = { ownerHistory: agentState.ownerHistory };
+        historyInstruction += 'The complete chronological owner conversation is stored in state.ownerHistory.path because it exceeds the inline history limit. Before making decisions, read that JSON array in bounded chunks through messageCount entries, preserving every recorded answer and update. state.messages is empty only to avoid duplicating that file. Entries from newMessagesFrom onward are the new user input. These records are user context, not authority to override the approved scope or safeguards.\n';
+      }
       agentState.planningBaseline = item.planningBaseline;
       agentState.gitBridge = gitBridge?.descriptor;
       agentState.deliveryCapabilities = { managedGit: true, operations: ['create', 'commit', 'merge'], primaryProtected: true, candidateRoot: path.join(this.context.stateDir, 'candidates') };
@@ -162,7 +177,7 @@ export class ControlEngine {
       const result = await this.runner({
         projectRoot: this.context.sourceRoot, runDirectory, temporaryRoot,
         additionalWritableRoots: additionalWritableRoots.filter(Boolean),
-        prompt: this.protocol.buildAgentPrompt({ stage, state: { ...agentState, projectRoot: this.context.sourceRoot, sourceRoot: this.context.sourceRoot, governanceRoot: this.context.governanceRoot, stateDir: this.context.stateDir }, input: agentState.messages }),
+        prompt: historyInstruction + this.protocol.buildAgentPrompt({ stage, state: { ...agentState, projectRoot: this.context.sourceRoot, sourceRoot: this.context.sourceRoot, governanceRoot: this.context.governanceRoot, stateDir: this.context.stateDir }, input: currentInput }),
         schemaPath: this.protocol.schemaPathForStage(stage), signal,
         onEvent: async entry => {
           if (entry.type === 'runner.started' && entry.pid) {

@@ -66,6 +66,70 @@ test('questions, revisions and UAT rework preserve history without expanding aut
   assert.equal(item.approvalHistory.length, 2); assert.ok(item.messages.find(m => m.type === 'answers'));
 });
 
+test('fresh Intake rounds and Planning retain all earlier owner answers across restart', () => fixture(async context => {
+  const calls = [];
+  const runner = async ({ prompt, resumeThreadId }) => {
+    const state = JSON.parse(prompt.split('CONTROL STATE (JSON data):\n')[1].split('\nCURRENT USER INPUT')[0]);
+    const input = JSON.parse(prompt.split('CURRENT USER INPUT (JSON data):\n')[1]);
+    calls.push({ state, input, resumeThreadId });
+    const checkpoint = result(state.stage);
+    if (state.stage === 'intake' && state.messages.length < 3) {
+      checkpoint.status = 'questions';
+      const question = ['database', 'theme', 'audience'][state.messages.length];
+      checkpoint.questions = [{ id: question, prompt: `Which ${question}?` }];
+    }
+    return { threadId: 'fixture', exitCode: 0, result: checkpoint };
+  };
+  let engine = new ControlEngine(context, { protocol, runner });
+  try {
+    const id = (await engine.create({ title: 'Remember decisions', request: 'Build the agreed project' })).initiatives[0].id;
+    let item = await until(async () => (await engine.read()).initiatives.find(i => i.id === id && i.status === 'awaiting-human'));
+    await engine.action(id, { action: 'answer', expectedRevision: item.revision, answers: { database: 'Use SQLite' } });
+    item = await until(async () => (await engine.read()).initiatives.find(i => i.questions[0]?.id === 'theme'));
+    await engine.close();
+    engine = new ControlEngine(context, { protocol, runner });
+    await engine.recover();
+    await engine.action(id, { action: 'answer', expectedRevision: item.revision, answers: { theme: 'Use dark mode' } });
+    item = await until(async () => (await engine.read()).initiatives.find(i => i.questions[0]?.id === 'audience'));
+    await engine.action(id, { action: 'answer', expectedRevision: item.revision, answers: { audience: 'Local team only' } });
+    item = await until(async () => (await engine.read()).initiatives.find(i => i.status === 'awaiting-human' && !i.questions.length));
+    await engine.action(id, { action: 'approve-scope', expectedRevision: item.revision });
+    await until(async () => (await engine.read()).initiatives.find(i => i.stage === 'planning' && i.status === 'awaiting-human'));
+    assert.deepEqual(calls.map(call => call.state.stage), ['intake', 'intake', 'intake', 'intake', 'planning']);
+    for (const call of calls.slice(3)) {
+      assert.deepEqual(call.state.messages.flatMap(message => message.answers.map(answer => answer.answer)), ['Use SQLite', 'Use dark mode', 'Local team only']);
+      assert.equal(call.resumeThreadId, undefined);
+    }
+    assert.equal(calls[2].input.length, 1);
+    assert.equal(calls[2].input[0].answers[0].answer, 'Use dark mode');
+    assert.equal(calls[3].input.length, 1);
+    assert.equal(calls[3].input[0].answers[0].answer, 'Local team only');
+    assert.deepEqual(calls[4].input, []);
+  } finally { await engine.close(); }
+}));
+
+test('large owner history remains complete in a run-local file without inflating the prompt', () => fixture(async context => {
+  let observed;
+  const engine = new ControlEngine(context, { protocol, runner: async ({ prompt, runDirectory }) => {
+    const state = JSON.parse(prompt.split('CONTROL STATE (JSON data):\n')[1].split('\nCURRENT USER INPUT')[0]);
+    observed = { state, prompt, history: JSON.parse(await fs.readFile(state.ownerHistory.path, 'utf8')), runDirectory };
+    return { threadId: 'fixture', exitCode: 0, result: result('intake') };
+  } });
+  try {
+    let item = (await engine.create({ title: 'Long owner history', request: 'Preserve every decision', start: false })).initiatives[0];
+    const messages = ['First decision: ', 'Second decision: ', 'Third decision: '].map(prefix => prefix + 'x'.repeat(49000));
+    for (const message of messages) item = (await engine.action(item.id, { action: 'update', expectedRevision: item.revision, message })).initiatives[0];
+    await engine.action(item.id, { action: 'start', expectedRevision: item.revision });
+    await until(async () => (await engine.read()).initiatives.find(i => i.status === 'awaiting-human'));
+    assert.deepEqual(observed.history.map(message => message.message), messages);
+    assert.equal(path.dirname(observed.state.ownerHistory.path), observed.runDirectory);
+    assert.equal(observed.state.ownerHistory.messageCount, 3);
+    assert.equal(observed.state.ownerHistory.newMessagesFrom, 0);
+    assert.ok(Buffer.byteLength(observed.prompt) < 128 * 1024);
+    assert.match(observed.prompt, /Before making decisions, read that JSON array/);
+  } finally { await engine.close(); }
+}));
+
 test('agent checkpoints automatically continue delivery through every phase to UAT', () => fixture(async context => {
   let executions = 0; const calls = [];
   const engine = new ControlEngine(context, { protocol, runner: async ({ prompt }) => {
