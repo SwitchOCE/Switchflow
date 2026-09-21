@@ -588,6 +588,12 @@ function showView(view, updateLocation = true) {
   const options = {api,projectId:id,canWrite:() => id === selectedProjectId && connected && !agentsBusy() && !busy,
     onChange:() => { if (epoch === projectEpoch) { savePageDrafts(); panelRefreshedAt = 0; void refresh(); } },
     onNavigate:values => { if (epoch === projectEpoch && activeView === viewName) writeLocation(values); },
+    onOpenRecord:async ({view,record,anchor}) => {
+      if (epoch !== projectEpoch || nativeWrites || busy) return;
+      const target = showView(view);
+      await target.refresh();
+      if (epoch === projectEpoch && activeView === view) await target.open(record,anchor);
+    },
   };
   let panel;
   if (['tasks','drafts'].includes(viewName)) { panel = mountTasks(container,options); if (viewName === 'drafts') panel.setMode('drafts'); else void panel.refresh(); }

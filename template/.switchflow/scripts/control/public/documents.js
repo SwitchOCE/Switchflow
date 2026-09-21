@@ -18,7 +18,7 @@ export function documentImageUrl(href, currentPath, projectId) {
   if (parts[0] !== 'assets' || parts.some(part => ['.','..'].includes(part)) || !/\.(?:png|jpe?g|gif|webp|avif|svg)$/i.test(parts.at(-1))) return null;
   return `/projects/${projectId}/backlog-assets/${parts.slice(1).map(encodeURIComponent).join('/')}`;
 }
-export function resolveDocumentLink(href, currentId, documents) {
+export function resolveDocumentLink(href, currentId, documents, currentView) {
   if (typeof href !== 'string' || /[\u0000-\u001f\\]/.test(href) || href !== href.trim()) return null;
   if (/^https?:\/\//i.test(href)) {
     try { const url = new URL(href); return { external: url.href }; } catch { return null; }
@@ -28,11 +28,18 @@ export function resolveDocumentLink(href, currentId, documents) {
   let decoded;
   try { decoded = decodeURIComponent(href); } catch { return null; }
   const [target, anchor = ''] = decoded.split('#');
-  if (target.includes('?') || target.includes('\\') || target.includes('\0')) return null;
+  if (target.includes('?') || /[\\\u0000-\u001f]/.test(target)) return null;
+  const destination = record => ({id:record.id,anchor,...(record.view && record.record ? {view:record.view,record:record.record} : {})});
+  const decision = target.match(/^\/decisions\/(decision-\d+)$/i);
+  if (decision) {
+    const matches = documents.filter(doc => (!doc.view || doc.view === 'decisions') && /^decision-\d+$/i.test(doc.decisionId || doc.id) &&
+      Number((doc.decisionId || doc.id).slice(9)) === Number(decision[1].slice(9)));
+    return matches.length === 1 ? destination(matches[0]) : null;
+  }
   const legacy = target.match(/^\/documentation\/(\d+)(?:\/[^/]*)?$/);
   if (legacy) {
-    const matches = documents.filter(doc => doc.documentId ? Number(doc.documentId.slice(4)) === Number(legacy[1]) : new RegExp(`^doc-0*${Number(legacy[1])}(?:\\s|[-.])`, 'i').test(doc.id.split('/').at(-1)));
-    return matches.length === 1 ? { id: matches[0].id, anchor } : null;
+    const matches = documents.filter(doc => (!doc.view || doc.view === 'documents') && (doc.documentId ? Number(doc.documentId.slice(4)) === Number(legacy[1]) : new RegExp(`^doc-0*${Number(legacy[1])}(?:\\s|[-.])`, 'i').test(doc.id.split('/').at(-1))));
+    return matches.length === 1 ? destination(matches[0]) : null;
   }
   if (target.startsWith('/')) return null;
   const parts = currentId.split('/').slice(0, -1);
@@ -42,7 +49,8 @@ export function resolveDocumentLink(href, currentId, documents) {
     else parts.push(part);
   }
   const id = parts.join('/');
-  return documents.some(doc => doc.id === id) ? { id, anchor } : null;
+  const matches = documents.filter(doc => doc.id === id && (!currentView || !doc.view || doc.view === currentView));
+  return matches.length === 1 ? destination(matches[0]) : null;
 }
 function inline(text, depth = 0) {
   if (depth > 5) return escape(text);

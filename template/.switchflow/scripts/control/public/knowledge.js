@@ -3,11 +3,11 @@ import {escapeHtml as esc, draftFrom, folderOf, knowledgePayload, recordFingerpr
 
 // The native endpoints do not offer compare-and-swap. A pre-save comparison catches
 // observed changes; the UI explicitly describes the remaining concurrent-write window.
-export function mountKnowledge(container, {api, projectId, canWrite = () => true, onChange = () => {}, onNavigate = () => {}, kind = 'documents'}) {
+export function mountKnowledge(container, {api, projectId, canWrite = () => true, onChange = () => {}, onNavigate = () => {}, onOpenRecord = async () => {}, kind = 'documents'}) {
   const endpoint = kind === 'decisions' ? '/decisions' : '/docs';
   const noun = kind === 'decisions' ? 'decision' : 'document';
   const key = `switchflow:knowledge:${projectId}:${kind}`;
-  let records = [], current = null, draft = null, baseline = null, destroyed = false, generation = 0, listGeneration = 0, busy = false;
+  let records = [], linkedRecords = [], current = null, draft = null, baseline = null, destroyed = false, generation = 0, listGeneration = 0, busy = false;
   let stored = null;
   try { stored = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* Storage can be unavailable. */ }
   if (stored && (!stored.draft || typeof stored.draft.title !== 'string' || typeof stored.draft.content !== 'string')) stored = null;
@@ -29,8 +29,20 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
     const tree = (folder,parent = '') => rows(folder.records) + [...folder.folders].sort(([a],[b]) => a.localeCompare(b)).map(([name,child]) => { const path = `${parent}/${name}`; return `<details data-folder="${esc(path)}"${closed.has(path) && !terms.length ? '' : ' open'}><summary>${esc(name)}</summary>${tree(child,path)}</details>`; }).join('');
     nav.innerHTML = visible.length ? tree(root) : `<p>${terms.length ? 'No matches.' : `No ${kind} yet.`}</p>`;
   }
-  function anchor(id) { const heading = [...content.querySelectorAll('[id]')].find(el => el.id === `doc-heading-${id}`); heading?.scrollIntoView({block:'start'}); heading?.focus(); }
-  function linkRecords() { return records.map(r => ({...r, documentId:r.id, id:r.path || r.id})); }
+  function anchor(id) { try { id = decodeURIComponent(id); } catch {} const heading = [...content.querySelectorAll('[id]')].find(el => el.id === `doc-heading-${id}`); heading?.scrollIntoView({block:'start'}); heading?.focus(); }
+  function linkRecords() {
+    const map = (values,view) => values.map(r => ({id:r.path || r.id,record:r.id,view,...(view === 'documents' ? {documentId:r.id} : {decisionId:r.id})}));
+    return [...map(records,kind),...map(linkedRecords,kind === 'documents' ? 'decisions' : 'documents')];
+  }
+  function hydrateLinks() {
+    if (!current || draft) return;
+    for (const a of content.querySelectorAll('[data-doc-link]')) {
+      const target = resolveDocumentLink(a.dataset.docLink,current.path || current.id,linkRecords(),kind);
+      if (target?.external) { a.href = target.external; a.target = '_blank'; a.rel = 'noopener noreferrer'; delete a.dataset.docLink; }
+      else if (target) { a.href = '#'; a.removeAttribute('title'); }
+      else { a.removeAttribute('href'); a.title = 'Link is outside the project documentation or unsupported.'; }
+    }
+  }
   function reader() {
     if (!current) { content.innerHTML = `<p>Select a ${noun}, or create one.</p>`; toc.innerHTML = ''; return; }
     const rendered = renderDocument({id:current.path || current.id, title:current.title, markdown:current.rawContent || ''});
@@ -40,13 +52,13 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
       if (url) { const image = document.createElement('img'); image.src = url; image.alt = placeholder.dataset.imageAlt || ''; image.loading = 'lazy'; image.className = 'docs-image'; image.addEventListener('error', () => image.replaceWith(placeholder)); placeholder.replaceWith(image); }
     }
     toc.innerHTML = '<strong>On this page</strong>' + rendered.headings.map(h => `<a href="#${esc(h.id)}" data-doc-anchor="${esc(h.id)}">${esc(h.text)}</a>`).join('');
-    for (const a of content.querySelectorAll('[data-doc-link]')) { const target = resolveDocumentLink(a.dataset.docLink, current.path || current.id, linkRecords()); if (target?.external) { a.href = target.external; a.target = '_blank'; a.rel = 'noopener noreferrer'; delete a.dataset.docLink; } else if (!target) { a.removeAttribute('href'); a.title = 'Link is outside the project documentation or unsupported.'; } }
+    hydrateLinks();
     controls();
   }
-  async function open(id) {
+  async function open(id, fragment = '') {
     if (draft || busy) { report('Save or cancel the open draft before switching records.', true); return; }
     const ticket = ++generation; report(`Loading ${noun}…`);
-    try { const result = await api(`${endpoint}/${encodeURIComponent(id)}`); if (destroyed || ticket !== generation) return; current = result; reader(); list(); onNavigate({view:kind,record:result.id}); report(''); }
+    try { const result = await api(`${endpoint}/${encodeURIComponent(id)}`); if (destroyed || ticket !== generation) return; current = result; reader(); list(); onNavigate({view:kind,record:result.id}); report(''); if (fragment) anchor(fragment); }
     catch (error) { if (!destroyed && ticket === generation) report(error.message, true); }
   }
   async function refresh() {
@@ -56,7 +68,11 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
       // Docs list metadata excludes body; fetch bounded batches for genuine full-text search.
       const full = []; let unreadable = 0;
       for (let i = 0; i < result.length; i += 6) { const batch = await Promise.all(result.slice(i,i+6).map(async r => { try { return {...r,...await api(`${endpoint}/${encodeURIComponent(r.id)}`)}; } catch { unreadable++; return r; } })); if (destroyed || ticket !== listGeneration) return; full.push(...batch); }
-      const changed = JSON.stringify(records) !== JSON.stringify(full); records = full; if (changed) list(); controls();
+      let cross = [];
+      try { cross = await api(kind === 'documents' ? '/decisions' : '/docs'); }
+      catch { unreadable++; }
+      if (destroyed || ticket !== listGeneration) return;
+      const changed = JSON.stringify(records) !== JSON.stringify(full); records = full; linkedRecords = cross; if (changed) list(); hydrateLinks(); controls();
       if (unreadable) report(`${unreadable} records could not be read. Content search is incomplete; opening a record shows its error.`, true);
     } catch (error) { if (!destroyed && ticket === listGeneration) report(error.message, true); }
   }
@@ -97,7 +113,17 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
     const target = event.target.closest('button,a'); if (!target || !container.contains(target)) return;
     if (target.dataset.record) return open(target.dataset.record);
     if (target.hasAttribute('data-doc-anchor')) { event.preventDefault(); anchor(target.dataset.docAnchor); return; }
-    if (target.hasAttribute('data-doc-link')) { event.preventDefault(); if (draft) return; const dest = resolveDocumentLink(target.dataset.docLink,current?.path || current?.id || '',linkRecords()); if (dest?.id) { const record = records.find(r => (r.path || r.id) === dest.id); if (record && record.id !== current.id) await open(record.id); if (dest.anchor) anchor(dest.anchor); } return; }
+    if (target.hasAttribute('data-doc-link')) {
+      event.preventDefault(); if (draft || busy) return;
+      const dest = resolveDocumentLink(target.dataset.docLink,current?.path || current?.id || '',linkRecords(),kind);
+      if (dest?.view && dest.view !== kind) { try { await onOpenRecord(dest); } catch (error) { report(error.message,true); } }
+      else if (dest?.id) {
+        const record = records.find(r => (r.path || r.id) === dest.id);
+        if (record && record.id !== current.id) await open(record.id,dest.anchor);
+        else if (dest.anchor) anchor(dest.anchor);
+      }
+      return;
+    }
     if (target.hasAttribute('data-copy-code')) { try { await navigator.clipboard.writeText(target.closest('.docs-code').querySelector('code').textContent); report('Code copied.'); } catch { report('Copy unavailable. Select the text and copy manually.',true); } return; }
     if (busy) return;
     if (target.dataset.format && draft) { const area = find('textarea'); const pair = {heading:['\n## ',''],bold:['**','**'],italic:['_','_'],list:['\n- ',''],link:['[','](relative-document.md)'],code:['\n```\n','\n```\n']}[target.dataset.format]; area.setRangeText(pair[0]+area.value.slice(area.selectionStart,area.selectionEnd)+pair[1],area.selectionStart,area.selectionEnd,'select'); collect(); preview(); area.focus(); return; }

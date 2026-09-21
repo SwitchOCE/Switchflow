@@ -82,3 +82,21 @@ test('links resolve exact nested documents and Backlog routes, rejecting arbitra
   assert.deepEqual(resolveDocumentLink('https://example.com/a', 'Guides/Setup.md', docs), { external: 'https://example.com/a' });
   for (const link of ['../../secret.md', 'file:///C:/secret.md', 'javascript:alert(1)', 'data:text/html,bad', '//evil.invalid', '/etc/passwd', '%2e%2e/%2e%2e/secret.md', 'missing.md', '\\server\\secret', ' https://example.com']) assert.equal(resolveDocumentLink(link, 'Guides/Setup.md', docs), null, link);
 });
+
+test('project knowledge routes resolve documents and decisions across collections with fragments', () => {
+  const records = [
+    {id:'Guides/overview.md',documentId:'doc-02',record:'doc-02',view:'documents'},
+    {id:'decision-01.md',decisionId:'decision-01',record:'decision-01',view:'decisions'},
+  ];
+  assert.deepEqual(resolveDocumentLink('/decisions/decision-01#consequences','Guides/overview.md',records,'documents'),
+    {id:'decision-01.md',anchor:'consequences',view:'decisions',record:'decision-01'});
+  assert.deepEqual(resolveDocumentLink('/documentation/02/project-profile#details','decision-01.md',records,'decisions'),
+    {id:'Guides/overview.md',anchor:'details',view:'documents',record:'doc-02'});
+  assert.deepEqual(resolveDocumentLink('#consequences','decision-01.md',records,'decisions'),{id:'decision-01.md',anchor:'consequences'});
+  assert.equal(resolveDocumentLink('decision-01.md','overview.md',records,'documents'),null,'relative links cannot accidentally bind another collection');
+  for (const route of ['/decisions/decision-02','/decisions/decision-01/extra','/decisions/../decision-01','/projects/other/decisions/decision-01','/decisions/decision-01?project=other','/decisions/decision-01%00']) {
+    assert.equal(resolveDocumentLink(route,'Guides/overview.md',records,'documents'),null,route);
+  }
+  assert.equal(resolveDocumentLink('/decisions/decision-01','overview.md',[...records,records[1]],'documents'),null,'ambiguous IDs are not guessed');
+  assert.equal(resolveDocumentLink('/decisions/decision-01','overview.md',[{id:'decision-01',view:'documents',record:'doc-01'}],'documents'),null,'a document filename cannot impersonate a decision ID');
+});
