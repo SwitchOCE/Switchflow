@@ -1,6 +1,6 @@
 export function workspaceLocation(href) {
   const url = new URL(href);
-  const allowed = ['board','tasks','milestones','documents','decisions','drafts','statistics','settings'];
+  const allowed = ['board','tasks','milestones','documents','decisions','drafts','statistics','skills','settings'];
   const requested = url.searchParams.get('view');
   return {project:url.searchParams.get('project'),view:allowed.includes(requested) ? requested : 'board',task:url.searchParams.get('task'),record:url.searchParams.get('record')};
 }

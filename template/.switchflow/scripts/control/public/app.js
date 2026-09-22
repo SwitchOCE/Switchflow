@@ -1,3 +1,4 @@
+import { mountSkills } from './skills.js';
 import { mountKnowledge } from './knowledge.js';
 import { mountTasks } from './tasks.js';
 import { mountInsights } from './insights.js';
@@ -51,7 +52,7 @@ let selectedProjectId = null;
 let projectEpoch = 0;
 let sharedToken = '';
 let projectList = [];
-const views = ['board', 'tasks', 'milestones', 'documents', 'decisions', 'drafts', 'statistics', 'settings'];
+const views = ['board', 'tasks', 'milestones', 'documents', 'decisions', 'drafts', 'statistics', 'skills', 'settings'];
 let activeView = workspaceLocation(location.href).view;
 const panels = new Map();
 let panelRefreshedAt = 0;
@@ -599,6 +600,7 @@ function showView(view, updateLocation = true) {
   if (['tasks','drafts'].includes(viewName)) { panel = mountTasks(container,options); if (viewName === 'drafts') panel.setMode('drafts'); else void panel.refresh(); }
   else if (['documents','decisions'].includes(viewName)) panel = mountKnowledge(container,{...options,kind:viewName});
   else if (viewName === 'milestones') { panel = createMilestonePanel({container,...options,projectKey:() => id,drafts:milestoneDrafts,onSaved:options.onChange,onTask:openTask}); void panel.refresh(); }
+  else if (viewName === 'skills') panel = mountSkills(container,{request:route => readProject(route,id),onNavigate:options.onNavigate});
   else panel = mountInsights(container,{...options,kind:viewName});
   panels.set(viewName,panel); panelRefreshedAt = Date.now(); return panel;
 }

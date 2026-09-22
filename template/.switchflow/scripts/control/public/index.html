@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/tasks.css">
   <link rel="stylesheet" href="/knowledge.css">
   <link rel="stylesheet" href="/insights.css">
+  <link rel="stylesheet" href="/skills.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -20,7 +21,7 @@
     <div class="project-picker"><label for="project-select" class="sr-only">Project</label><select id="project-select" aria-label="Project"><option>Loading projects…</option></select><button id="add-project" class="button quiet">Add project</button></div>
     <div class="header-actions"><span id="connection" class="connection" role="status">Connecting…</span><button id="workspace-search" class="button quiet" aria-label="Search project (Ctrl K)">Search</button><button id="theme-toggle" class="button quiet" aria-label="Use dark theme">Dark</button><button class="button primary" id="new-initiative">+ New initiative</button></div>
   </header>
-  <nav class="workspace-nav" aria-label="Project workspace"><div class="workspace-tabs"><button class="nav-tab" data-view="board" aria-current="page">Initiatives</button><button class="nav-tab" data-view="tasks">Tasks</button><button class="nav-tab" data-view="milestones">Milestones</button><button class="nav-tab" data-view="documents">Documents</button><button class="nav-tab" data-view="decisions">Decisions</button><button class="nav-tab" data-view="drafts">Drafts</button><button class="nav-tab" data-view="statistics">Insights</button><button class="nav-tab" data-view="settings">Settings</button></div><span id="project-overview" role="status"></span></nav>
+  <nav class="workspace-nav" aria-label="Project workspace"><div class="workspace-tabs"><button class="nav-tab" data-view="board" aria-current="page">Initiatives</button><button class="nav-tab" data-view="tasks">Tasks</button><button class="nav-tab" data-view="milestones">Milestones</button><button class="nav-tab" data-view="documents">Documents</button><button class="nav-tab" data-view="decisions">Decisions</button><button class="nav-tab" data-view="drafts">Drafts</button><button class="nav-tab" data-view="statistics">Insights</button><button class="nav-tab" data-view="skills">Skills</button><button class="nav-tab" data-view="settings">Settings</button></div><span id="project-overview" role="status"></span></nav>
   <main>
     <div id="error-banner" class="banner error" role="alert" hidden></div>
     <div id="notice-banner" class="banner" role="status" hidden></div>
@@ -37,6 +38,7 @@
     <section class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><div><h2 id="tasks-title">Delivery tasks</h2><span id="task-count" class="muted">Project work items</span></div><div class="detail-actions"><button id="all-tasks" class="button quiet">All tasks →</button><button id="operations-open" class="button quiet">Framework health ↗</button></div></div><p class="muted">Track delivery work, dependencies and readiness. Open Tasks to manage the full board.</p><div id="tasks-list" class="tasks-grid"></div></section>
     <section class="delivery-strip" aria-label="Delivery activity"><div><span class="pulse-dot" aria-hidden="true"></span><strong id="activity-title">Agent activity</strong></div><p id="activity-summary">Waiting for the project connection.</p><span class="muted" id="updated-at"></span></section>
     </div>
+    <section id="workspace-skills" hidden aria-label="Switchflow skills"></section>
     <section id="workspace-milestones" hidden aria-label="Project milestones"></section>
     <section id="workspace-documents" hidden aria-label="Project documentation"></section>
     <section id="workspace-tasks" hidden aria-label="Project tasks"></section>

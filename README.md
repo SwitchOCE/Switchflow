@@ -28,6 +28,8 @@ Phase starts and technical milestone acceptance belong to the agents. Scope chan
 
 After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. The workspace uses Switchflow's top navigation and design, with task boards/lists, full editors, milestones, documents, decisions, drafts, insights and settings. Open **Initiatives** for **New initiative → Start intake**, scope and plan approval, live agent activity, guided UAT and framework health. The top bar switches projects on one local service; linked code worktrees always resolve to their primary governance checkout. `.switchflow/scripts/backlog.ps1 control` and `backlog.ps1 browser` open the same workspace. `browser-native` retains the standalone Backlog server for diagnostics. See the [functionality review](docs/backlog-ui-review.md) for the corrected omissions and retained boundaries.
 
+Open **Skills** to inspect the selected project's installed Switchflow instructions, search role descriptions, read reference notes, and view the original Markdown. This section is read-only.
+
 The service uses the installed, signed-in local Codex CLI. Runs keep its workspace sandbox, use structured results, and stop visibly when required authority or access is missing. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
 
 Approved scope, plan grants, revisions, sessions, and recovery state live outside the code checkout, shared by Git worktrees. Backlog retains delivery tasks and durable project documents. See [browser control and storage](docs/browser-control.md) for the exact boundaries, recovery procedure, and local security model.

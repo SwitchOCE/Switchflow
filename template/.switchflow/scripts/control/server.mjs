@@ -14,13 +14,14 @@ import { createBacklogAdapter } from './backlog-adapter.mjs';
 import { startCodexRun, isRunProcessAlive } from './codex-runner.mjs';
 import * as protocol from './agent-protocol.mjs';
 import { previewUatArtifact } from './artifacts.mjs';
+import { listSkills, readSkill } from './skills.mjs';
 import { listDocuments, readDocument } from './documents.mjs';
 import { sharedServiceContext, canonicalProject, acquireProjectService, ProjectRegistry } from './projects.mjs';
 import { createNativeBacklog } from './native-backlog.mjs';
 
 const exec = promisify(execFile);
 const publicRoot = fileURLToPath(new URL('./public/', import.meta.url));
-const staticFiles = Object.fromEntries(['index.html','app.js','styles.css','documents.js','documents.css','milestones.js','milestones.css','tasks.js','tasks-model.js','tasks-editor.js','tasks.css','initiative-tasks.js','knowledge.js','knowledge-model.js','knowledge.css','insights.js','insights.css','workspace-client.js','workspace-search.js'].map(file => [`/${file}`, [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript']]));
+const staticFiles = Object.fromEntries(['index.html','app.js','styles.css','documents.js','documents.css','milestones.js','milestones.css','tasks.js','tasks-model.js','tasks-editor.js','tasks.css','initiative-tasks.js','knowledge.js','knowledge-model.js','knowledge.css','insights.js','insights.css','workspace-client.js','workspace-search.js','skills.js','skills.css'].map(file => [`/${file}`, [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript']]));
 staticFiles['/'] = staticFiles['/index.html'];
 const MAX_BODY = 512 * 1024;
 async function readBytes(req) {
@@ -211,6 +212,8 @@ export async function createControlServer({ projectRoot, context: suppliedContex
         const state = await engine.action(action[1], await body(req));
         return json(res, 200, { initiative: state.initiatives.find(i => i.id === action[1]) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/skills') return json(res, 200, await listSkills(selectedContext));
+      if (req.method === 'GET' && url.pathname === '/api/skills/content') return json(res, 200, await readSkill(selectedContext, url.searchParams.get('id')));
       if (req.method === 'GET' && url.pathname === '/api/docs') return json(res, 200, await listDocuments(selectedContext, { query: url.searchParams.get('q') || '' }));
       if (req.method === 'GET' && url.pathname === '/api/docs/content') return json(res, 200, await readDocument(selectedContext, url.searchParams.get('id')));
       if (req.method === 'GET' && url.pathname === '/api/milestones') return json(res, 200, { milestones: await adapter.listMilestones() });

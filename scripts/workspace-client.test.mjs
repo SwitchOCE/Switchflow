@@ -20,6 +20,7 @@ test('native client rejects writes while disconnected and traversal before fetch
 test('record bookmarks retain explicit project identity and known workspace views', () => {
   assert.deepEqual(workspaceLocation('http://localhost/?project=p&view=tasks&task=T-1'),{project:'p',view:'tasks',task:'T-1',record:null});
   assert.equal(workspaceLocation('http://localhost/?view=unsupported').view,'board');
+  assert.deepEqual(workspaceLocation('http://localhost/?project=p&view=skills&record=intake%2FSKILL.md'),{project:'p',view:'skills',task:null,record:'intake/SKILL.md'});
 });
 test('documentation images resolve only selected-project asset paths', () => {
   const project = 'a'.repeat(64), prefix = `/projects/${project}/backlog-assets/`;

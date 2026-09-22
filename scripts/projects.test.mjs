@@ -19,6 +19,8 @@ async function fixture(run) {
     await fs.writeFile(path.join(root, '.switchflow', 'project.json'), JSON.stringify({ projectName: name, templateVersion: '0.5.0' }));
     await fs.writeFile(path.join(root, 'backlog.config.yml'), `project_name: ${name}\n`);
     await fs.writeFile(path.join(root, 'backlog', 'docs', 'guide.md'), `# ${name} guide\n\n${name} canonical documentation.`);
+    await fs.mkdir(path.join(root, '.agents', 'skills', 'intake'), { recursive: true });
+    await fs.writeFile(path.join(root, '.agents', 'skills', 'intake', 'SKILL.md'), `---\nname: intake\ndescription: '${name} intake'\n---\n# ${name} scope\n`);
     git(root, 'init', '-b', 'main'); git(root, 'add', '--', '.');
     git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'Initial fixture');
   }
@@ -59,6 +61,12 @@ test('one HTTP port keeps project state, colliding task IDs and docs separate; w
   assert.equal((await (await fetch(api(1) + '/tasks/SAME-1')).json()).task.title, 'Changed Beta');
   assert.match((await (await fetch(api(0) + '/docs/content?id=guide.md')).json()).markdown, /Alpha canonical/);
   assert.match((await (await fetch(api(1) + '/docs/content?id=guide.md')).json()).markdown, /Beta canonical/);
+  for (const [index,name] of [[0,'Alpha'],[1,'Beta']]) {
+    assert.equal((await (await fetch(api(index) + '/skills')).json()).skills[0].description, `${name} intake`);
+    assert.match((await (await fetch(api(index) + '/skills/content?id=intake/SKILL.md')).json()).markdown, new RegExp(name));
+    assert.equal((await fetch(api(index) + '/skills/content?id=../secret.md')).status, 400);
+    assert.equal((await fetch(api(index) + '/skills/content?id=intake/SKILL.md', {method:'PUT',headers,body:JSON.stringify({raw:'changed'})})).status,404);
+  }
   assert.equal((await fetch(api(0) + '/docs/content?id=../config.yml')).status, 400);
   assert.equal((await fetch(app.url + '/api/projects/' + '0'.repeat(64) + '/state')).status, 404);
   assert.equal((await fetch(app.url + '/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectRoot: roots[1] }) })).status, 403);

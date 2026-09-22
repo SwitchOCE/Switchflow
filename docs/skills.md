@@ -18,6 +18,12 @@ Switchflow imports eleven repository-local skills. Each owns trigger-specific se
 
 Every skill declares what it must not read. Those limits are load-bearing rather than economies: they are what keep intake unbiased, the orchestrator bounded, and review independent. The [role contracts](role-contracts.md) own each role's full read limit, produced artifact, exit condition, and authority. A skill file must not contradict or restate them.
 
+## Inspect skills in the browser
+
+Open **Skills** in the Switchflow workspace to browse the eleven Switchflow roles installed in the selected project. Search names and descriptions, select a skill to read its instructions, and expand **Original Markdown** to inspect the complete file including frontmatter. Linked Markdown reference notes are available alongside the instructions. Skill selections have bookmarkable project-scoped URLs.
+
+The inspector reads `.agents/skills/` from the primary governance checkout and is read-only. **Refresh skills** reloads the installed files. Missing or unreadable skills are reported; unrelated personal or project skills are not included.
+
 ## Boundaries
 
 Project mode has three routine human steps: Intake, Planning and UAT. The concrete Planning approval authorizes all listed phases through technical review and local integration; automatic continuation reuses `orchestrate-phase` without repeating human start or milestone-acceptance prompts. Standalone phase mode retains its single-phase boundary. Scope changes, bugs and updates use their established routes; protected external actions still need action-specific authority. Intake and Planning support an independent-review toggle that adds agent critique before their existing human decision.
