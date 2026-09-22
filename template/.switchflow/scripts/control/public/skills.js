@@ -10,7 +10,7 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
     <div class="docs-reader skills-reader"><div class="docs-toolbar"><label>Find a skill<input type="search" placeholder="Search names and descriptions…" aria-label="Find a skill"></label><button type="button" data-refresh>Refresh skills</button></div>
     <p class="docs-status" role="status" aria-live="polite"></p><div class="docs-layout"><nav class="docs-nav" aria-label="Switchflow skills"></nav><article class="docs-content"><p class="muted">Choose a skill to inspect its instructions.</p></article><aside class="docs-toc" aria-label="On this page"></aside></div></div>`;
   const find = selector => container.querySelector(selector);
-  const search = find('input'), nav = find('nav'), content = find('article'), toc = find('aside'), status = find('.docs-status');
+  const search = find('input'), nav = find('nav'), content = find('article'), toc = find('aside'), status = find('.docs-status'), refreshButton = find('[data-refresh]');
   let skills = [], warnings = [], current = null, destroyed = false, generation = 0, listing = 0;
   const report = (text, error = false) => { status.textContent = text; status.setAttribute('role', error ? 'alert' : 'status'); };
   function tree() {
@@ -24,7 +24,10 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
       nav.append(button, node('p', 'docs-excerpt', skill.description));
       if (focused === skill.id) button.focus({ preventScroll: true });
     }
-    if (!matches.length) nav.append(node('p', 'muted', skills.length ? 'No skills match your search.' : 'No Switchflow skills are installed in this project.'));
+    if (!matches.length) {
+      nav.append(node('p', 'muted', skills.length ? 'No skills match this filter. Clear the search to see the installed skills.' : 'No Switchflow skills are installed in this project. Refresh after restoring the project skill files.'));
+      if (skills.length) { const clear = node('button', 'button quiet', 'Clear search'); clear.type = 'button'; clear.dataset.clearSearch = ''; nav.append(clear); }
+    }
     report(`${matches.length} of ${skills.length} skills${warnings.length ? '. ' + warnings.join(' ') : '.'}`);
   }
   function anchor(id) {
@@ -64,19 +67,26 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
       if (navigate) onNavigate({ view: 'skills', record: id });
       if (fragment) anchor(fragment); else if (navigate) heading.focus({ preventScroll: true });
     } catch (error) {
-      if (!destroyed && ticket === generation) { current = null; content.replaceChildren(node('p', 'muted', 'This skill could not be loaded. Choose a skill or refresh to try again.')); toc.replaceChildren(); report(error.message, true); }
+      if (!destroyed && ticket === generation) {
+        current = null; const message = node('p', 'muted', 'This skill could not be loaded. Your project files were not changed.');
+        const retry = node('button', 'button quiet', 'Try this skill again'); retry.type = 'button'; retry.dataset.retrySkill = id;
+        content.replaceChildren(message, retry); toc.replaceChildren(); report(`${error.message} Check the project connection, then retry.`, true);
+      }
     } finally { if (!destroyed && ticket === generation) content.removeAttribute('aria-busy'); }
   }
   async function refresh() {
-    const ticket = ++listing;
+    const ticket = ++listing; nav.setAttribute('aria-busy', 'true'); refreshButton.disabled = true; report(skills.length ? 'Refreshing installed skills…' : 'Loading installed skills…');
     try {
       const result = await request('/skills'); if (destroyed || ticket !== listing) return;
-      skills = result.skills; warnings = result.warnings; tree();
-    } catch (error) { if (!destroyed && ticket === listing) report(error.message, true); }
+      skills = Array.isArray(result.skills) ? result.skills : []; warnings = Array.isArray(result.warnings) ? result.warnings : []; tree();
+    } catch (error) { if (!destroyed && ticket === listing) report(`${error.message} ${skills.length ? 'Existing instructions remain available' : 'No skill list was loaded'}; check the project connection and use Refresh skills.`, true); }
+    finally { if (!destroyed && ticket === listing) { nav.removeAttribute('aria-busy'); refreshButton.disabled = false; } }
   }
   const click = async event => {
     const target = event.target.closest('button,a'); if (!target || !container.contains(target)) return;
     if (target.hasAttribute('data-refresh')) { await refresh(); if (current) await open(current, '', false); }
+    else if (target.hasAttribute('data-clear-search')) { search.value = ''; tree(); search.focus(); }
+    else if (target.dataset.retrySkill) await open(target.dataset.retrySkill);
     else if (target.dataset.skill) await open(target.dataset.skill);
     else if (target.hasAttribute('data-doc-anchor')) { event.preventDefault(); anchor(target.dataset.docAnchor); }
     else if (target.hasAttribute('data-doc-link')) {

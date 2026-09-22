@@ -17,6 +17,15 @@ test('native client rejects writes while disconnected and traversal before fetch
   for (const route of ['//other/api','/../config','/%2e%2e/config','/tasks\\other']) await assert.rejects(api(route),/Invalid/);
   assert.equal(calls,0);
 });
+
+test('lost response and server failure require reconciliation without an automatic retry', async () => {
+  for (const fetcher of [async()=>{throw new Error('Connection closed');},async()=>({ok:false,status:500,json:async()=>({error:'Refresh failed'})})]) {
+    let attempts=0;
+    const api=createNativeClient({projectId:'alpha',token:()=>'',fetcher:async(...args)=>{attempts++;return fetcher(...args);}});
+    await assert.rejects(api('/tasks/T-1',{method:'PUT',body:{title:'Draft'}}),error=>error.outcome==='unknown'&&error.requiresReconciliation&&/Check the saved record/.test(error.message));
+    assert.equal(attempts,1);
+  }
+});
 test('record bookmarks retain explicit project identity and known workspace views', () => {
   assert.deepEqual(workspaceLocation('http://localhost/?project=p&view=tasks&task=T-1'),{project:'p',view:'tasks',task:'T-1',record:null});
   assert.equal(workspaceLocation('http://localhost/?view=unsupported').view,'board');

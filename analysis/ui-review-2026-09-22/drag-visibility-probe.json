@@ -1,0 +1,31 @@
+{
+  "scope": "Actual mountTasks and dragstart handler with minimal DOM/API doubles; not a browser drag test",
+  "fixture": {
+    "hideEmptyColumns": true,
+    "statuses": [
+      "Ready",
+      "Done"
+    ],
+    "taskStatus": "Ready"
+  },
+  "beforeDrag": [
+    "Ready"
+  ],
+  "duringDrag": [
+    "Ready"
+  ],
+  "afterUnchangedRefresh": [
+    "Ready"
+  ],
+  "additionalResultRenders": 0,
+  "selfDropRequest": {
+    "taskId": "DEMO-1",
+    "targetStatus": "Ready",
+    "orderedTaskIds": [
+      "DEMO-2",
+      "DEMO-1"
+    ]
+  },
+  "conclusion": "Starting a drag does not reveal the hidden empty Done destination; an unchanged refresh does not reveal it either. A drop on the lifted card requests moving it to the end.",
+  "productionWrites": 0
+}

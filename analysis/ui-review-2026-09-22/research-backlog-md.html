@@ -1,0 +1,128 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Backlog.md comparator: human browser workflows</title><style>:root{color-scheme:light;--ink:#182b33;--muted:#526570;--line:#d9e3e7;--accent:#086958;--bg:#f5f7f8}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;font:16px/1.65 system-ui,Segoe UI,sans-serif;color:var(--ink);background:var(--bg)}a{color:var(--accent);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}a:focus-visible,summary:focus-visible{outline:3px solid #bc6500;outline-offset:4px}.skip{position:absolute;left:16px;top:-100px;z-index:5;background:white;padding:12px}.skip:focus{top:8px}.rail{position:fixed;inset:0 auto 0 0;width:245px;background:#172e36;color:#e8f0f1;padding:30px 22px;overflow:auto}.rail a{color:#d2ebe4;display:block;margin:10px 0;text-decoration:none;font-size:14px;line-height:1.5}.rail a:hover{text-decoration:underline}.rail .brand{font-size:21px;font-weight:750;color:white}.rail .kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#a8c3c6;margin:30px 0 12px}.rail .divider{border-top:1px solid #476069;margin:24px 0}.rail .small{font-size:12px;color:#b6ccd0}.paper{max-width:1410px;margin-left:245px;padding:42px 44px 90px}article{background:white;border:1px solid var(--line);border-radius:14px;padding:40px 42px;min-width:0}h1{font-size:36px;line-height:1.18;letter-spacing:-.025em;max-width:900px;margin:0 0 24px}h2{font-size:25px;line-height:1.3;margin:48px 0 18px;padding-top:18px;border-top:1px solid var(--line)}h3{font-size:19px;line-height:1.4;margin:30px 0 12px}p,li{max-width:96ch}li{margin:6px 0}blockquote{border-left:4px solid #168c73;background:#edf7f3;margin:24px 0;padding:14px 22px}blockquote p{margin:8px 0}code{font: .86em/1.5 ui-monospace,Consolas,monospace;background:#eef2f4;border-radius:4px;padding:2px 4px;overflow-wrap:anywhere}pre{overflow:auto;background:#eef2f4;padding:20px;border-radius:8px}pre code{padding:0}.table-wrap{overflow-x:auto;margin:20px 0 30px;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55;min-width:760px}th,td{padding:14px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eaf1f2;font-weight:700;color:#203e46}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#f8fafb}td:first-child{font-weight:550}td a{overflow-wrap:anywhere}img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;margin:20px 0;max-height:730px;object-fit:contain;object-position:left top;background:#eef2f4}.meta{font-size:13px;color:var(--muted);margin:0 0 20px}.source{display:inline-block;margin-right:16px}.footer{color:var(--muted);font-size:13px;margin-top:24px}@media(max-width:1050px){.rail{width:210px;padding:24px 18px}.paper{margin-left:210px;padding:24px 20px}article{padding:28px 24px}}@media(max-width:760px){.rail{position:static;width:auto;max-height:none;padding:20px}.rail nav{display:flex;flex-wrap:wrap;gap:4px 16px}.rail nav a{margin:4px 0}.rail .toc,.rail .divider{display:none}.rail .kicker{margin:14px 0 4px}.paper{margin:0;padding:12px}article{padding:24px 18px}h1{font-size:29px}h2{font-size:23px}table{font-size:13px}.table-wrap{margin-left:-4px;margin-right:-4px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{.rail,.skip,.meta{display:none}.paper{margin:0;padding:0;max-width:none}article{border:0;padding:0}body{background:white;font-size:11pt}h1{font-size:26pt}h2{break-after:avoid}table{min-width:0;font-size:9pt}.table-wrap{overflow:visible}img{max-height:180mm;break-inside:avoid}a{color:inherit}th,td{padding:7px}h2{margin-top:28px}}</style></head><body><a class="skip" href="#content">Skip to report</a><aside class="rail"><div class="brand">Switchflow UI review</div><p class="small">22 September 2026<br>Human interactions and improvement path</p><p class="kicker">Report & evidence</p><nav aria-label="Report documents"><a href="REPORT.html">Main review</a><a href="rendered-observations.html">Screenshots &amp; walkthrough</a><a href="local-ui-audit.html">Source interaction audit</a><a href="research-asana-jira.html">Asana &amp; Jira</a><a href="research-trello-plane.html">Trello &amp; Plane</a><a href="research-backlog-md.html" aria-current="page">Backlog.md</a><a href="research-plane-code.html">Plane: code interactions</a><a href="research-backlog-code.html">Backlog.md: code interactions</a></nav><div class="divider"></div><div class="toc"><p class="kicker">On this page</p><nav aria-label="On this page"><a href="#decision-relevant-finding">Decision-relevant finding</a><a href="#evidence-and-provenance-boundary">Evidence and provenance boundary</a><a href="#the-real-backlogmd-workflows-a-person-performs">The real Backlog.md workflows a person performs</a><a href="#recommended-improvement-sequence">Recommended improvement sequence</a><a href="#what-this-comparator-should-not-decide">What this comparator should not decide</a></nav></div></aside><main class="paper" id="content"><p class="meta"><a class="source" href="research-backlog-md.md">Markdown source</a>Read-only review · Proposed improvements are not implemented</p><article><h1 id="backlogmd-comparator-human-browser-workflows">Backlog.md comparator: human browser workflows</h1>
+<p><strong>Research appendix:</strong> prescriptions below are provisional ideas, superseded by the <a href="REPORT.html">consolidated report</a>. In particular, there need not be one uniquely next task, all metadata need not stay visible, and server-side cursors are an implementation option rather than a universal requirement. Readiness never grants execution authority.</p>
+<p><strong>Research date:</strong> 22 September 2026<br><strong>Comparator:</strong> <a href="https://github.com/MrLesk/Backlog.md">Backlog.md</a>, the Markdown-native tool bundled beneath Switchflow. This is <strong>Backlog.md</strong>, not the unrelated Nulab cloud product named Backlog.</p>
+<p><strong>Public-code follow-up:</strong> <a href="research-backlog-code.html">Interaction review at a fixed v1.51.0 commit</a> adds drag timing/placement, conditional rendering, selection, navigation and failure-recovery evidence. Use those immutable references for the follow-up findings rather than assuming the <code>main</code> links below remain unchanged.</p>
+<h2 id="decision-relevant-finding">Decision-relevant finding</h2>
+<p>Backlog.md is useful as a close, local-first comparator for task detail, navigation, filtering and dependency/readiness language. It should not be restored wholesale: it lacks Switchflow&#39;s owner-facing Intake, Planning, delivery and UAT workflow. The strongest borrowed patterns are a persistent, collapsible sidebar; an explicit derived <strong>Ready</strong> signal; a two-column task-detail modal with large Markdown editors; and bounded scroll areas for dense sub-elements. Current Backlog.md still renders the full comment history in its modal, so it is not a model for the requested history-pagination repair.</p>
+<h2 id="evidence-and-provenance-boundary">Evidence and provenance boundary</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Evidence</th>
+<th>What it establishes</th>
+<th>Limit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Current upstream v1.51.0 release and main-branch React source, checked 22 Sep</td>
+<td>Documented/reviewable current Backlog.md browser behaviours</td>
+<td>Source and release evidence, not a locally operated or human-tested instance.</td>
+</tr>
+<tr>
+<td>Switchflow&#39;s pinned fork</td>
+<td>Switchflow pins upstream tag <code>v1.50.1</code>, commit <a href="https://github.com/MrLesk/Backlog.md/tree/94c10a690b75f26ebfe8e337e74ffe02f2d459d7"><code>94c10a690b75f26ebfe8e337e74ffe02f2d459d7</code></a>, then applies a local patch.</td>
+<td>Historical native comparator only. It is two releases behind current v1.51.0 and has product-specific changes.</td>
+</tr>
+<tr>
+<td>Current Switchflow documentation and browser assets</td>
+<td>The normal product is the custom Switchflow workspace; it retains top navigation, custom views and the Backlog data handlers. <code>board:native</code> is explicitly diagnostic.</td>
+<td>This review did not launch a fresh live board or collect participant usability observations.</td>
+</tr>
+</tbody></table></div>
+<h3 id="local-provenance">Local provenance</h3>
+<ul>
+<li><a href="../../template/.switchflow/package-lock.json"><code>template/.switchflow/package-lock.json:10-18</code></a> pins the npm package to <code>1.50.1</code> and records its registry integrity.</li>
+<li><a href="../../template/.switchflow/scripts/backlog-fork/manifest.json"><code>template/.switchflow/scripts/backlog-fork/manifest.json:1-11</code></a> pins the upstream tag, commit and source-archive SHA-256. <a href="../../template/.switchflow/scripts/backlog-fork/README.md"><code>README.md:1-15</code></a> explains that the source/cache is external and the fork is local.</li>
+<li><a href="../../docs/backlog-ui-review.md"><code>docs/backlog-ui-review.md:1-4</code></a> says the native Backlog layout was rolled back and Switchflow&#39;s own top navigation is the selected interface. <a href="../../docs/browser-control.md"><code>docs/browser-control.md:3-11</code></a> defines the browser as the owner workspace and <a href="../../docs/browser-control.md"><code>docs/browser-control.md:7</code></a> identifies <code>board:native</code> as the retained diagnostic route.</li>
+<li><a href="../../docs/verification-0.5.0.md"><code>docs/verification-0.5.0.md:5-15</code></a> records a custom-interface verification run and explicitly distinguishes the earlier native-interface trial as historical evidence at lines 32-45. This is useful package/rendering evidence, not human acceptance.</li>
+</ul>
+<h2 id="the-real-backlogmd-workflows-a-person-performs">The real Backlog.md workflows a person performs</h2>
+<h3 id="1-orient-find-work-then-act">1. Orient, find work, then act</h3>
+<p>In current Backlog.md, a person opens the local browser board, uses the persistent sidebar quick search to find a task/document/decision, then opens the item in place. The board supports drag-and-drop; current v1.51.0 also lets a person select several cards and move them together. The sidebar/search and in-place update behaviour are explicit v1.51.0 release claims, alongside retention of filters, scroll position and open modals after a data refresh.</p>
+<ul>
+<li>Primary evidence: <a href="https://github.com/MrLesk/Backlog.md/releases/tag/v1.51.0">v1.51.0 release</a>; it calls out sidebar quick search and preservation of filters, scroll and modals. <a href="https://github.com/MrLesk/Backlog.md/blob/main/README.md#web-interface">README Web Interface</a> documents the board, multi-select, task forms and responsive browser surface.</li>
+<li>Source evidence: <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/Board.tsx"><code>src/web/components/Board.tsx</code></a> filters task cards by milestone, assignee, labels, priority, type and project (lines 251-288); the move-selection flow begins at lines 301-365.</li>
+</ul>
+<p><strong>Contrast with Switchflow:</strong> the current custom shell has a top header and a horizontal workspace navigation (<a href="../../template/.switchflow/scripts/control/public/index.html"><code>index.html:18-26</code></a>); its views are mounted from the <code>board</code>, <code>tasks</code>, <code>milestones</code>, <code>documents</code>, <code>decisions</code>, <code>drafts</code>, <code>statistics</code>, <code>skills</code>, and <code>settings</code> set (<a href="../../template/.switchflow/scripts/control/public/app.js"><code>app.js:55</code></a>). This spends vertical space on global controls and makes destination scanning depend on horizontal labels. Backlog.md&#39;s sidebar is a more stable place for cross-cutting navigation and its collapsed mode keeps an icon rail available.</p>
+<p><strong>Improvement implication:</strong> move the project-wide destinations from the top bar into a persistent, collapsible left rail. Keep the top bar for project/context, connection state, global search, theme and the one primary creation action. This makes the active location continuously visible and releases vertical space for initiative/task content.</p>
+<h3 id="2-decide-what-is-next">2. Decide what is next</h3>
+<p>Backlog.md&#39;s current task contract exposes a derived <code>isReady</code> verdict based on all declared dependencies: it is true only when an unfinished task has no unresolved dependencies. v1.51.0 says the web badge, CLI and TUI share that same computation. Its milestone swimlanes make the task&#39;s initiative-sized grouping visible on the board, while a task-detail dependency graph shows what blocks it and what it unblocks.</p>
+<ul>
+<li>Primary evidence: <a href="https://github.com/MrLesk/Backlog.md/releases/tag/v1.51.0">v1.51.0 release</a> lists the shared readiness badge, milestone swimlanes and dependency graph.</li>
+<li>Contract evidence: <a href="https://github.com/MrLesk/Backlog.md/blob/main/CLI-INSTRUCTIONS.md#stable-json-output">CLI instructions, lines 307-312</a> define <code>isReady</code>, the fail-closed readiness criteria and <code>dependencyGraph</code>/blocking fields. The <a href="https://github.com/MrLesk/Backlog.md/blob/main/README.md#features">README</a> describes milestones and dependencies as making execution order reviewable.</li>
+</ul>
+<p><strong>Contrast with Switchflow:</strong> Switchflow already has the domain data for a stronger answer. It records the next human decision per initiative (<code>intake</code> -&gt; review scope, <code>planning</code> -&gt; review plan, <code>delivery</code> -&gt; follow delivery, <code>uat</code> -&gt; run the walkthrough) in <a href="../../template/.switchflow/scripts/control/public/app.js"><code>app.js:142-144</code></a>. It also says exact Backlog task IDs are returned in approved plans and shown in the initiative&#39;s delivery-task section (<a href="../../docs/browser-control.md"><code>docs/browser-control.md:56-58</code></a>). But the board summary is distributed across cards: it reports the number needing attention and says the next decision is shown on each card (<a href="../../template/.switchflow/scripts/control/public/app.js"><code>app.js:221-225</code></a>). It does not establish one ranked <strong>Next for you</strong> item or one derived <strong>Next agent task</strong> item.</p>
+<p><strong>Improvement implication:</strong> create a compact, persistent &quot;Next&quot; panel above the board or in the new rail. It should show one highest-priority owner action (with its initiative, gate and reason), then a separate agent-work line only when delivery is authorized. The visible derivation must be deterministic: attention/recovery first, then Intake/Planning/UAT due for owner action, then the earliest <code>Ready</code> task in accepted phase order. Never infer authorisation from readiness; label it &quot;Ready after approval&quot; until the initiative grant exists.</p>
+<h3 id="3-read-and-edit-a-task-without-losing-context">3. Read and edit a task without losing context</h3>
+<p>Current Backlog.md&#39;s <code>TaskDetailsModal</code> uses a wide <code>max-w-5xl</code> modal, a 2:1 desktop main-content/metadata grid, and Markdown editors that are 320 px for Description and 280 px for Plan and Notes. It keeps parent/subtask navigation above the detail. The user can preview, press <code>E</code> to edit, use Ctrl/Cmd+S to save, and is asked before discarding dirty edits.</p>
+<ul>
+<li>Source evidence: <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx"><code>TaskDetailsModal.tsx:1062-1235</code></a> sets <code>max-w-5xl</code>, hierarchy navigation and the responsive grid, and gives Description a 320 px editor. <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx">Lines 1537-1571</a> give Plan and Notes 280 px editors; <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx">lines 467-496</a> define keyboard and dirty-close behaviour.</li>
+</ul>
+<p><strong>Contrast with Switchflow:</strong> the current custom task editor gives each textarea <code>rows=&quot;4&quot;</code> (<a href="../../template/.switchflow/scripts/control/public/tasks-editor.js"><code>tasks-editor.js:10-13</code></a>) and only sets <code>min-height:100px</code> in CSS (<a href="../../template/.switchflow/scripts/control/public/tasks.css"><code>tasks.css:1</code></a>). The dialog has a nominal 820 px width and a sticky footer, but Description, block reason, plan, notes, final summary and the new comment field all share this small text treatment. The content sections are collapsible, which reduces initial density but forces repeated opening/closing when reviewing a full task.</p>
+<p><strong>Improvement implication:</strong> replace the all-fields form with read-first task detail and an explicit Edit mode. On desktop, reserve roughly two-thirds for the narrative and one-third for status/owner/milestone/dependencies. Make Description 320 px minimum, Plan/Notes 240-280 px, and allow resizing or a full-screen detail route. Keep metadata always visible; progressively disclose only seldom-used technical fields. Maintain the existing sticky save/footer and retained local draft behaviour.</p>
+<h3 id="4-inspect-discussion-and-long-history">4. Inspect discussion and long history</h3>
+<p>Backlog.md shows comments chronologically in the task modal and provides an inline comment composer. This is coherent for a small local backlog, but it maps every comment into the modal: current source has no comment page/window mechanism. It only bounds certain dense sub-elements: modified files use <code>max-h-64 overflow-y-auto</code>.</p>
+<ul>
+<li>Source evidence: <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx"><code>TaskDetailsModal.tsx:1574-1620</code></a> renders each comment and then the composer. <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx">Lines 1367-1369</a> are a precise example of bounded nested scrolling for modified files.</li>
+<li>List-pagination evidence: <a href="https://github.com/MrLesk/Backlog.md/blob/main/CLI-INSTRUCTIONS.md#paging-long-lists">CLI instructions, lines 273-282</a> provide <code>--max-count</code>/<code>--skip</code> windows and a <code>Next</code> command for long CLI lists. That is not evidence that browser comments are paginated.</li>
+</ul>
+<p><strong>Contrast with Switchflow:</strong> comments are mapped in full into the task editor (<a href="../../template/.switchflow/scripts/control/public/tasks-editor.js"><code>tasks-editor.js:13</code></a>); its insights screen likewise loops over every completed task to build its history table (<a href="../../template/.switchflow/scripts/control/public/insights.js"><code>insights.js:190-210</code></a>). The task board fetches the full task list and filters it client-side (<a href="../../template/.switchflow/scripts/control/public/tasks.js"><code>tasks.js:37-42</code></a>); it has no paging control. The initiative dialog deliberately preserves its outer scroll position on rerender (<a href="../../template/.switchflow/scripts/control/public/app.js"><code>app.js:358-426</code></a>), but that is preservation, not information hierarchy.</p>
+<p><strong>Improvement implication:</strong> do not copy Backlog.md&#39;s full-history modal. Use a preview plus explicit expansion:</p>
+<ol>
+<li>Show the latest 3-5 comments/events, newest first, with author, time and a one-line semantic summary.</li>
+<li>Give the event/feed region its own <code>max-height</code> and scroll only after the preview threshold.</li>
+<li>Add &quot;Show 20 older&quot; / &quot;Show all&quot; cursor pagination, preserving the current task and focus. Use server-side cursors for comments, activity and completed-history tables rather than downloading full histories.</li>
+<li>Keep workflow-critical state (current gate, blocker, next decision) above the scroll boundary, so it is never buried below chronology.</li>
+</ol>
+<h3 id="5-search-filter-and-switch-views">5. Search, filter and switch views</h3>
+<p>Backlog.md uses a global/sidebar search path plus board-level filters. Its release explicitly says it retains open modal, filter and scroll state after data updates; its board source applies the filters together before rendering. The milestone page has an inline search with clear action and a visible no-match recovery message.</p>
+<ul>
+<li>Source evidence: <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/Board.tsx"><code>Board.tsx:251-288</code></a> and <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/MilestonesPage.tsx"><code>MilestonesPage.tsx:722-795</code></a>.</li>
+<li>Search scope: <a href="https://github.com/MrLesk/Backlog.md/blob/main/README.md#working-without-ai-agents">README, lines 299-315</a> documents fuzzy search across tasks, docs and decisions and the ability to work manually or through agents over the same records.</li>
+</ul>
+<p><strong>Contrast with Switchflow:</strong> task search is only ID/title/description text plus visible Status, Owner, Label, Priority, Type and Milestone selects (<a href="../../template/.switchflow/scripts/control/public/tasks.js"><code>tasks.js:8-29</code></a>). The workspace Ctrl+K search does include initiatives and sends a query to the native search endpoint (<a href="../../template/.switchflow/scripts/control/public/workspace-search.js"><code>workspace-search.js:1-32</code></a>), but the primary navigation makes it less discoverable than a persistent sidebar input.</p>
+<p><strong>Improvement implication:</strong> make one clear global search control in the rail and retain context-scoped filters in each view. Reflect active filters as removable chips and show a result count. Persist filters, selected project and scroll position per browser tab; reset only when the user deliberately clears them. Search results should distinguish &quot;initiative awaiting you&quot;, &quot;ready delivery task&quot;, &quot;blocked task&quot;, document and decision, instead of leaving the user to infer urgency from type alone.</p>
+<h2 id="recommended-improvement-sequence">Recommended improvement sequence</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Change</th>
+<th>Why it comes first</th>
+<th>Human-verifiable success condition</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P0</td>
+<td>Persistent collapsible sidebar; simplify top bar</td>
+<td>It fixes orientation and creates a stable place for next action/search without changing workflow policy.</td>
+<td>A user can identify current view, project, next action and open global search without scrolling.</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>Deterministic Next panel with owner/agent separation</td>
+<td>It directly resolves &quot;what should I do now?&quot; and protects the Intake/Planning/UAT authority model.</td>
+<td>Given mixed blocked, pending-UAT and ready tasks, the displayed next owner action is explainable from visible rules and never dispatches unauthorized work.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Read-first task detail, wide adaptive editor, metadata column</td>
+<td>It addresses the current small four-row fields and reduces edit fatigue.</td>
+<td>A 1,500-word description and plan are readable/editable without repeated scrolling or collapsing sections; narrow screens stack cleanly.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Bounded activity/comments/history with cursor pagination</td>
+<td>It prevents a long historical record from hiding current work.</td>
+<td>A task with 200 comments initially shows a compact recent slice; loading older entries retains focus, selected task and unsaved edits.</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Unified global search plus retained scoped filters</td>
+<td>It turns navigation and discovery into repeatable workflows rather than page-hunting.</td>
+<td>Search filters persist across a refresh and the user can clear one filter or all filters deliberately.</td>
+</tr>
+</tbody></table></div>
+<h2 id="what-this-comparator-should-not-decide">What this comparator should <em>not</em> decide</h2>
+<p>Backlog.md&#39;s current source can validate patterns and its documented workflow, but it cannot demonstrate that those patterns solve Switchflow&#39;s human gates. Its browser has no equivalent of Switchflow&#39;s approval/recovery/run-admission model. The recommendation therefore keeps Switchflow&#39;s explicit owner controls and changes the presentation around them. Before implementation, the proposed sidebar, Next-panel ranking and long-history behaviour need a rendered Switchflow prototype and an owner walkthrough with real initiatives, task descriptions and histories.</p>
+</article><p class="footer">Generated from the accompanying Markdown. No external scripts, fonts or styles are required.</p></main></body></html>

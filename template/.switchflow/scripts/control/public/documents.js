@@ -52,6 +52,75 @@ export function resolveDocumentLink(href, currentId, documents, currentView) {
   const matches = documents.filter(doc => doc.id === id && (!currentView || !doc.view || doc.view === currentView));
   return matches.length === 1 ? destination(matches[0]) : null;
 }
+// Reader integration is opt-in: the established document reader keeps its own lifecycle.
+export function resolveProseLink(href, sourcePath, records) {
+  const resolved = resolveDocumentLink(href, sourcePath || '', records);
+  if (resolved) return resolved;
+  if (typeof href !== 'string' || href !== href.trim() || /[\u0000-\u001f\\]/.test(href)) return null;
+  let decoded; try { decoded = decodeURIComponent(href); } catch { return null; }
+  const [path, anchor = ''] = decoded.split('#');
+  if (!path || /[?:\\\u0000-\u001f]/.test(path) || path.startsWith('/') || path.split('/').includes('..')) return null;
+  const rootPath = path.replace(/^\.\//, '').replace(/^(?:backlog\/)?docs\//, '');
+  const matches = records.filter(record => record.id.replace(/^(?:backlog\/)?docs\//, '') === rootPath);
+  return matches.length === 1 ? {...matches[0],anchor} : null;
+}
+export function bindProseInteractions(root, {api, onOpenRecord = async () => {}, sourcePath = '', report = () => {}, isCurrent = () => true, beforeNavigate = () => {}} = {}) {
+  let active = true, records = [], indexError = false;
+  const current = () => active && isCurrent();
+  const links = [...root.querySelectorAll('[data-doc-link]')];
+  const unavailable = link => {
+    link.removeAttribute('href'); link.setAttribute('aria-disabled','true'); link.setAttribute('tabindex','0'); link.setAttribute('role','link');
+    link.title = indexError ? 'Project documents could not be loaded. Reopen this reader to retry.' : 'No unique supported project document matches this link. Check its path in Documents.';
+  };
+  function hydrate() {
+    if (!current()) return;
+    for (const link of links) {
+      if (!link.hasAttribute('data-doc-link')) continue;
+      const target = resolveProseLink(link.dataset.docLink,sourcePath,records);
+      if (target?.external) { link.href = target.external; link.target = '_blank'; link.rel = 'noopener noreferrer'; delete link.dataset.docLink; }
+      else if (target) { link.href = '#'; link.removeAttribute('aria-disabled'); link.removeAttribute('title'); }
+      else unavailable(link);
+    }
+  }
+  hydrate();
+  const internal = links.some(link => link.dataset.docLink && !link.dataset.docLink.startsWith('#'));
+  const ready = internal && api ? Promise.allSettled(['/docs','/decisions'].map(endpoint => Promise.resolve().then(() => api(endpoint)))).then(results => {
+    if (!current()) return;
+    records = results.flatMap((result,index) => {
+      if (result.status !== 'fulfilled' || !Array.isArray(result.value)) { indexError = true; return []; }
+      const view = index ? 'decisions' : 'documents';
+      return result.value.map(record => ({id:record.path || record.id,record:record.id,view,...(index ? {decisionId:record.id} : {documentId:record.id})}));
+    });
+    hydrate();
+  }) : Promise.resolve();
+  function anchor(value, trigger) {
+    let id; try { id = decodeURIComponent(value); } catch { id = value; }
+    const scope = trigger.closest('.docs-prose') || root;
+    const heading = [...scope.querySelectorAll('[id]')].find(node => node.id === `doc-heading-${id}`);
+    if (!heading) { report('That heading is not present in this section.',true); return; }
+    heading.scrollIntoView({block:'start'}); heading.focus({preventScroll:true});
+  }
+  const click = async event => {
+    const target = event.target.closest('[data-doc-link],[data-doc-anchor],[data-copy-code]');
+    if (!target || !root.contains(target) || !current()) return;
+    event.preventDefault();
+    if (target.hasAttribute('data-copy-code')) {
+      try { await navigator.clipboard.writeText(target.closest('.docs-code').querySelector('code').textContent); if (current()) report('Code copied.'); }
+      catch { if (current()) report('Copy unavailable. Select the code and copy it manually.',true); }
+      return;
+    }
+    if (target.hasAttribute('data-doc-anchor')) { anchor(target.dataset.docAnchor,target); return; }
+    if (target.dataset.docLink.startsWith('#')) { anchor(target.dataset.docLink.slice(1),target); return; }
+    await ready; if (!current()) return;
+    const destination = resolveProseLink(target.dataset.docLink,sourcePath,records);
+    if (!destination?.view || !destination.record) { report(target.title || 'This evidence link cannot be opened. Check its path in Documents.',true); return; }
+    try { await beforeNavigate(destination); await onOpenRecord(destination); }
+    catch (error) { if (current()) report(`Unable to open linked evidence: ${error.message}`,true); }
+  };
+  const keydown = event => { if (event.key === 'Enter' && event.target.hasAttribute('data-doc-link') && !event.target.hasAttribute('href')) void click(event); };
+  root.addEventListener('click',click); root.addEventListener('keydown',keydown);
+  return () => { active = false; root.removeEventListener('click',click); root.removeEventListener('keydown',keydown); };
+}
 function inline(text, depth = 0) {
   if (depth > 5) return escape(text);
   const pattern = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\(([^)]*)\)|\[([^\]]+)\]\((<[^>]+>|[^)]*)\)|<(https?:\/\/[^>]+)>|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|~~([^~]+)~~/g;

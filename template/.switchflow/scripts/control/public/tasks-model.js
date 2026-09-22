@@ -33,3 +33,27 @@ export function taskPayload(values, original = {}) {
   if (values.comment?.trim()) { result.commentsAppend = [values.comment.trim()]; result.commentAuthor = values.commentAuthor || ''; }
   return result;
 }
+
+// All tasks in the destination participate, including records hidden by filters.
+// A no-op produces no request, avoiding unintended ordinal churn.
+export function moveTaskOrder(tasks, taskId, targetStatus, referenceId, position = 'bottom') {
+  const task = tasks.find(x => x.id === taskId);
+  if (!task || taskId === referenceId) return null;
+  const current = tasks.filter(x => x.status === targetStatus).sort((a,b) => (a.ordinal || 0)-(b.ordinal || 0)).map(x => x.id);
+  const orderedTaskIds = current.filter(id => id !== taskId);
+  const at = orderedTaskIds.indexOf(referenceId);
+  const index = position === 'top' ? 0 : position === 'bottom' || at < 0 ? orderedTaskIds.length : at + (position === 'after' ? 1 : 0);
+  orderedTaskIds.splice(index,0,taskId);
+  if (task.status === targetStatus && JSON.stringify(current) === JSON.stringify(orderedTaskIds)) return null;
+  return {taskId,targetStatus,orderedTaskIds};
+}
+
+export function taskBlockerText(task, tasks = []) {
+  const reason = String(task.blockReason || '').trim();
+  if (reason.toLowerCase() !== 'dependent') return reason || (task.status === 'Blocked' ? 'Blocked, but no reason is recorded.' : '');
+  const prerequisites = (task.dependencies || []).map(id => {
+    const item = tasks.find(candidate => candidate.id === id);
+    return item ? `${item.title || id} (${item.status || 'status unavailable'})` : `${id} (status unavailable)`;
+  });
+  return prerequisites.length ? `Waiting for ${prerequisites.join('; ')}.` : 'Waiting for a prerequisite; no prerequisite is recorded.';
+}

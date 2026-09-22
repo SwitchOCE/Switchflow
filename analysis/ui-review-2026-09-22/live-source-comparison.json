@@ -1,0 +1,107 @@
+[
+  {
+    "file": "app.js",
+    "normalizedMatch": true,
+    "sha256": "83D4086CDFFE7A572250D8A97D58F0AA342EC2C1F8C763F35A2AF7C2C617CBC9"
+  },
+  {
+    "file": "documents.css",
+    "normalizedMatch": true,
+    "sha256": "53CC876978ACCB04297F7B2F8200E1BDE90C7248788D14128A50B2B73F0B16FB"
+  },
+  {
+    "file": "documents.js",
+    "normalizedMatch": true,
+    "sha256": "833648911598AA696944EEB445AFB607DCC21AB357185BB022CF4590FD302DC1"
+  },
+  {
+    "file": "index.html",
+    "normalizedMatch": true,
+    "sha256": "CE6D0F4FFF45B6E300B7E4A1F372D8BC32A65622D7105ECAE10FA2E4329488C7"
+  },
+  {
+    "file": "initiative-tasks.js",
+    "normalizedMatch": true,
+    "sha256": "604DC034B2B53714CBA7D7EFFFBA0EFB3407D7DBF3D94A9532843537E0FEF599"
+  },
+  {
+    "file": "insights.css",
+    "normalizedMatch": true,
+    "sha256": "B5DC5AA65E8B4EF83673CAC696B37E3E7039BC86634FB310D3FFE7DC075C5CB9"
+  },
+  {
+    "file": "insights.js",
+    "normalizedMatch": true,
+    "sha256": "0D9E20BDD07FFE4EE873AF7D936ACA3DFA2FB7DA06827F7153EC4B6B44675E85"
+  },
+  {
+    "file": "knowledge-model.js",
+    "normalizedMatch": true,
+    "sha256": "5F523783312566874A0C81B38010E52FD6F7707C2BDC796D0D971FE6A8470448"
+  },
+  {
+    "file": "knowledge.css",
+    "normalizedMatch": true,
+    "sha256": "6B11812CFF2B4795E317A7A29C7947A70B9CFEEE7020C86C5DE233978B3D84E6"
+  },
+  {
+    "file": "knowledge.js",
+    "normalizedMatch": true,
+    "sha256": "884E72A4A0EA1CAF01335AB4D9E457D0C8AB49B571D8486C105CD6EFB46BA5F9"
+  },
+  {
+    "file": "milestones.css",
+    "normalizedMatch": true,
+    "sha256": "0F2C0FEA69F9B0BC142FE6ABBF107BF3486A5AFFD48CF476AB44A5E0FA4F826D"
+  },
+  {
+    "file": "milestones.js",
+    "normalizedMatch": true,
+    "sha256": "2873DB687DEDF864BD761D11631645C074F029B4043F6240D6972506536298F4"
+  },
+  {
+    "file": "skills.css",
+    "normalizedMatch": true,
+    "sha256": "E25B05BC0E6C03F0705554EDB2E450700F1C0070BD565E9E3CB7A6CA78DA5C8A"
+  },
+  {
+    "file": "skills.js",
+    "normalizedMatch": true,
+    "sha256": "43ED263A909556123AFFA386681131CA808DE411A664A099B7DFC9956F67DA7D"
+  },
+  {
+    "file": "styles.css",
+    "normalizedMatch": true,
+    "sha256": "06EE5F7F11051102C7718A005A7C54819CD8AA7B73EC5205B6EB6EB65DA272DF"
+  },
+  {
+    "file": "tasks-editor.js",
+    "normalizedMatch": true,
+    "sha256": "054E518FE449A80B327AD52DA9CECDC58F5B62059B47A71EF3B30D67E0B24ABA"
+  },
+  {
+    "file": "tasks-model.js",
+    "normalizedMatch": true,
+    "sha256": "EE2BA866639CCED92D5F58A0428AE4C6604FD92690836670468B81432C9C9FD7"
+  },
+  {
+    "file": "tasks.css",
+    "normalizedMatch": true,
+    "sha256": "104FF7CD8BBD421F0B68C239564F06FE85D562A7B77C4FC6942F906A546EFF4A"
+  },
+  {
+    "file": "tasks.js",
+    "normalizedMatch": true,
+    "sha256": "2B38C4375B9F682E4D813B91D63A78E2E65839EC1207CDF06A92DB774036BA44"
+  },
+  {
+    "file": "workspace-client.js",
+    "normalizedMatch": true,
+    "sha256": "77B53D05C8AF2C1804547F1D155B1DB2214A8AED517B4C4F5F1AE949020097FA"
+  },
+  {
+    "file": "workspace-search.js",
+    "normalizedMatch": true,
+    "sha256": "7FAD4F5B371D902AA40AB6946D7194120E888CA629CD8B5E7E26FC702B5F3ECB"
+  }
+]

@@ -1,5 +1,5 @@
 import {renderDocument, renderMarkdown, resolveDocumentLink, documentImageUrl} from './documents.js';
-import {escapeHtml as esc, draftFrom, folderOf, knowledgePayload, recordFingerprint} from './knowledge-model.js';
+import {escapeHtml as esc, draftFrom, folderOf, knowledgePayload, recordFingerprint, knowledgeFieldComparison} from './knowledge-model.js';
 
 // The native endpoints do not offer compare-and-swap. A pre-save comparison catches
 // observed changes; the UI explicitly describes the remaining concurrent-write window.
@@ -7,18 +7,22 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
   const endpoint = kind === 'decisions' ? '/decisions' : '/docs';
   const noun = kind === 'decisions' ? 'decision' : 'document';
   const key = `switchflow:knowledge:${projectId}:${kind}`;
+  let discarded = null;
   let records = [], linkedRecords = [], current = null, draft = null, baseline = null, destroyed = false, generation = 0, listGeneration = 0, busy = false;
   let stored = null;
   try { stored = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* Storage can be unavailable. */ }
   if (stored && (!stored.draft || typeof stored.draft.title !== 'string' || typeof stored.draft.content !== 'string')) stored = null;
   container.classList.add('docs-reader', 'knowledge-reader');
-  container.innerHTML = `<div class="docs-toolbar"><label>Search ${kind}<input type="search" placeholder="Search titles, tags and content" aria-label="Search ${kind}"></label><button type="button" data-action="refresh">Refresh</button><button type="button" data-action="new">New ${noun}</button></div><p class="docs-status" role="status" aria-live="polite"></p><div class="knowledge-resume"></div><div class="docs-layout"><nav class="docs-nav" aria-label="${kind} folders"></nav><div class="docs-content"><p>Select a ${noun}, or create one.</p></div><nav class="docs-toc" aria-label="On this page"></nav></div>`;
+  container.innerHTML = `<div class="docs-toolbar"><label>Search ${kind}<input type="search" placeholder="Search titles, tags and content" aria-label="Search ${kind}"></label><button type="button" data-action="refresh">Refresh</button><button type="button" data-action="new">New ${noun}</button></div><p class="docs-status" role="status" aria-live="polite"></p><div class="knowledge-resume"></div><div class="docs-layout"><details class="knowledge-browse"><summary>Browse ${kind}</summary><nav class="docs-nav" aria-label="${kind} folders"></nav></details><div class="docs-content"><p>Select a ${noun}, or create one.</p></div><details class="knowledge-contents"><summary>Contents</summary><nav class="docs-toc" aria-label="On this page"></nav></details></div>`;
   const find = s => container.querySelector(s), content = find('.docs-content'), nav = find('.docs-nav'), toc = find('.docs-toc'), status = find('.docs-status'), search = find('input[type=search]');
+  const narrow = window.matchMedia('(max-width:650px)');
+  function disclosureLayout() { for (const panel of container.querySelectorAll('.knowledge-browse,.knowledge-contents')) panel.open = !narrow.matches; }
+  disclosureLayout(); narrow.addEventListener('change',disclosureLayout);
   function report(text, error = false) { if (destroyed) return; status.textContent = text; status.setAttribute('role', error ? 'alert' : 'status'); }
   function permission() { return typeof canWrite === 'function' ? canWrite() : !!canWrite; }
   function controls() { for (const b of container.querySelectorAll('[data-action="save"],[data-action="edit"],[data-action="new"]')) { b.disabled = busy || !permission(); b.title = !permission() ? 'Editing is paused while an agent is active.' : ''; } }
   function persist() { stored = draft ? {draft, baseline} : null; try { if (stored) sessionStorage.setItem(key, JSON.stringify(stored)); else sessionStorage.removeItem(key); } catch { report('Draft remains open, but this browser could not store it for recovery.', true); } }
-  function resumeNotice() { find('.knowledge-resume').innerHTML = stored && !draft ? '<p>A saved draft is available in this project. <button type="button" data-action="resume">Resume draft</button> <button type="button" data-action="discard-stored">Discard saved draft</button></p>' : ''; }
+  function resumeNotice() { find('.knowledge-resume').innerHTML = (stored && !draft ? '<p>Unsaved edits in this tab are available for this project. <button type="button" data-action="resume">Resume unsaved edits</button> <button type="button" data-action="discard-stored">Discard unsaved edits</button></p>' : '') + (discarded ? '<p>Discarded edits can be recovered until you leave this view. <button type="button" data-action="undo-discard">Undo discard</button></p>' : ''); }
   function list() {
     const terms = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
     const visible = records.filter(r => terms.every(t => [r.title,r.rawContent,r.context,r.decision,r.consequences,...(r.tags || [])].join(' ').toLowerCase().includes(t)));
@@ -27,7 +31,7 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
     for (const record of visible) { let folder = root; for (const part of folderOf(record).split('/').filter(Boolean)) { if (!folder.folders.has(part)) folder.folders.set(part,{folders:new Map(),records:[]}); folder = folder.folders.get(part); } folder.records.push(record); }
     const rows = records => `<ul>${records.map(r => `<li><button type="button" data-record="${esc(r.id)}"${r.id === current?.id ? ' aria-current="page"' : ''}>${esc(r.title)}<small>${esc(r.id)}${r.status ? ` · ${esc(r.status)}` : ''}</small></button></li>`).join('')}</ul>`;
     const tree = (folder,parent = '') => rows(folder.records) + [...folder.folders].sort(([a],[b]) => a.localeCompare(b)).map(([name,child]) => { const path = `${parent}/${name}`; return `<details data-folder="${esc(path)}"${closed.has(path) && !terms.length ? '' : ' open'}><summary>${esc(name)}</summary>${tree(child,path)}</details>`; }).join('');
-    nav.innerHTML = visible.length ? tree(root) : `<p>${terms.length ? 'No matches.' : `No ${kind} yet.`}</p>`;
+    nav.innerHTML = visible.length ? tree(root) : `<p>${terms.length ? 'No matches. Clear the search to show all records.' : `No ${kind} yet.`}</p>`;
   }
   function anchor(id) { try { id = decodeURIComponent(id); } catch {} const heading = [...content.querySelectorAll('[id]')].find(el => el.id === `doc-heading-${id}`); heading?.scrollIntoView({block:'start'}); heading?.focus(); }
   function linkRecords() {
@@ -56,13 +60,13 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
     controls();
   }
   async function open(id, fragment = '') {
-    if (draft || busy) { report('Save or cancel the open draft before switching records.', true); return; }
+    if (draft || busy) { report('Save or close the unsaved edits before switching records.', true); return false; }
     const ticket = ++generation; report(`Loading ${noun}…`);
-    try { const result = await api(`${endpoint}/${encodeURIComponent(id)}`); if (destroyed || ticket !== generation) return; current = result; reader(); list(); onNavigate({view:kind,record:result.id}); report(''); if (fragment) anchor(fragment); }
-    catch (error) { if (!destroyed && ticket === generation) report(error.message, true); }
+    try { const result = await api(`${endpoint}/${encodeURIComponent(id)}`); if (destroyed || ticket !== generation) return false; current = result; reader(); list(); find('.knowledge-browse').open = !narrow.matches; onNavigate({view:kind,record:result.id}); report(''); if (fragment) anchor(fragment); return true; }
+    catch (error) { if (!destroyed && ticket === generation) report(error.message, true); return false; }
   }
   async function refresh() {
-    controls(); const ticket = ++listGeneration;
+    controls(); const ticket = ++listGeneration; if (!records.length) report(`Loading ${kind}…`);
     try {
       const result = await api(endpoint); if (destroyed || ticket !== listGeneration) return;
       // Docs list metadata excludes body; fetch bounded batches for genuine full-text search.
@@ -73,13 +77,14 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
       catch { unreadable++; }
       if (destroyed || ticket !== listGeneration) return;
       const changed = JSON.stringify(records) !== JSON.stringify(full); records = full; linkedRecords = cross; if (changed) list(); hydrateLinks(); controls();
+      if (!unreadable && !draft) report('');
       if (unreadable) report(`${unreadable} records could not be read. Content search is incomplete; opening a record shows its error.`, true);
     } catch (error) { if (!destroyed && ticket === listGeneration) report(error.message, true); }
   }
   function preview() { const panel = find('.knowledge-preview'); if (panel) panel.innerHTML = renderMarkdown(draft.content).html; }
   function editor() {
     generation++; toc.innerHTML = ''; resumeNotice();
-    content.innerHTML = `<form class="knowledge-editor"><h2>${draft.id ? 'Edit' : 'New'} ${noun}</h2><label>Title<input name="title" required maxlength="300" value="${esc(draft.title)}"></label>${kind === 'documents' ? `<div class="knowledge-fields"><label>Type<select name="type">${['readme','guide','specification','other'].map(t => `<option${draft.type === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label><label>Folder<input name="folder" placeholder="e.g. Guides" value="${esc(draft.folder)}"></label></div><label>Tags (comma separated)<input name="tags" value="${esc(draft.tags)}"></label>` : '<p>Keep Context, Decision and Consequences sections. Alternatives is optional. Existing status and date are preserved.</p>'}<div class="knowledge-format" role="group" aria-label="Markdown formatting">${[['heading','Heading'],['bold','Bold'],['italic','Italic'],['list','List'],['link','Link'],['code','Code']].map(([action,title]) => `<button type="button" data-format="${action}">${title}</button>`).join('')}</div><label>Markdown<textarea name="content" rows="18" spellcheck="true">${esc(draft.content)}</textarea></label><details><summary>Preview</summary><article class="knowledge-preview docs-prose"></article></details><p class="knowledge-note">Your draft is checked against the latest saved version. Avoid simultaneous edits to this document.</p><div class="knowledge-conflict"></div><div class="knowledge-actions"><button type="submit" data-action="save">Save ${noun}</button><button type="button" data-action="cancel">Cancel · keep draft</button><button type="button" data-action="discard">Discard draft</button><button type="button" data-action="compare"${draft.id ? '' : ' disabled'}>Compare with latest</button></div></form>`;
+    content.innerHTML = `<form class="knowledge-editor"><h2>${draft.id ? 'Edit' : 'New'} ${noun}</h2><label>Title<input name="title" required maxlength="300" value="${esc(draft.title)}"></label>${kind === 'documents' ? `<div class="knowledge-fields"><label>Type<select name="type">${['readme','guide','specification','other'].map(t => `<option${draft.type === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label><label>Folder<input name="folder" placeholder="e.g. Guides" value="${esc(draft.folder)}"></label></div><label>Tags (comma separated)<input name="tags" value="${esc(draft.tags)}"></label>` : '<p>Keep Context, Decision and Consequences sections. Alternatives is optional. Existing status and date are preserved.</p>'}<div class="knowledge-format" role="group" aria-label="Markdown formatting">${[['heading','Heading'],['bold','Bold'],['italic','Italic'],['list','List'],['link','Link'],['code','Code']].map(([action,title]) => `<button type="button" data-format="${action}">${title}</button>`).join('')}</div><label>Markdown<textarea name="content" rows="18" spellcheck="true">${esc(draft.content)}</textarea></label><details><summary>Preview</summary><article class="knowledge-preview docs-prose"></article></details><p class="knowledge-note">Unsaved edits in this tab. Save checks for changes to the saved record, but cannot prevent simultaneous writes.</p><div class="knowledge-conflict"></div><div class="knowledge-actions knowledge-savebar"><span class="knowledge-save-state">Unsaved edits</span><button type="submit" data-action="save">Save ${noun}</button><button type="button" data-action="cancel">Cancel · keep draft</button><button type="button" data-action="discard">Discard edits</button><button type="button" data-action="compare"${draft.id ? '' : ' disabled'}>Compare with latest</button></div></form>`;
     preview(); controls(); find('[name=title]').focus();
   }
   function collect() { for (const field of content.querySelectorAll('[name]')) draft[field.name] = field.value; persist(); }
@@ -89,7 +94,7 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
     const latest = await api(`${endpoint}/${encodeURIComponent(draft.id)}`);
     if (destroyed || draft !== comparingDraft) return false;
     if (recordFingerprint(latest) === baseline) return true;
-    find('.knowledge-conflict').innerHTML = `<div role="alert"><p>The saved record changed. Your draft is intact. Review the latest content and metadata below; cancel keeps your draft, or discard it to load the current record.</p><details open><summary>Latest saved version</summary><pre>${esc(JSON.stringify({title:latest.title,type:latest.type,tags:latest.tags,path:latest.path,status:latest.status},null,2))}</pre><pre>${esc(latest.rawContent)}</pre></details></div>`;
+    find('.knowledge-conflict').innerHTML = `<div role="alert"><p>The saved record changed. Your unsaved edits are intact. Compare each differing field below. Close keeps your edits; discard loads the saved record and offers Undo.</p>${knowledgeFieldComparison(draft,latest,kind).map(row => `<section class="knowledge-field-comparison"><h3>${esc(row.label)}</h3><div><h4>Your unsaved version</h4><pre>${esc(row.mine || '(empty)')}</pre></div><div><h4>Latest saved version</h4><pre>${esc(row.saved || '(empty)')}</pre></div></section>`).join('') || '<p>Record metadata changed. Reload before editing again.</p>'}</div>`;
     return false;
   }
   async function save() {
@@ -131,14 +136,15 @@ export function mountKnowledge(container, {api, projectId, canWrite = () => true
       case 'refresh': await refresh(); if (current && !draft) await open(current.id); break;
       case 'new': case 'edit': if (!permission() || draft) { report('Finish the open draft before starting another.',true); break; } if (stored) { report('Resume or discard the saved draft before starting another.',true); break; } draft = draftFrom(target.dataset.action === 'edit' ? current : null,kind); baseline = target.dataset.action === 'edit' ? recordFingerprint(current) : null; persist(); editor(); break;
       case 'resume': draft = stored?.draft; baseline = stored?.baseline; if (draft) editor(); break;
-      case 'cancel': collect(); draft = null; reader(); resumeNotice(); report('Draft kept in this browser tab.'); break;
-      case 'discard': { const id = draft?.id; draft = null; baseline = null; persist(); resumeNotice(); if (id) await open(id); else reader(); report('Draft discarded.'); break; }
-      case 'discard-stored': stored = null; persist(); resumeNotice(); report('Saved draft discarded.'); break;
+      case 'cancel': collect(); draft = null; reader(); resumeNotice(); report('Unsaved edits kept in this browser tab. Resume them above.'); break;
+      case 'discard': { collect(); discarded = {draft:{...draft},baseline}; const id = draft?.id; draft = null; baseline = null; persist(); resumeNotice(); if (id) await open(id); else reader(); report('Edits discarded. Undo discard is available above.'); break; }
+      case 'discard-stored': discarded = stored; stored = null; persist(); resumeNotice(); report('Edits discarded. Undo discard is available above.'); break;
+      case 'undo-discard': if (draft || stored) { report('Close or discard the current unsaved edits before restoring discarded edits.',true); break; } draft = discarded?.draft; baseline = discarded?.baseline; discarded = null; if (draft) { persist(); editor(); report('Discarded edits restored.'); } break;
       case 'compare': collect(); try { if (await compare()) report('No saved changes found. Your draft is retained.'); } catch (error) { report(error.message,true); } break;
     }
   };
   const input = event => { if (event.target === search) list(); else if (draft && event.target.name) { collect(); preview(); } };
   const submit = event => { if (event.target.matches('.knowledge-editor')) { event.preventDefault(); void save(); } };
   container.addEventListener('click',click); container.addEventListener('input',input); container.addEventListener('submit',submit); resumeNotice(); controls(); void refresh();
-  return {refresh,open,destroy() { destroyed = true; generation++; listGeneration++; container.removeEventListener('click',click); container.removeEventListener('input',input); container.removeEventListener('submit',submit); container.replaceChildren(); }};
+  return {refresh,open,destroy() { destroyed = true; narrow.removeEventListener('change',disclosureLayout); generation++; listGeneration++; container.removeEventListener('click',click); container.removeEventListener('input',input); container.removeEventListener('submit',submit); container.replaceChildren(); }};
 }

@@ -1,0 +1,14 @@
+import http from 'node:http';
+import {execFileSync} from 'node:child_process';
+const root = 'template/.switchflow/scripts/control/public/';
+const source = Object.fromEntries(['tasks.js','tasks-editor.js','tasks-model.js','styles.css','tasks.css'].map(f => [f,execFileSync('git',['show',`763297b:${root}${f}`])]));
+source['fixture.js'] = `import {mountTasks} from '/tasks.js';
+const tasks=[{id:'DEMO-1',title:'First task',status:'Ready',ordinal:1,assignee:['Human']},{id:'DEMO-2',title:'Second task',status:'Ready',ordinal:2,assignee:['Human']}];
+const log=document.querySelector('#log');
+const api=async(route,opts)=>{if(opts){log.textContent=JSON.stringify({route,...opts});return {};} return route==='/tasks'?tasks:route==='/statuses'?['Ready','Done']:route==='/config'?{hideEmptyColumns:true}:[];};
+mountTasks(document.querySelector('#fixture'),{api,projectId:'baseline'}).refresh();
+document.addEventListener('dragstart',()=>document.querySelector('#gesture').textContent='Native drag started');
+document.addEventListener('dragover',()=>document.querySelector('#gesture').textContent='Native drag active; destinations: '+[...document.querySelectorAll('[data-status]')].map(x=>x.dataset.status).join(', '));
+document.addEventListener('dragend',()=>document.querySelector('#gesture').textContent+='; ended');`;
+source[''] = '<!doctype html><html><head><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/tasks.css"></head><body><main><p>Disposable baseline gesture fixture</p><p id="gesture" role="status"></p><div id="fixture"></div><pre id="log">No writes</pre></main><script type="module" src="/fixture.js"></script></body></html>';
+http.createServer((req,res)=>{const f=req.url.slice(1);res.setHeader('content-type',f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':'text/html');res.end(source[f]||'Missing');}).listen(65439,'127.0.0.1',()=>console.log('Baseline fixture http://127.0.0.1:65439'));

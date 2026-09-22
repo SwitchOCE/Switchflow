@@ -1,0 +1,242 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trello and Plane: human-workflow comparison research</title><style>:root{color-scheme:light;--ink:#182b33;--muted:#526570;--line:#d9e3e7;--accent:#086958;--bg:#f5f7f8}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;font:16px/1.65 system-ui,Segoe UI,sans-serif;color:var(--ink);background:var(--bg)}a{color:var(--accent);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}a:focus-visible,summary:focus-visible{outline:3px solid #bc6500;outline-offset:4px}.skip{position:absolute;left:16px;top:-100px;z-index:5;background:white;padding:12px}.skip:focus{top:8px}.rail{position:fixed;inset:0 auto 0 0;width:245px;background:#172e36;color:#e8f0f1;padding:30px 22px;overflow:auto}.rail a{color:#d2ebe4;display:block;margin:10px 0;text-decoration:none;font-size:14px;line-height:1.5}.rail a:hover{text-decoration:underline}.rail .brand{font-size:21px;font-weight:750;color:white}.rail .kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#a8c3c6;margin:30px 0 12px}.rail .divider{border-top:1px solid #476069;margin:24px 0}.rail .small{font-size:12px;color:#b6ccd0}.paper{max-width:1410px;margin-left:245px;padding:42px 44px 90px}article{background:white;border:1px solid var(--line);border-radius:14px;padding:40px 42px;min-width:0}h1{font-size:36px;line-height:1.18;letter-spacing:-.025em;max-width:900px;margin:0 0 24px}h2{font-size:25px;line-height:1.3;margin:48px 0 18px;padding-top:18px;border-top:1px solid var(--line)}h3{font-size:19px;line-height:1.4;margin:30px 0 12px}p,li{max-width:96ch}li{margin:6px 0}blockquote{border-left:4px solid #168c73;background:#edf7f3;margin:24px 0;padding:14px 22px}blockquote p{margin:8px 0}code{font: .86em/1.5 ui-monospace,Consolas,monospace;background:#eef2f4;border-radius:4px;padding:2px 4px;overflow-wrap:anywhere}pre{overflow:auto;background:#eef2f4;padding:20px;border-radius:8px}pre code{padding:0}.table-wrap{overflow-x:auto;margin:20px 0 30px;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55;min-width:760px}th,td{padding:14px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eaf1f2;font-weight:700;color:#203e46}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#f8fafb}td:first-child{font-weight:550}td a{overflow-wrap:anywhere}img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;margin:20px 0;max-height:730px;object-fit:contain;object-position:left top;background:#eef2f4}.meta{font-size:13px;color:var(--muted);margin:0 0 20px}.source{display:inline-block;margin-right:16px}.footer{color:var(--muted);font-size:13px;margin-top:24px}@media(max-width:1050px){.rail{width:210px;padding:24px 18px}.paper{margin-left:210px;padding:24px 20px}article{padding:28px 24px}}@media(max-width:760px){.rail{position:static;width:auto;max-height:none;padding:20px}.rail nav{display:flex;flex-wrap:wrap;gap:4px 16px}.rail nav a{margin:4px 0}.rail .toc,.rail .divider{display:none}.rail .kicker{margin:14px 0 4px}.paper{margin:0;padding:12px}article{padding:24px 18px}h1{font-size:29px}h2{font-size:23px}table{font-size:13px}.table-wrap{margin-left:-4px;margin-right:-4px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{.rail,.skip,.meta{display:none}.paper{margin:0;padding:0;max-width:none}article{border:0;padding:0}body{background:white;font-size:11pt}h1{font-size:26pt}h2{break-after:avoid}table{min-width:0;font-size:9pt}.table-wrap{overflow:visible}img{max-height:180mm;break-inside:avoid}a{color:inherit}th,td{padding:7px}h2{margin-top:28px}}</style></head><body><a class="skip" href="#content">Skip to report</a><aside class="rail"><div class="brand">Switchflow UI review</div><p class="small">22 September 2026<br>Human interactions and improvement path</p><p class="kicker">Report & evidence</p><nav aria-label="Report documents"><a href="REPORT.html">Main review</a><a href="rendered-observations.html">Screenshots &amp; walkthrough</a><a href="local-ui-audit.html">Source interaction audit</a><a href="research-asana-jira.html">Asana &amp; Jira</a><a href="research-trello-plane.html" aria-current="page">Trello &amp; Plane</a><a href="research-backlog-md.html">Backlog.md</a><a href="research-plane-code.html">Plane: code interactions</a><a href="research-backlog-code.html">Backlog.md: code interactions</a></nav><div class="divider"></div><div class="toc"><p class="kicker">On this page</p><nav aria-label="On this page"><a href="#evidence-boundary">Evidence boundary</a><a href="#trello-observed-product-model-from-primary-sources">Trello: observed product model from primary sources</a><a href="#plane-observed-product-model-from-primary-sources">Plane: observed product model from primary sources</a><a href="#transferable-recommendations-for-switchflow">Transferable recommendations for Switchflow</a><a href="#suggested-validation-scenarios-for-the-main-review">Suggested validation scenarios for the main review</a><a href="#source-list-and-evidence-limitations">Source list and evidence limitations</a></nav></div></aside><main class="paper" id="content"><p class="meta"><a class="source" href="research-trello-plane.md">Markdown source</a>Read-only review · Proposed improvements are not implemented</p><article><h1 id="trello-and-plane-human-workflow-comparison-research">Trello and Plane: human-workflow comparison research</h1>
+<p><strong>Research appendix:</strong> recommendations below are provisional alternatives. The <a href="REPORT.html">consolidated report</a> governs scope, ranking, layout modes and scrolling choices; competitor features are not automatic Switchflow requirements.</p>
+<p><strong>Research date:</strong> 2026-09-22<br><strong>Scope:</strong> Current public first-party documentation and the official product screenshots embedded in it. This is interaction research for the Switchflow UI review, not a claim that either product&#39;s internal implementation should be copied.</p>
+<p><strong>Plane public-code follow-up:</strong> <a href="research-plane-code.html">Source interaction review</a> adds immutable implementation evidence for drag/drop, conditional UI and grouped board loading. It supplements this documentation review; board paging must not be inferred to establish activity-history paging.</p>
+<h2 id="evidence-boundary">Evidence boundary</h2>
+<p>Every claim below is marked <strong>Documented</strong> when the vendor&#39;s current help/docs explicitly describes it. <strong>Official screenshot</strong> means the documentation provides an annotated or illustrative image, but this reviewer did not operate a logged-in production account. There are <strong>no direct live-product observations</strong> in this note. Where a source does not describe pagination, panel scrolling, or a responsive breakpoint, this report says so rather than inferring it from a screenshot.</p>
+<p>The comparison is useful because Trello optimises a personal, board-centred “what should I do now?” workflow, while Plane combines a project sidebar with dedicated personal-work, cycle, and saved-view surfaces. Neither model removes Switchflow&#39;s three human gates: Intake, Planning and UAT. Delivery and Complete are lifecycle stages, not additional human gates.</p>
+<h2 id="trello-observed-product-model-from-primary-sources">Trello: observed product model from primary sources</h2>
+<h3 id="1-move-between-contexts-without-replacing-the-work-surface">1. Move between contexts without replacing the work surface</h3>
+<p><strong>Workflow — resume or switch projects</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>On any board, use the navigation bar to open the board switcher.</li>
+<li>Search by board name, or choose a starred, recent, or Workspace board.</li>
+<li>Press <code>Enter</code> to open it; <code>Esc</code> closes the switcher.</li>
+<li>A person who works mostly from a fixed set can pin the switcher to the left edge as a sidebar, and can show it in compact list or grid form. Sections can be collapsed and that state is remembered.</li>
+<li>Inbox, Planner, and Board can be viewed side-by-side and the divider is drag-resizable; double-click resets the panel sizes.</li>
+</ol>
+<p>Why it matters for Switchflow: the request to turn the top bar into a sidebar is a mainstream, documented pattern. It provides a stable place for project/context switching while leaving the main surface for the user&#39;s current work. The key transferable detail is user control: pinning, compact/list choice, remembered collapse state, and resizable adjacent panels—not merely moving links left.</p>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/navigation-in-trello/">Navigate Trello — navigation, pinned switcher, resizing</a> (documented; annotated screenshots). The same page identifies search, create, notifications and profile as global-header actions, while the board header contains view selection, filtering, sharing, and board settings. This separates global navigation from context-specific actions.</p>
+<h3 id="2-answer-what-is-next-at-a-personal-actionable-level">2. Answer “what is next?” at a personal, actionable level</h3>
+<p><strong>Workflow — start the day from Home</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Open Home from the top-left Trello icon.</li>
+<li>Inspect <strong>Up Next</strong>, which begins with overdue work assigned to the person, then mixes due-soon assigned work and mentions needing action; it finally shows overdue/upcoming unassigned board work as a safety net.</li>
+<li>On a due card, use the immediate <strong>Complete</strong> action or open the card; on a conversation, use <strong>Reply</strong> inline; dismiss items that should not be personal next actions.</li>
+<li>Go to the board only when the card requires project context.</li>
+</ol>
+<p>This is a concrete prioritisation rule, not an undifferentiated activity feed. It is also bounded: Trello documents that only the next 20 due-date cards are displayed, a deliberate triage limit rather than an endless list.</p>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/the-home-page/">Your Trello home page</a> (documented; official screenshots).</p>
+<p><strong>Workflow — make time for selected work without losing board location</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Expand Planner beside the board (<code>g</code>, then <code>p</code>).</li>
+<li>Planner automatically shows due-date cards that are personal-board cards or shared-board cards assigned to the person.</li>
+<li>Filter which board/card sources appear.</li>
+<li>Drag a card from the board or Inbox into an open time slot, or open the card to edit it. The work stays in its original board/list; linking it to focus time does not change its due date.</li>
+</ol>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/trello-planner/">Trello Planner</a> (documented; official screenshots). This is a useful contrast for Switchflow: a next-action surface can link to canonical workflow state without silently changing that state.</p>
+<h3 id="3-find-filter-and-create-in-the-current-context">3. Find, filter, and create in the current context</h3>
+<p><strong>Workflow — recover a task and return to it</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ul>
+<li>Use global search to find cards/boards across Workspaces; advanced search supports operators, board and recency filters, description inclusion, and saved searches on Premium.</li>
+<li>On a board, use the visible Filter action for keyword, member, due date, and label. Keyboard users can open it with <code>f</code> and clear it with <code>x</code>.</li>
+<li>Search results expose extra card context on hover rather than forcing an immediate context switch.</li>
+</ul>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/searching-for-cards-all-boards/">Search for cards and boards</a>; <a href="https://support.atlassian.com/trello/docs/navigation-in-trello/">Navigate Trello</a> (documented; search-result/board-header screenshots).</p>
+<p><strong>Workflow — create with proportionate commitment</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ul>
+<li>Use <code>n</code> while a card is hovered to compose a new card directly below it in the list, retaining ordering context.</li>
+<li>Use the Inbox for unstructured capture and move an item to a board when ready; Trello suggests Today/This week/Later as an optional personal triage model.</li>
+<li>In table view, add items between rows and edit basic details in situ; use Calendar/Timeline only when date relationships are what the person needs to see.</li>
+</ul>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/keyboard-shortcuts-in-trello/">Keyboard shortcuts</a>; <a href="https://support.atlassian.com/trello/docs/trello-inbox/">Trello Inbox</a>; <a href="https://trello.com/guide/activate-views">Trello views</a> (documented; official screenshots). Tradeoff: views and Planner add surface area and some are paid-plan features, so Switchflow should solve the common next-action case before adding a full calendar or many view types.</p>
+<h3 id="4-read-and-edit-substantive-task-content">4. Read and edit substantive task content</h3>
+<p><strong>Workflow — improve a card description</strong> (<strong>Documented; official screenshot of editor toolbar</strong>)</p>
+<ol>
+<li>Open a card and edit its description with the rich-text toolbar.</li>
+<li>Use headings, lists, link/image insertion, and the <code>/</code> quick-insert menu; keyboard shortcuts apply formatting without leaving the editor.</li>
+<li>Use the title edit shortcut (<code>t</code>) when only the heading needs a change.</li>
+</ol>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/how-to-format-your-text-in-trello/">Format text in Trello</a>; <a href="https://support.atlassian.com/trello/docs/keyboard-shortcuts-in-trello/">Keyboard shortcuts</a>. The sources establish editing affordances, but do <strong>not</strong> document card-back width, textarea min-height, a full-screen mode, or history pagination. Do not claim those specifics as Trello evidence.</p>
+<h3 id="5-keyboard-and-accessibility-affordances">5. Keyboard and accessibility affordances</h3>
+<p>Trello documents an in-product shortcut reference (<code>Shift</code> + <code>?</code>), board switching, filtering, card-title editing, arrow/<code>j</code>/<code>k</code> card navigation, inline creation, archive, undo/redo, and a setting to disable keyboard shortcuts for accessibility or to prevent accidental actions. This is concrete evidence that speed features need an escape hatch and discoverability, rather than relying on invisible shortcuts.</p>
+<p>Evidence: <a href="https://support.atlassian.com/trello/docs/keyboard-shortcuts-in-trello/">Keyboard shortcuts in Trello</a> (<strong>Documented</strong>).</p>
+<h2 id="plane-observed-product-model-from-primary-sources">Plane: observed product model from primary sources</h2>
+<h3 id="1-sidebar-is-a-personal-configurable-context-map">1. Sidebar is a personal, configurable context map</h3>
+<p><strong>Workflow — configure the navigation for current work</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Open the Filters icon in the sidebar.</li>
+<li>Choose which personal/workspace sections stay visible, move lower-use sections to <strong>More</strong>, and drag items into a personal order.</li>
+<li>Choose either accordion project navigation (nested sidebar items; other projects collapse when one opens) or horizontal tabs inside the project view.</li>
+<li>If many projects exist, set a limit; Plane shows recently accessed projects in the sidebar and leaves the remainder in <strong>More</strong>.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/workspaces-and-users/customize-navigation">Customize navigation</a> (<strong>Documented; official screenshots</strong>). This is highly relevant to Switchflow&#39;s topbar request: a sidebar should be both a recognisable global navigation rail and a way to keep active project context visible. It should not force every project and every feature into the first viewport.</p>
+<h3 id="2-find-your-next-task-by-a-dedicated-personal-view">2. Find your next task by a dedicated, personal view</h3>
+<p><strong>Workflow — check personal workload</strong> (<strong>Documented; official screenshot</strong>)</p>
+<ol>
+<li>Go to <strong>Your Work</strong> from the workspace.</li>
+<li>Use tabs for assigned, created, and subscribed items.</li>
+<li>Read workload grouped by Backlog, Not started, Working on, Completed, and Cancelled; inspect priority and state breakdowns, then choose the relevant work item.</li>
+<li>Recent activity is available as a separate chronological section, not the only navigation method.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/your-work">Plane Your Work</a> (<strong>Documented; official screenshot</strong>). Plane&#39;s model is informative for Switchflow: users need a compact personal queue that makes readiness/state visible before browsing the full historic record. It is not evidence that its exact status names suit Switchflow.</p>
+<p><strong>Workflow — establish the current commitment and blockers</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Open the project Cycle from the sidebar (or create one with <code>Q</code> / Add Cycle).</li>
+<li>Use the active/upcoming/completed state to distinguish current planned work from later work; completed cycles can transfer incomplete items to an active/upcoming cycle.</li>
+<li>In a work item, set a dependency such as <strong>Blocked by</strong> or <strong>Blocking</strong>; dated items display connector lines in Timeline, with date conflicts shown in red.</li>
+<li>Group feature-scale work in Modules, where state and computed completion progress are visible; choose list, gallery, or timeline according to the question being asked.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/core-concepts/cycles">Cycles</a>; <a href="https://docs.plane.so/core-concepts/issues/timeline-dependency">Dependencies in Timeline</a>; <a href="https://docs.plane.so/core-concepts/modules">Modules</a> (<strong>Documented; official screenshots</strong>). Tradeoff: cycles, modules and dependency timelines make commitment legible, but they create data-maintenance obligations. In Switchflow, show a clear next milestone/task even where dependencies are absent; offer dependencies only when the workflow genuinely needs them.</p>
+<h3 id="3-open-a-task-without-immediately-losing-list-context">3. Open a task without immediately losing list context</h3>
+<p><strong>Workflow — choose the reading/editing canvas</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Click a work item in a list or board.</li>
+<li>By default it opens in a <strong>side peek</strong> alongside the source list. This deliberately preserves the list context.</li>
+<li>Switch to <strong>Modal</strong> when focused overlay work is useful, or <strong>Full screen</strong> when description and detail require the whole viewport.</li>
+<li>Use breadcrumb path, type badge, parent/sibling access, and the collapsible properties panel to retain hierarchy without burying the description under metadata.</li>
+<li>Edit description; use the toolbar for sub-work items, dependencies, links, attachments, and pages.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/core-concepts/issues/overview">Manage work items</a> (<strong>Documented; official screenshots</strong>). This directly supports the Switchflow modal concern: one fixed dialog is a poor fit for both one-line updates and lengthy decision/plan text. A side peek preserves navigation; an explicit full-screen route protects reading and editing depth.</p>
+<h3 id="4-control-history-rather-than-creating-a-single-unbounded-feed">4. Control history rather than creating a single unbounded feed</h3>
+<p><strong>Workflow — inspect only the history needed</strong> (<strong>Documented; no source statement about pagination</strong>)</p>
+<ol>
+<li>In the lower task detail area choose <strong>All</strong>, <strong>Activity</strong>, <strong>Comments</strong>, <strong>Worklogs</strong>, <strong>Transition</strong>, or <strong>History</strong>.</li>
+<li>Use <strong>Comments</strong> for human discussion; use <strong>Activity</strong> for system events; use <strong>Transition</strong> to see who changed state and time in the prior state; use <strong>History</strong> for structured before/after property changes.</li>
+<li>Filter the activity area by event type and switch chronology between newest-first (default) and oldest-first.</li>
+<li>For description-specific audit, select the last-edited timestamp to inspect editor history.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/core-concepts/issues/overview">Manage work items — Activity and collaboration</a> (<strong>Documented</strong>). The source documents tabs, filters, and a sort toggle. It does <strong>not</strong> document pagination, virtualisation, or a nested scrolling region; this report must not attribute any of those mechanisms to Plane.</p>
+<h3 id="5-search-saved-filters-creation-and-return-context">5. Search, saved filters, creation, and return context</h3>
+<p><strong>Workflow — recover a work item or build a recurring queue</strong> (<strong>Documented; official screenshots</strong>)</p>
+<ol>
+<li>Press <code>Cmd/Ctrl+K</code> or use the top search icon. Results update as the person types and are separated into content-type tabs including work items, cycles, modules, views, pages, comments and projects.</li>
+<li>In a project, open Filters; the dedicated filter row stays available below the main toolbar. Add state/priority/assignee/date conditions and see matching items update instantly.</li>
+<li>Clear one condition with its X or Clear all; save an effective filter/layout/sort/display combination as a named View.</li>
+<li>Use Plane&#39;s built-in workspace views—All Issues, Assigned to Me, Created by Me, Subscribed—or a project view with a stable URL.</li>
+</ol>
+<p>Evidence: <a href="https://docs.plane.so/workspaces-and-users/search-workspace">Search workspace</a>; <a href="https://docs.plane.so/core-concepts/issues/visualise_filter">Work Item Filters</a>; <a href="https://docs.plane.so/core-concepts/views">Views</a> (<strong>Documented; official screenshots</strong>).</p>
+<p><strong>Workflow — capture without unnecessary form friction</strong> (<strong>Documented; official screenshot</strong>)</p>
+<ul>
+<li>Use <code>N</code>, then <code>I</code> for the full work-item modal when title, description, assignee, state, priority, label, and dates need deliberate entry; half-written items are retained as Drafts.</li>
+<li>In a List or Board, use the inline quick-add row when title plus default properties is sufficient, then refine in the detail view.</li>
+</ul>
+<p>Evidence: <a href="https://docs.plane.so/core-concepts/issues/overview">Manage work items</a> (<strong>Documented; official screenshots</strong>). This suggests Switchflow should have a clear distinction between quick capture and a full, readable task editor, while preserving a user&#39;s partial prose.</p>
+<h3 id="6-keyboard-discovery-and-command-hierarchy">6. Keyboard discovery and command hierarchy</h3>
+<p>Plane documents a <code>Cmd/Ctrl + /</code> shortcut reference, a sequence-oriented create model (<code>N</code> then <code>I</code> for a work item, <code>N</code> then <code>P</code> for a project), location shortcuts (<code>G</code> then <code>Y</code> for Your Work), and task-level changes such as <code>S</code> state, <code>P</code> priority and <code>A</code> assign. Workspace search is <code>Cmd/Ctrl+K</code>.</p>
+<p>Evidence: <a href="https://docs.plane.so/support/keyboard-shortcuts">Plane keyboard shortcuts</a> (<strong>Documented</strong>). For Switchflow, this supports providing a discoverable command/shortcut layer after primary visible controls are clear. Avoid introducing keys that conflict with rich-text editing or that cannot be disabled/ignored in an editable field.</p>
+<h2 id="transferable-recommendations-for-switchflow">Transferable recommendations for Switchflow</h2>
+<p>These are recommendations, not findings that Switchflow already meets them. They should be validated against the actual current UI before planning implementation.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Recommendation</th>
+<th>Why it improves the human workflow</th>
+<th>Tradeoff / guardrail</th>
+<th>Comparison evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Replace the topbar&#39;s primary navigation with a persistent, collapsible left sidebar: project switcher, core sections, current project, and a <strong>More</strong> overflow. Remember each person&#39;s collapse/order choices.</td>
+<td>Makes context and places to go visible while retaining the main width for task content. Trello offers a pinnable switcher; Plane makes sidebar contents/order personal.</td>
+<td>Keep the rail narrow and do not put every feature/project in it. Keyboard/focus and small-screen fallback need design and testing.</td>
+<td>Trello navigation; Plane customize navigation.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Add a first-class <strong>Next for you</strong> surface above general activity. Rank explicit actionable states: required owner decision, blocked task awaiting action, assigned ready task, imminent UAT/milestone due item. State why each item is next and link into its canonical project context.</td>
+<td>Users cannot reliably infer the next action from a full history. Trello&#39;s Up Next has an explicit ordering and bounded result set; Plane isolates Your Work from activity.</td>
+<td>The rule must be transparent and based on Switchflow&#39;s real gates, not a hidden score. Let users dismiss/return items without falsely completing them.</td>
+<td>Trello Home; Plane Your Work.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>On every project/milestone, surface current phase, its owner/gate, and one next task; show a separate “blocked by” cue when dependency or approval prevents progress.</td>
+<td>Makes sequencing legible before asking a person to open records one by one. Plane makes active cycles/module state and dependency conflicts visible.</td>
+<td>Do not fabricate a “next” task when readiness data is incomplete; say “needs planning/owner decision” and link to that decision.</td>
+<td>Plane cycles, modules, dependencies.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Replace the single fixed task modal with three explicit presentation modes: context-preserving side panel, a generous modal for normal edits, and full-screen detail/editor for long plans, evidence and discussions.</td>
+<td>A short status update and a multi-page plan have incompatible reading/editing needs. Plane formally offers peek/modal/full-screen modes.</td>
+<td>Preserve unsaved drafts across mode changes; keep a clear close/back route to the originating list and preserve scroll/filter state.</td>
+<td>Plane work-item detail modes.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>In the full detail editor, make prose the main column and put metadata in a secondary, collapsible section. Give description and comment editors a practical minimum height, resize affordance, rich text/Markdown support, and a readable line length.</td>
+<td>Dense metadata should not crowd out the material people are opening the task to read. Plane separates a collapsible properties panel and task body; Trello documents direct rich-text editing.</td>
+<td>Exact width/height must be decided by rendered responsive testing, not copied from either vendor&#39;s screenshots.</td>
+<td>Plane work-item detail; Trello text formatting.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Split task history into tabs or filter chips: <strong>Discussion</strong>, <strong>Activity</strong>, <strong>State/transition</strong>, and <strong>Full audit</strong>. Default to the human-relevant discussion/latest update, with a count and an explicit route to audit detail. Add event-type filters and newest/oldest ordering.</td>
+<td>A single combined history forces users to scan system noise to find a decision or reply. Plane separates these mental questions and supplies filter/sort controls.</td>
+<td>Preserve a complete audit trail and make the all-events view available; do not hide automation or approvals.</td>
+<td>Plane activity and collaboration.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>For long histories, define and test a bounded rendering strategy: pagination or explicit “load older” with a visible result count; independently scroll the history only where it does not trap keyboard focus.</td>
+<td>This directly addresses the reported unbounded vertical pages and reduces loss of task context. The comparison sources support history filtering/sorting, not a claim that Trello/Plane paginate.</td>
+<td>Record the chosen accessibility contract: focus order, screen-reader announcement for added results, return scroll position, and URL/share behavior.</td>
+<td>Plane activity filters/sort; evidence boundary above.</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Make filters a persistent, reversible work-control row and allow a saved “My ready work” / “Awaiting my decision” view. Add global search that returns type-labelled results and preserves/reopens the original list context.</td>
+<td>People need to narrow a large workset without navigating away or re-creating queries. Plane uses a dedicated filter row and reusable views; both vendors support cross-context search.</td>
+<td>Start with a small high-value filter set (state, owner, phase, milestone, due/blocked) before a complex query language. Clearly show and clear active filters.</td>
+<td>Plane filters/views/search; Trello filter/search.</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Offer quick capture separately from full authoring: a small “capture task/idea” path and a fuller task form with draft recovery. Put Create in the global navigation, while contextual add appears in task/milestone lists.</td>
+<td>Lets people record a thought without abandoning their current workflow, but does not make substantial planning prose live in a cramped composer.</td>
+<td>Captured items must land in a visible inbox/untriaged state with an owner/triage route, never silently disappear into general history.</td>
+<td>Trello Inbox/inline create; Plane inline add/drafts.</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Add a discoverable keyboard reference and a modest set of high-confidence shortcuts only after visual actions work: open search, create, navigate to My Work, filter, open/close detail. Respect editable fields and provide a user setting to disable shortcuts.</td>
+<td>Helps experienced users move between work without hiding the product from mouse/touch users. Trello explicitly provides discovery and disabling; Plane publishes comprehensive navigation/create actions.</td>
+<td>Accessibility audit must cover focus indicator, Escape behavior, modal focus restoration, and no single shortcut may be required for a core workflow.</td>
+<td>Trello keyboard shortcuts; Plane keyboard shortcuts.</td>
+</tr>
+</tbody></table></div>
+<h2 id="suggested-validation-scenarios-for-the-main-review">Suggested validation scenarios for the main review</h2>
+<p>Use these as human walkthroughs against Switchflow before committing to visual solutions:</p>
+<ol>
+<li><strong>Morning triage:</strong> open Switchflow and identify one meaningful next action in under 10 seconds. Verify the explanation states project, milestone/phase, gate, owner and blocking condition if any.</li>
+<li><strong>Resume deep work:</strong> filter to a project, open a long task, read/edit a multi-paragraph description, check related decision and recent discussion, then return to the same filtered list and scroll position.</li>
+<li><strong>History investigation:</strong> find who changed a task from Planning to Delivery, when, and why, without scanning comments or the entire page; then load older audit entries without the page jumping.</li>
+<li><strong>Context change:</strong> switch projects through the sidebar, navigate to a task from global search, and return to the prior project/view. Test both collapsed and wide navigation.</li>
+<li><strong>Keyboard and narrow view:</strong> perform search, task open/close and next-item selection with keyboard; check focus restoration, editor shortcut safety and the narrow-layout navigation path.</li>
+</ol>
+<h2 id="source-list-and-evidence-limitations">Source list and evidence limitations</h2>
+<p>All sources are current vendor-controlled documentation accessed 2026-09-22. Trello sources are Atlassian Support or Trello&#39;s official guide; Plane sources are Plane&#39;s official documentation. They document features and embed official images, but are not usability studies and do not prove effectiveness for Switchflow users. Product tiers can limit some competitor features; do not create a Switchflow requirement merely because a paid tier exposes it.</p>
+<ul>
+<li><a href="https://support.atlassian.com/trello/docs/navigation-in-trello/">Trello: Navigate Trello</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/the-home-page/">Trello: Home page</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/trello-planner/">Trello: Planner</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/trello-inbox/">Trello: Inbox</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/searching-for-cards-all-boards/">Trello: Search for cards and boards</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/keyboard-shortcuts-in-trello/">Trello: Keyboard shortcuts</a></li>
+<li><a href="https://support.atlassian.com/trello/docs/how-to-format-your-text-in-trello/">Trello: Format text</a></li>
+<li><a href="https://trello.com/guide/activate-views">Trello: Views guide</a></li>
+<li><a href="https://docs.plane.so/workspaces-and-users/customize-navigation">Plane: Customize navigation</a></li>
+<li><a href="https://docs.plane.so/your-work">Plane: Your Work</a></li>
+<li><a href="https://docs.plane.so/core-concepts/issues/overview">Plane: Manage work items</a></li>
+<li><a href="https://docs.plane.so/core-concepts/cycles">Plane: Cycles</a></li>
+<li><a href="https://docs.plane.so/core-concepts/modules">Plane: Modules</a></li>
+<li><a href="https://docs.plane.so/core-concepts/issues/timeline-dependency">Plane: Dependencies in Timeline</a></li>
+<li><a href="https://docs.plane.so/core-concepts/issues/visualise_filter">Plane: Work Item Filters</a></li>
+<li><a href="https://docs.plane.so/core-concepts/views">Plane: Views</a></li>
+<li><a href="https://docs.plane.so/workspaces-and-users/search-workspace">Plane: Search workspace</a></li>
+<li><a href="https://docs.plane.so/support/keyboard-shortcuts">Plane: Keyboard shortcuts</a></li>
+</ul>
+</article><p class="footer">Generated from the accompanying Markdown. No external scripts, fonts or styles are required.</p></main></body></html>

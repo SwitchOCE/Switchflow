@@ -1,3 +1,5 @@
+import { formatProjectDate, normalizeDateFormat } from './ui-date.js';
+
 const settingsDrafts = new Map();
 function storeDraft(project, draft) {
   settingsDrafts.set(String(project),draft);
@@ -81,8 +83,16 @@ export function validateSettingsDraft(values, statuses = []) {
   return errors;
 }
 
-export function buildStatisticsModel(statistics = {}, taskResult = []) {
+export function buildStatisticsModel(statistics = {}, taskResult = [], milestoneResult) {
   const tasks = Array.isArray(taskResult) ? taskResult : Array.isArray(taskResult?.tasks) ? taskResult.tasks : [];
+  const milestoneLookupAvailable = Array.isArray(milestoneResult);
+  const milestoneTitles = new Map((milestoneLookupAvailable ? milestoneResult : []).map(item => [text(item.id).trim(), text(item.title || item.name || item.id).trim()]));
+  const milestoneTitle = value => {
+    const id = text(value).trim();
+    if (!id) return 'No milestone';
+    if (!milestoneLookupAvailable) return 'Milestone title unavailable';
+    return milestoneTitles.get(id) || 'Unknown milestone';
+  };
   const totalTasks = count(statistics.totalTasks);
   const status = Object.entries(statistics.statusCounts || {}).map(([label, value]) => ({ label, count: count(value) }));
   const priority = Object.entries(statistics.priorityCounts || {}).map(([label, value]) => ({ label, count: count(value) }));
@@ -95,9 +105,9 @@ export function buildStatisticsModel(statistics = {}, taskResult = []) {
   const completed = [];
   if (corpusMatches) {
     for (const task of countedTasks) {
-      const milestone = text(task.milestone).trim() || 'No milestone';
+      const milestone = milestoneTitle(task.milestone);
       milestones.set(milestone, (milestones.get(milestone) || 0) + 1);
-      if (text(task.status).toLocaleLowerCase() === 'done') completed.push(task);
+      if (text(task.status).toLocaleLowerCase() === 'done') completed.push({ ...task, milestoneTitle: milestone });
     }
     completed.sort((a, b) => Date.parse(b.updatedDate || b.createdDate || 0) - Date.parse(a.updatedDate || a.createdDate || 0));
   }
@@ -112,7 +122,17 @@ export function buildStatisticsModel(statistics = {}, taskResult = []) {
     completionHistory: completed,
     corpusMatches,
     corpusCount: countedTasks.length,
+    milestoneLookupAvailable,
   };
+}
+
+export function completionPage(items, requestedPage = 0, pageSize = 20) {
+  const total = Array.isArray(items) ? items.length : 0;
+  const size = Number.isSafeInteger(pageSize) && pageSize > 0 ? pageSize : 20;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.max(0, Math.min(Number.isSafeInteger(requestedPage) ? requestedPage : 0, pages - 1));
+  const startIndex = page * size;
+  return { items: (items || []).slice(startIndex, startIndex + size), page, pages, total, start: total ? startIndex + 1 : 0, end: Math.min(total, startIndex + size) };
 }
 
 function renderDistribution(title, rows, total, emptyMessage) {
@@ -138,14 +158,7 @@ function renderDistribution(title, rows, total, emptyMessage) {
   return card;
 }
 
-function formatDate(value) {
-  if (!value) return 'Date unavailable';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return text(value);
-  return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
-}
-
-function renderStatistics(container, model, refresh) {
+function renderStatistics(container, model, { refresh, onOpenTask, dateFormat, historyState, dateFormatAvailable = true }) {
   container.replaceChildren();
   const header = node('div', 'insights-heading');
   const copy = node('div');
@@ -180,10 +193,11 @@ function renderStatistics(container, model, refresh) {
     renderDistribution('Status distribution', model.status, model.totalTasks, 'No task statuses were returned.'),
     renderDistribution('Priority distribution', model.priority, model.totalTasks, 'No task priorities were returned.'),
   );
-  if (model.corpusMatches) distributions.append(renderDistribution('Milestone distribution', model.milestones, model.totalTasks, 'No milestone assignments were returned.'));
+  if (model.corpusMatches && model.milestoneLookupAvailable) distributions.append(renderDistribution('Milestone distribution', model.milestones, model.totalTasks, 'No milestone assignments were returned.'));
   else {
     const unavailable = node('section', 'insights-card');
-    unavailable.append(node('h2', '', 'Milestone distribution'), node('p', 'insights-inline-warning', `The native task corpus returned ${model.corpusCount} counted tasks while statistics returned ${model.totalTasks}. Refresh before using this breakdown.`));
+    const message = model.corpusMatches ? 'Milestone titles are unavailable. Refresh before using this breakdown.' : `The native task corpus returned ${model.corpusCount} counted tasks while statistics returned ${model.totalTasks}. Refresh before using this breakdown.`;
+    unavailable.append(node('h2', '', 'Milestone distribution'), node('p', 'insights-inline-warning', message));
     distributions.append(unavailable);
   }
 
@@ -192,22 +206,39 @@ function renderStatistics(container, model, refresh) {
   if (!model.corpusMatches) history.append(node('p', 'muted', 'Completion rows are withheld until the native task corpus matches the statistics total.'));
   else if (!model.completionHistory.length) history.append(node('p', 'muted', 'No completed tasks yet.'));
   else {
+    const listStatus = node('p', 'muted insights-history-status'); listStatus.setAttribute('role', 'status'); listStatus.setAttribute('aria-live', 'polite'); history.append(listStatus);
     const scroll = node('div', 'insights-table-scroll');
     const table = node('table', 'insights-table');
     const head = node('thead');
     const headRow = node('tr');
     for (const label of ['Task', 'Milestone', 'Last updated']) headRow.append(node('th', '', label));
     head.append(headRow);
-    const body = node('tbody');
-    for (const task of model.completionHistory) {
-      const row = node('tr');
-      const taskCell = node('td');
-      taskCell.append(node('strong', '', task.title || task.id || 'Untitled task'), node('span', 'muted insights-task-id', task.id || ''));
-      row.append(taskCell, node('td', '', task.milestone || 'No milestone'), node('td', '', formatDate(task.updatedDate || task.createdDate)));
-      body.append(row);
-    }
-    table.append(head, body); scroll.append(table); history.append(scroll);
+    const body = node('tbody'); table.append(head, body); scroll.append(table); history.append(scroll);
+    const controls = node('div', 'insights-history-controls');
+    const previous = action('Newer tasks'); const next = action('Older tasks'); const range = node('span', 'muted');
+    const draw = focus => {
+      const page = completionPage(model.completionHistory, historyState.page); historyState.page = page.page; body.replaceChildren();
+      for (const task of page.items) {
+        const row = node('tr'), taskCell = node('td');
+        if (typeof onOpenTask === 'function' && task.id) {
+          const link = action(task.title || task.id || 'Untitled task', 'insights-task-link');
+          link.addEventListener('click', () => Promise.resolve(onOpenTask(task.id, link)).catch(error => { listStatus.textContent = `${errorMessage(error, 'Unable to open task.')} This history page is unchanged.`; }));
+          taskCell.append(link);
+        } else taskCell.append(node('strong', '', task.title || task.id || 'Untitled task'));
+        taskCell.append(node('span', 'muted insights-task-id', task.id || ''));
+        row.append(taskCell, node('td', '', task.milestoneTitle || 'No milestone'), node('td', '', formatProjectDate(task.updatedDate || task.createdDate, dateFormat)));
+        body.append(row);
+      }
+      range.textContent = `${page.start}–${page.end} of ${page.total} completed tasks`;
+      listStatus.textContent = `Showing ${range.textContent}. Open a task, then use Back to return to this page.`;
+      previous.disabled = page.page === 0; next.disabled = page.page + 1 >= page.pages;
+      if (focus) (focus.disabled ? (focus === previous ? next : previous) : focus).focus();
+    };
+    previous.addEventListener('click', () => { historyState.page--; draw(previous); });
+    next.addEventListener('click', () => { historyState.page++; draw(next); });
+    controls.append(previous, range, next); history.append(controls); draw();
   }
+  if (!dateFormatAvailable) history.append(node('p', 'insights-inline-warning', 'The date setting could not be read. Dates use YYYY-MM-DD until Refresh succeeds.'));
   container.append(header, metrics, overall, distributions, history);
 }
 
@@ -235,7 +266,7 @@ function renderSettings(container, context) {
   container.replaceChildren();
   const header = node('div', 'insights-heading');
   const copy = node('div');
-  copy.append(node('p', 'eyebrow', 'PROJECT CONFIGURATION'), node('h1', '', 'Settings'), node('p', 'muted', 'Manage project defaults and task behavior. Other configuration stays intact.'));
+  copy.append(node('p', 'eyebrow', 'PROJECT CONFIGURATION'), node('h1', '', 'Settings'), node('p', 'muted', 'Edit the connected project’s Backlog configuration. Each group states which interface uses it; other configuration stays intact.'));
   const reload = action('Refresh saved settings'); reload.addEventListener('click', refresh); header.append(copy, reload); container.append(header);
   if (!writable) container.append(node('p', 'insights-readonly', 'Settings are read-only while project delivery is active or your access does not allow changes.'));
 
@@ -282,13 +313,13 @@ function renderSettings(container, context) {
     input.addEventListener('change', () => mark(name, input.checked)); label.append(input, description); grid.append(label);
   };
 
-  const project = section('Project', 'Naming and display defaults for project work.');
+  const project = section('Project', 'Shared project identity and date display.');
   inputField(project, 'projectName', 'Project name', 'Shown in the board and generated project views.', { required: true });
-  inputField(project, 'dateFormat', 'Date format', 'Changes display only; task files keep their native stored format.', { select: [['yyyy-mm-dd', 'YYYY-MM-DD'], ['dd/mm/yyyy', 'DD/MM/YYYY'], ['mm/dd/yyyy', 'MM/DD/YYYY']], fallback: 'yyyy-mm-dd' });
+  inputField(project, 'dateFormat', 'Date format', 'Used by Insights and reusable workspace date displays. Native task files keep their stored format.', { select: [['yyyy-mm-dd', 'YYYY-MM-DD'], ['dd/mm/yyyy', 'DD/MM/YYYY'], ['mm/dd/yyyy', 'MM/DD/YYYY']], fallback: 'yyyy-mm-dd' });
   const statuses = Array.isArray(latestConfig.statuses) ? latestConfig.statuses : [];
   inputField(project, 'defaultStatus', 'Default task status', 'Applied to newly created tasks.', { select: statuses.map(value => [value, value]), fallback: statuses[0] || '' });
 
-  const workflow = section('Workflow', 'Native Git and task defaults.');
+  const workflow = section('Workflow', 'Backlog task and Git behavior used by supported task operations.');
   toggle(workflow, 'autoCommit', 'Automatically commit task changes', 'Creates a Git commit after supported task operations.');
   toggle(workflow, 'remoteOperations', 'Read active branches', 'Includes task information from active Git branches.');
   inputField(workflow, 'defaultEditor', 'Editor command', 'Overrides the EDITOR environment variable for task editing.', { placeholder: 'For example: code --wait' });
@@ -311,14 +342,16 @@ function renderSettings(container, context) {
     });
   };
   renderDone();
-  const add = action('Add checklist item', 'button quiet'); add.disabled = !writable; add.addEventListener('click', () => { mark('definitionOfDone', [...(values.definitionOfDone || []), '']); renderDone(); list.querySelector('input:last-of-type')?.focus(); }); doneCard.append(add);
+  const add = action('Add checklist item', 'button quiet'); add.disabled = !writable; add.addEventListener('click', () => { mark('definitionOfDone', [...(values.definitionOfDone || []), '']); renderDone(); list.lastElementChild?.querySelector('input')?.focus(); }); doneCard.append(add);
 
-  const web = section('Web interface', 'Defaults used when the native Backlog browser starts.');
+  const web = section('Native Backlog browser', 'Startup and board defaults for the separate native Backlog browser. These do not control the Switchflow workspace shell.');
   inputField(web, 'defaultPort', 'Default port', 'Port used when no command-line port is provided.', { type: 'number', number: true, min: 1, max: 65535, fallback: 6420 });
   toggle(web, 'autoOpenBrowser', 'Open browser automatically', 'Opens the native board after its local server starts.');
-  toggle(web, 'hideEmptyColumns', 'Hide empty board columns', 'Hide empty columns in Tasks. Use Open / move to select any status.');
 
-  const advanced = section('Advanced', 'Task selection and command-line presentation.');
+  const taskViews = section('Tasks views', 'Presentation defaults shared by the Switchflow Tasks view and supported native task views.');
+  toggle(taskViews, 'hideEmptyColumns', 'Hide empty board columns', 'Use Actions → Move task to choose any status; empty destinations also appear while dragging.');
+
+  const advanced = section('Backlog CLI', 'Cross-branch task selection and command-line presentation.');
   inputField(advanced, 'maxColumnWidth', 'Maximum CLI column width', 'Limits text column width in terminal output.', { type: 'number', number: true, min: 20, max: 200, fallback: 80 });
   inputField(advanced, 'taskResolutionStrategy', 'Cross-branch task resolution', 'Chooses which copy wins when a task exists on more than one branch.', { select: [['most_recent', 'Most recently updated'], ['most_progressed', 'Most progressed status']], fallback: 'most_recent' });
   inputField(advanced, 'zeroPaddedIds', 'Task ID padding', 'Use 0 to disable; 3 produces task-001.', { type: 'number', number: true, min: 0, max: 10, fallback: 0 });
@@ -337,7 +370,7 @@ function renderSettings(container, context) {
   container.append(form);
 }
 
-export function mountInsights(container, { api, projectId, canWrite = false, onChange = async () => {}, kind } = {}) {
+export function mountInsights(container, { api, projectId, canWrite = false, onChange = async () => {}, onOpenTask, kind } = {}) {
   if (!(container instanceof HTMLElement)) throw new TypeError('mountInsights requires an HTML container.');
   if (typeof api !== 'function') throw new TypeError('mountInsights requires an api function.');
   if (!projectId) throw new TypeError('mountInsights requires an explicit projectId.');
@@ -348,32 +381,43 @@ export function mountInsights(container, { api, projectId, canWrite = false, onC
   const projectKey = String(projectId);
   if (!settingsDrafts.has(projectKey)) { try { const stored = JSON.parse(sessionStorage.getItem('switchflow:settings:'+projectKey) || 'null'); if (stored?.values && Array.isArray(stored.dirtyFields)) settingsDrafts.set(projectKey,{values:stored.values,dirtyFields:new Set(stored.dirtyFields)}); } catch {} }
   let statisticsSignature = '';
+  const historyState = { page: 0 };
 
   container.classList.add('insights-panel');
   container.dataset.insightsKind = kind;
 
   const loading = message => {
     if (destroyed) return;
-    container.replaceChildren();
+    container.replaceChildren(); container.setAttribute('aria-busy', 'true');
     const state = node('div', 'insights-state'); state.setAttribute('role', 'status'); state.append(node('strong', '', message), node('p', 'muted', 'Reading the connected project.')); container.append(state);
   };
-  const failure = (error, retry) => {
+  const failure = (error, retry, preserve = false) => {
     if (destroyed) return;
-    container.replaceChildren();
+    container.removeAttribute('aria-busy');
+    container.querySelector('[data-refresh-error]')?.remove();
+    if (!preserve) container.replaceChildren();
     const state = node('div', 'insights-state insights-state-error'); state.setAttribute('role', 'alert');
+    state.dataset.refreshError = '';
     state.append(node('strong', '', errorMessage(error, `Unable to load ${kind}.`)), node('p', 'muted', 'Your saved project data was not changed.'));
-    const button = action('Try again'); button.addEventListener('click', retry); state.append(button); container.append(state);
+    const button = action('Try again'); button.addEventListener('click', retry); state.append(button); preserve ? container.prepend(state) : container.append(state);
   };
 
   async function refreshStatistics() {
-    const ticket = ++generation; if (!container.querySelector('.insights-metrics')) loading('Loading project statistics…');
-    const [statistics, tasks] = await Promise.allSettled([api('/statistics'), api('/tasks')]);
+    const ticket = ++generation, hadContent = Boolean(container.querySelector('.insights-metrics')); if (!hadContent) loading('Loading project statistics…'); else container.setAttribute('aria-busy', 'true');
+    const [statistics, tasks, milestones, config] = await Promise.allSettled([api('/statistics'), api('/tasks'), api('/milestones'), api('/config')]);
     if (destroyed || ticket !== generation) return;
-    if (statistics.status === 'rejected') { failure(statistics.reason, refreshStatistics); return; }
+    if (statistics.status === 'rejected') { failure(statistics.reason, refreshStatistics, hadContent); return; }
     const taskResult = tasks.status === 'fulfilled' ? tasks.value : [];
-    const model = buildStatisticsModel(statistics.value, taskResult);
+    const milestoneResult = milestones.status === 'fulfilled' ? milestones.value : undefined;
+    const model = buildStatisticsModel(statistics.value, taskResult, milestoneResult);
     if (tasks.status === 'rejected') { model.corpusMatches = false; model.corpusCount = 0; }
-    const signature = JSON.stringify(model); if (signature !== statisticsSignature) { statisticsSignature = signature; renderStatistics(container, model, refreshStatistics); }
+    const dateFormat = normalizeDateFormat(config.status === 'fulfilled' ? config.value?.dateFormat : undefined);
+    const signature = JSON.stringify([model,dateFormat,config.status]);
+    if (signature !== statisticsSignature || !container.querySelector('.insights-metrics')) {
+      statisticsSignature = signature;
+      renderStatistics(container, model, { refresh: refreshStatistics, onOpenTask, dateFormat, historyState, dateFormatAvailable: config.status === 'fulfilled' });
+    }
+    container.removeAttribute('aria-busy');
   }
 
   async function saveSettings({ status, saveButton, discardButton }) {
@@ -423,7 +467,7 @@ export function mountInsights(container, { api, projectId, canWrite = false, onC
     if (saving) return;
     const ticket = ++generation;
     const draft = settingsDrafts.get(projectKey);
-    if (!container.querySelector('.insights-settings')) loading('Loading project settings…');
+    if (!container.querySelector('.insights-settings')) loading('Loading project settings…'); else container.setAttribute('aria-busy', 'true');
     try {
       const config = await api('/config');
       if (destroyed || ticket !== generation) return;
@@ -439,6 +483,8 @@ export function mountInsights(container, { api, projectId, canWrite = false, onC
         const status = container.querySelector('.insights-form-status');
         if (status) { status.textContent = `${errorMessage(error, 'Unable to refresh settings.')} Your changes are still here.`; status.className = 'insights-form-status is-error'; }
       } else failure(error, refreshSettings);
+    } finally {
+      if (!destroyed && ticket === generation) container.removeAttribute('aria-busy');
     }
   }
 

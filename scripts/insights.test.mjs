@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { buildStatisticsModel, mergeSettingsConfig, validateSettingsDraft } from '../template/.switchflow/scripts/control/public/insights.js';
+import { buildStatisticsModel, completionPage, mergeSettingsConfig, validateSettingsDraft } from '../template/.switchflow/scripts/control/public/insights.js';
+import { formatProjectDate, normalizeDateFormat } from '../template/.switchflow/scripts/control/public/ui-date.js';
 
 test('statistics use native totals and reconcile task-backed milestone and completion rows', () => {
   const statistics = { totalTasks: 4, completedTasks: 2, completionPercentage: 50, draftCount: 1, statusCounts: { Ready: 1, Doing: 1, Done: 2 }, priorityCounts: { High: 2, Low: 1 }, noPriorityCount: 1 };
@@ -11,16 +12,25 @@ test('statistics use native totals and reconcile task-backed milestone and compl
     { id: 'SF-3', title: 'Third', status: 'Done', updatedDate: '2026-09-19' },
     { id: 'SF-4', title: 'Fourth', status: 'Doing', milestone: 'Polish' },
   ];
-  const model = buildStatisticsModel(statistics, tasks);
+  const model = buildStatisticsModel(statistics, tasks, [{ id: 'Launch', title: 'Launch outcome' }, { id: 'Polish', title: 'Polish outcome' }]);
   assert.equal(model.totalTasks, 4); assert.equal(model.completedTasks, 2); assert.equal(model.corpusMatches, true);
-  assert.deepEqual(model.milestones, [{ label: 'Launch', count: 2 }, { label: 'No milestone', count: 1 }, { label: 'Polish', count: 1 }]);
+  assert.deepEqual(model.milestones, [{ label: 'Launch outcome', count: 2 }, { label: 'No milestone', count: 1 }, { label: 'Polish outcome', count: 1 }]);
   assert.deepEqual(model.completionHistory.map(task => task.id), ['SF-3', 'SF-1']);
+  assert.deepEqual(model.completionHistory.map(task => task.milestoneTitle), ['No milestone', 'Launch outcome']);
   assert.deepEqual(model.priority.at(-1), { label: 'No priority', count: 1 });
 });
 
 test('statistics withhold task-derived breakdowns when corpus counts do not match', () => {
   const model = buildStatisticsModel({ totalTasks: 3, statusCounts: { Ready: 3 } }, [{ id: 'SF-1', status: 'Ready', milestone: 'Partial' }]);
   assert.equal(model.corpusMatches, false); assert.deepEqual(model.milestones, []); assert.deepEqual(model.completionHistory, []);
+});
+
+test('completion history pages clamp ranges and project dates use the configured format', () => {
+  const page = completionPage(Array.from({ length: 45 }, (_, index) => index + 1), 9);
+  assert.equal(page.page, 2); assert.deepEqual(page.items, [41, 42, 43, 44, 45]); assert.equal(page.start, 41); assert.equal(page.end, 45);
+  assert.equal(formatProjectDate('2026-09-22T23:10:00Z', 'dd/mm/yyyy'), '22/09/2026');
+  assert.equal(formatProjectDate('2026-09-22', 'mm/dd/yyyy'), '09/22/2026');
+  assert.equal(normalizeDateFormat('unexpected'), 'yyyy-mm-dd');
 });
 
 test('settings save merges only edited fields into the latest full native config', () => {

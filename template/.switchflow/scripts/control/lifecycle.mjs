@@ -65,10 +65,23 @@ export function applyAction(item, input) {
       item.approvalHistory.push(structuredClone(item.approvedUat));
       enqueue(item); item.nextAction = 'Your acceptance is recorded. Agents will close the delivery records.'; break;
     }
-    case 'request-rework':
+    case 'request-rework': {
       requireState(item.stage === 'uat' && item.status === 'awaiting-human' && item.approvedPlan && !item.approvedUat, 'Rework starts from unaccepted UAT.');
-      item.messages.push({ type: 'rework', message: text(input.feedback, 'Rework feedback'), at: now() });
+      const feedback = text(input.feedback, 'Rework feedback');
+      // Legacy clients may omit results; preserve their already-recorded observations too.
+      const results = input.results === undefined ? item.uat : input.results;
+      requireState(Array.isArray(results) && results.length === item.uat.length && results.every(r => r && typeof r === 'object' && typeof r.id === 'string') && new Set(results.map(r => r.id)).size === item.uat.length, 'Record a result for every UAT step.');
+      const observations = item.uat.map(step => {
+        const result = results.find(r => r.id === step.id);
+        requireState(result && ['pending', 'passed', 'failed'].includes(result.status), 'Use a current UAT step and a valid result.');
+        requireState(result.notes === undefined || (typeof result.notes === 'string' && result.notes.length <= 12000), 'UAT notes must contain at most 12000 characters.');
+        const { by: previousAuthor, at: previousTime, ...check } = step;
+        const observed = result.status !== 'pending' || !!result.notes?.trim();
+        return { ...check, status: result.status, notes: result.notes || '', ...(observed ? { by: 'Human', at: now() } : {}) };
+      });
+      item.messages.push({ type: 'rework', message: feedback, results: observations, candidateEvidence: structuredClone(item.evidence), planHash: item.approvedPlan.hash, at: now() });
       item.stage = 'delivery'; item.uat = []; enqueue(item); break;
+    }
     case 'scope-change':
       item.messages.push({ type: 'scope-change', message: text(input.request, 'Changed scope'), at: now() });
       item.approvedScope = null; item.approvedPlan = null; item.approvedUat = null; item.scope = ''; item.plan = []; item.uat = []; item.questions = [];

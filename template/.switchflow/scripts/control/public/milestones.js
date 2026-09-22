@@ -1,8 +1,21 @@
+import {renderMarkdown, bindProseInteractions} from './documents.js';
 // Host callbacks supply project-scoped APIs and CSRF; drafts never cross project keys.
 export const sortMilestones = values => [...values].sort((a, b) => (a.executionOrder ?? Infinity) - (b.executionOrder ?? Infinity) || String(a.title).localeCompare(String(b.title)) || String(a.id).localeCompare(String(b.id)));
 export function milestoneMatches(value, milestone) {
   const normalize = value => String(value ?? '').trim().toLowerCase().replace(/^(?:m-)?0*(\d+)$/, 'm-$1');
   return !!value && [milestone.id, milestone.title].some(alias => normalize(alias) === normalize(value));
+}
+export function milestoneState(milestone, tasks) {
+  const linked = tasks.filter(task => milestoneMatches(task.milestone, milestone));
+  const done = linked.filter(task => String(task.status).toLowerCase() === 'done').length;
+  const blocked = linked.filter(task => String(task.status).toLowerCase() === 'blocked').length;
+  const active = linked.some(task => ['in progress', 'doing', 'review', 'blocked'].includes(String(task.status).toLowerCase()));
+  return {linked, done, blocked, group: linked.length && done === linked.length ? 'Delivery tasks complete' : active ? 'Active work' : milestone.executionOrder == null ? 'Order not established' : 'Ordered upcoming work'};
+}
+export function milestoneSummary(description = '') {
+  const paragraph = description.split(/\r?\n\s*\r?\n/).find(part => part.trim() && !/^#{1,6}\s+[^\n]+$/.test(part.trim())) || '';
+  const summary = paragraph.replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+  return summary.length > 220 ? `${summary.slice(0, 217)}…` : summary;
 }
 export function parseMilestoneOrder(value) {
   if (value === '' || value == null) return null;
@@ -10,7 +23,9 @@ export function parseMilestoneOrder(value) {
   if (!Number.isSafeInteger(order) || order < 0) throw new Error('Execution order must be a non-negative whole number.');
   return order;
 }
-export function createMilestonePanel({ container, read, write, api, canWrite = () => true, onTask, projectKey, onSaved = async () => {}, drafts = new Map() }) {
+export function createMilestonePanel({ container, read, write, api, canWrite = () => true, onTask, onOpenRecord = async () => {}, projectKey, onSaved = async () => {}, drafts = new Map() }) {
+  let origin = null, cleanupProse = () => {};
+  function clearDetail() { cleanupProse(); cleanupProse = () => {}; detail.replaceChildren(); }
   let generation = 0, request = 0, editorRequest = 0, selected = null, destroyed = false, milestones = [], tasks = [], archived = [], showArchived = false, busy = false;
   const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
   const button = (text, action) => { const el = node('button', text, 'button quiet'); el.type = 'button'; el.addEventListener('click', action); return el; };
@@ -22,12 +37,12 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
   const errorText = error => error?.message || 'The milestone operation failed.';
   const assertWritable = () => { if (!canWrite()) throw new Error('Stop the active agent before changing milestones or assignments.'); };
   const heading = node('h2', 'Milestones');
-  const help = node('p', 'IDs identify records. Execution order is optional and independent of the ID.', 'muted');
+  const help = node('p', 'Sequence is planning information, not permission to start work. Task completion does not establish acceptance.', 'muted');
   const message = node('p'); message.setAttribute('role', 'status');
   const toolbar = node('div', undefined, 'milestone-actions');
   const search = node('input'); search.type = 'search'; search.placeholder = 'Search milestones'; search.setAttribute('aria-label', 'Search milestones'); search.addEventListener('input', renderList);
   const create = button('New milestone', () => { if (busy) return; editorRequest++; renderEditor({ id: '@new' }, drafts.get(key('@new')) || { title: '', description: '', labels: [], executionOrder: '' }); });
-  const toggle = button('Show archived', async () => { if (busy) return; editorRequest++; showArchived = !showArchived; toggle.textContent = showArchived ? 'Show active' : 'Show archived'; selected = null; detail.replaceChildren(); await refresh(); });
+  const toggle = button('Show archived', async () => { if (busy) return; editorRequest++; showArchived = !showArchived; toggle.textContent = showArchived ? 'Show active' : 'Show archived'; selected = null; clearDetail(); await refresh(); });
   if (api) toolbar.append(create, toggle); toolbar.append(search);
   const list = node('div', undefined, 'milestone-list');
   const detail = node('div', undefined, 'milestone-editor');
@@ -35,33 +50,38 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
   const assigned = milestone => tasks.filter(task => milestoneMatches(task.milestone, milestone));
   function renderList() {
     create.disabled = busy || !canWrite();
-    list.replaceChildren();
-    const values = sortMilestones(showArchived ? archived : milestones).filter(m => `${m.id} ${m.title} ${m.description || ''} ${(m.labels || []).join(' ')}`.toLowerCase().includes(search.value.toLowerCase()));
-    if (!values.length) list.append(node('p', showArchived ? 'No archived milestones match.' : 'No milestones match.', 'muted'));
+    container.append(detail); list.replaceChildren();
+    const groups = ['Active work', 'Ordered upcoming work', 'Order not established', 'Delivery tasks complete'];
+    const values = sortMilestones(showArchived ? archived : milestones).sort((a,b) => groups.indexOf(milestoneState(a,tasks).group) - groups.indexOf(milestoneState(b,tasks).group)).filter(m => `${m.id} ${m.title} ${m.description || ''} ${(m.labels || []).join(' ')}`.toLowerCase().includes(search.value.toLowerCase()));
+    if (!values.length) list.append(node('p', showArchived ? 'No archived milestones match. Clear the search or show active milestones.' : 'No milestones match. Clear the search or create a milestone.', 'muted'));
     for (const milestone of values) {
-      const card = node('article', undefined, 'milestone-card');
-      card.append(node('span', `${milestone.id} · ${milestone.executionOrder == null ? 'Unsequenced' : `Order ${milestone.executionOrder}`}`, 'muted'), node('h3', milestone.title));
-      if (milestone.description) card.append(node('p', milestone.description, 'milestone-description'));
+      const state = milestoneState(milestone, tasks);
+      const card = node('article', undefined, 'milestone-card'); card.dataset.milestone = milestone.id;
+      if (!list.querySelector(`[data-group="${state.group}"]`)) { const group = node('h3', state.group, 'milestone-group'); group.dataset.group = state.group; list.append(group); }
+      card.append(node('span', `${milestone.id} · ${milestone.executionOrder == null ? 'Order not established' : `Order ${milestone.executionOrder}`}`, 'muted'), node('h3', milestone.title));
+      if (milestone.description) card.append(node('p', milestoneSummary(milestone.description), 'milestone-description'));
       if (milestone.labels?.length) card.append(node('p', milestone.labels.join(' · '), 'milestone-labels'));
       if (api) {
         const linked = assigned(milestone), done = linked.filter(t => String(t.status).toLowerCase() === 'done').length;
-        card.append(node('p', `${done} / ${linked.length} tasks done`, 'muted'));
-        const progress = node('progress'); progress.max = linked.length || 1; progress.value = done; progress.setAttribute('aria-label', `${milestone.title}: ${done} of ${linked.length} tasks done`); card.append(progress);
+        card.append(node('p', linked.length ? `${done} / ${linked.length} delivery tasks done${state.blocked ? ` · ${state.blocked} blocked` : ''}` : 'No delivery tasks linked', 'muted'));
+        const progress = node('progress'); progress.max = linked.length || 1; progress.value = done; progress.setAttribute('aria-label', `${milestone.title}: ${done} of ${linked.length} tasks done`); if (linked.length) card.append(progress);
       }
       if (showArchived) card.append(node('p', 'Archived. Restoration is not supported by this server.', 'muted'));
-      else card.append(button(`Edit ${milestone.id}`, () => open(milestone.id)));
+      else card.append(button(`Open milestone`, event => { origin = {id:milestone.id, y:window.scrollY}; open(milestone.id); }));
       list.append(card);
+      if (selected === milestone.id && detail.childNodes.length) card.after(detail);
     }
   }
   async function saved(messageText, ticket, project) {
     if (!current(ticket, project)) return;
-    selected = null; detail.replaceChildren(); message.textContent = messageText;
+    selected = null; clearDetail(); message.textContent = messageText;
     try { await onSaved(); if (current(ticket, project)) await refresh(); }
     catch (error) { if (current(ticket, project)) message.textContent = `${messageText} Refresh failed: ${errorText(error)}`; }
   }
   function renderEditor(milestone, draft, latest = null) {
     const isNew = milestone.id === '@new', editorProject = projectKey(), editorTicket = generation;
-    selected = milestone.id; detail.replaceChildren();
+    selected = milestone.id; clearDetail();
+    placeDetail(milestone.id);
     const title = node('h3', isNew ? 'Create milestone' : `Edit ${milestone.id}`); title.tabIndex = -1;
     const form = node('form'), notice = node('p'); notice.setAttribute('role', 'alert');
     const input = (name, label, value, multiline = false) => { const wrap = node('label', label), field = node(multiline ? 'textarea' : 'input'); field.name = name; field.value = value ?? ''; wrap.append(field); form.append(wrap); return field; };
@@ -89,7 +109,7 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
       finally { reload.disabled = false; }
     });
     controls.append(save); if (!isNew) controls.append(reload);
-    controls.append(button('Close editor', () => { if (busy) return; preserve(); editorRequest++; selected = null; detail.replaceChildren(); list.querySelector('button')?.focus(); })); form.append(notice, controls);
+    controls.append(button('Close editor', () => { if (busy) return; preserve(); editorRequest++; closeDetail(); })); form.append(notice, controls);
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !current(editorTicket, editorProject)) return;
       const retained = preserve(); let created;
@@ -114,7 +134,11 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
     });
     detail.append(title);
     if (latest) {
-      const comparison = node('details'); comparison.append(node('summary', 'Latest saved version — compare before saving'), node('pre', JSON.stringify({ title: latest.title, description: latest.description || '', labels: latest.labels || [], executionOrder: latest.executionOrder ?? null }, null, 2))); detail.append(comparison);
+      const comparison = node('details'); comparison.open = true; comparison.append(node('summary', 'Compare your edits with the latest saved version'));
+      for (const [field,label] of [['title','Title'],['description','Description'],['labels','Labels'],['executionOrder','Planning order']]) {
+        const show = value => Array.isArray(value) ? value.join(', ') : String(value ?? '(not set)');
+        const section = node('section'); section.append(node('h4',label),node('p','Your unsaved version'),node('pre',show(draft[field])),node('p','Latest saved version'),node('pre',show(latest[field]))); comparison.append(section);
+      } detail.append(comparison);
       notice.textContent = 'Latest revision loaded. Your draft is unchanged; review the saved version before saving.';
     }
     if (!editable) notice.textContent = 'Editing requires the updated Backlog fork. Restart after installing it.';
@@ -128,13 +152,16 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
     const filter = node('input'); filter.type = 'search'; filter.placeholder = 'Search task ID, title, or status'; filter.setAttribute('aria-label', 'Search milestone tasks');
     const mode = node('select'); mode.setAttribute('aria-label', 'Task assignment filter');
     for (const [value, label] of [['assigned', 'Assigned tasks'], ['unassigned', 'Unassigned tasks'], ['all', 'All tasks']]) { const option = node('option', label); option.value = value; mode.append(option); }
+    let shown = 20;
     const rows = node('div', undefined, 'milestone-task-list'), status = node('p'); status.setAttribute('role', 'status');
-    section.append(filter, mode, status, rows); detail.append(section);
+    const more = button('Show more tasks', () => { shown += 20; render(); });
+    section.append(filter, mode, status, rows, more); detail.append(section);
     const render = () => {
       rows.replaceChildren();
       const matches = tasks.filter(t => (mode.value === 'all' || (mode.value === 'assigned' ? milestoneMatches(t.milestone, milestone) : !t.milestone)) && `${t.id} ${t.title} ${t.status}`.toLowerCase().includes(filter.value.toLowerCase()));
-      status.textContent = `${assigned(milestone).length} assigned · ${matches.length} shown`;
-      for (const task of matches) {
+      status.textContent = `${assigned(milestone).length} assigned · ${Math.min(shown,matches.length)} of ${matches.length} matching tasks shown`;
+      more.hidden = matches.length <= shown;
+      for (const task of matches.slice(0,shown)) {
         const row = node('div', undefined, 'milestone-task-row'), isAssigned = milestoneMatches(task.milestone, milestone);
         const label = onTask ? button(`${task.id} · ${task.title}`, () => onTask(task.id)) : node('span', `${task.id} · ${task.title}`);
         row.append(label, node('span', `${task.status || 'No status'}${task.milestone ? ` · ${task.milestone}` : ''}`, 'muted'));
@@ -157,7 +184,7 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
       }
       if (!matches.length) rows.append(node('p', 'No tasks match this filter.', 'muted'));
     };
-    filter.addEventListener('input', render); mode.addEventListener('change', render);
+    filter.addEventListener('input', () => { shown = 20; render(); }); mode.addEventListener('change', () => { shown = 20; render(); });
     section.append(button('Refresh tasks', async () => { const ticket = generation, project = projectKey(); await refresh(); if (current(ticket, project)) render(); })); render();
   }
   function renderRemoval(milestone, preserve) {
@@ -186,16 +213,52 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
     archiveButton.disabled = removeButton.disabled = !canWrite();
     section.append(archiveButton, handling, target, removeButton, status); detail.append(section);
   }
+  function placeDetail(id) {
+    const card = [...list.querySelectorAll('[data-milestone]')].find(el => el.dataset.milestone === id);
+    if (card) card.after(detail); else container.append(detail);
+  }
+  function closeDetail() {
+    editorRequest++; selected = null; clearDetail(); container.append(detail);
+    const card = [...list.querySelectorAll('[data-milestone]')].find(el => el.dataset.milestone === origin?.id);
+    card?.querySelector('button')?.focus({preventScroll:true});
+    if (origin) window.scrollTo({top:origin.y});
+  }
+  function renderReader(milestone) {
+    clearDetail(); placeDetail(milestone.id);
+    const title = node('h3', milestone.title); title.tabIndex = -1;
+    const prose = node('article', undefined, 'docs-prose'); prose.innerHTML = renderMarkdown(milestone.description || 'No scope description provided.').html;
+    const actions = node('div', undefined, 'milestone-actions');
+    actions.append(button('Back to milestones', closeDetail), button('Edit milestone', () => renderEditor(milestone, drafts.get(key(milestone.id)) || {expectedRevision:milestone.revision,title:milestone.title,description:milestone.description || '',labels:milestone.labels || [],executionOrder:milestone.executionOrder ?? ''})));
+    detail.append(actions, title);
+    if (drafts.has(key(milestone.id))) detail.append(node('p','Unsaved edits in this tab are available. Edit milestone to resume them.','muted'));
+    detail.append(prose);
+    const readerTicket = editorRequest, readerProject = projectKey();
+    cleanupProse = bindProseInteractions(prose,{api,onOpenRecord,sourcePath:milestone.path || '',report:text => { message.textContent = text; },isCurrent:() => !destroyed && readerTicket === editorRequest && readerProject === projectKey()});
+    const state = milestoneState(milestone,tasks), linked = node('section', undefined, 'milestone-tasks');
+    linked.append(node('h4','Linked delivery tasks'));
+    const taskRows = node('div'), count = node('p',undefined,'muted'); count.setAttribute('role','status');
+    let shown = 20;
+    const more = button('Show more linked tasks', () => { shown += 20; renderLinked(); });
+    function renderLinked() {
+      taskRows.replaceChildren();
+      count.textContent = state.linked.length ? `${Math.min(shown,state.linked.length)} of ${state.linked.length} linked tasks shown` : 'No delivery tasks linked.';
+      for (const task of state.linked.slice(0,shown)) taskRows.append(onTask ? button(`${task.id} - ${task.title} - ${task.status || 'No status'}`, () => onTask(task.id)) : node('p',`${task.id} - ${task.title} - ${task.status || 'No status'}`));
+      more.hidden = state.linked.length <= shown;
+    }
+    linked.append(count,taskRows,more); renderLinked();
+    detail.append(linked); title.focus({preventScroll:true}); detail.scrollIntoView({block:'nearest'});
+  }
   async function open(id) {
     if (busy) return;
-    const ticket = generation, project = projectKey(), loadRequest = ++editorRequest; selected = id;
+    const ticket = generation, project = projectKey(), loadRequest = ++editorRequest; selected = id; message.textContent = 'Loading milestone…';
     try {
       const milestone = unwrap(await load(id));
       if (!current(ticket, project) || selected !== id || loadRequest !== editorRequest) return;
-      renderEditor(milestone, drafts.get(key(id)) || { expectedRevision: milestone.revision, title: milestone.title, description: milestone.description || '', labels: milestone.labels || [], executionOrder: milestone.executionOrder ?? '' });
+      message.textContent = ''; renderReader(milestone);
     } catch (error) { if (current(ticket, project)) message.textContent = errorText(error); }
   }
   async function refresh() {
+    if (!milestones.length) message.textContent = 'Loading milestones...';
     const ticket = generation, project = projectKey(), requestId = ++request;
     try {
       const value = await (api ? api('/milestones') : read('/api/milestones'));
@@ -207,9 +270,9 @@ export function createMilestonePanel({ container, read, write, api, canWrite = (
       milestones = Array.isArray(value) ? value : value.milestones || [];
       tasks = Array.isArray(taskValue) ? taskValue : taskValue.tasks || [];
       archived = Array.isArray(archiveValue) ? archiveValue : archiveValue.milestones || [];
-      renderList();
+      message.textContent = ''; renderList();
     } catch (error) { if (current(ticket, project) && requestId === request) message.textContent = errorText(error); }
   }
-  function reset() { generation++; request++; editorRequest++; busy = false; selected = null; milestones = []; tasks = []; archived = []; showArchived = false; search.value = ''; toggle.textContent = 'Show archived'; list.replaceChildren(); detail.replaceChildren(); message.textContent = ''; }
+  function reset() { generation++; request++; editorRequest++; busy = false; selected = null; milestones = []; tasks = []; archived = []; showArchived = false; search.value = ''; toggle.textContent = 'Show archived'; list.replaceChildren(); clearDetail(); message.textContent = ''; }
   return { refresh, reset, open, destroy() { reset(); destroyed = true; container.replaceChildren(); } };
 }

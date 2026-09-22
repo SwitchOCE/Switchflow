@@ -31,3 +31,11 @@ export function knowledgePayload(draft, kind) {
 export function recordFingerprint(record) {
   return JSON.stringify([record.id, record.title, record.rawContent, record.type, record.tags || [], record.path, record.status, record.date]);
 }
+
+// Compare editable fields without exposing storage-specific JSON to the reader.
+export function knowledgeFieldComparison(draft, latest, kind) {
+  const saved = draftFrom(latest, kind);
+  return (kind === 'decisions' ? ['title', 'content'] : ['title', 'content', 'type', 'folder', 'tags'])
+    .map(field => ({field, label: {title:'Title',content:'Content',type:'Type',folder:'Folder',tags:'Tags'}[field], mine:draft[field] || '', saved:saved[field] || ''}))
+    .filter(row => row.mine !== row.saved);
+}

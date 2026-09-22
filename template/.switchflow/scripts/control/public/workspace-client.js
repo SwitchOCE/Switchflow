@@ -17,10 +17,21 @@ export function createNativeClient({projectId,token,canWrite = () => true,onWrit
         ...(writing ? {headers:{'Content-Type':'application/json','X-Switchflow-Token':token()},...(body === undefined ? {} : {body:JSON.stringify(body)})} : {}),
       });
       const data = response.status === 204 ? null : await response.json();
-      if (!response.ok) { const error = new Error(typeof data?.error === 'string' ? data.error : data?.message || `Request failed (${response.status}).`); error.status = response.status; throw error; }
+      if (!response.ok) {
+        const error = new Error(typeof data?.error === 'string' ? data.error : data?.message || `Request failed (${response.status}).`);
+        error.status = response.status;
+        // A server failure may follow an applied write. Only an explicit client
+        // rejection establishes that retry cannot duplicate an earlier effect.
+        if (writing) error.outcome = response.status < 500 ? 'rejected' : 'unknown';
+        throw error;
+      }
       return data;
     } catch (error) {
-      if (writing && !error.status) error.message += ' The save outcome is uncertain. Check the saved record before retrying.';
+      if (writing && (!error.status || error.outcome === 'unknown')) {
+        error.outcome = 'unknown';
+        error.requiresReconciliation = true;
+        error.message += ' The save outcome is uncertain. Check the saved record before retrying.';
+      }
       throw error;
     } finally { if (writing) onWrite(-1); }
   };

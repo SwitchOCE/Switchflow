@@ -3,6 +3,8 @@
 .skill-source pre{white-space:pre-wrap;overflow-wrap:anywhere;font:.85rem/1.6 ui-monospace,Consolas,monospace}
 .skill-references{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
 .skills-reader .docs-nav{max-height:75vh}
+.skills-reader .docs-nav[aria-busy=true]{opacity:.68}
+.skills-reader .docs-nav>.button{margin:.5rem}
 .skills-reader .docs-excerpt{overflow-wrap:anywhere}
 .skills-reader .muted{color:var(--docs-muted)}
 [data-theme=dark] .skills-reader{--docs-border:#40535a;--docs-muted:#b6c6cc;--docs-accent:#8eb9ff;background:#203037;color:#e4edf0}

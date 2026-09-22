@@ -1,0 +1,996 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Switchflow UI review: make the next human action clear</title><style>:root{color-scheme:light;--ink:#182b33;--muted:#526570;--line:#d9e3e7;--accent:#086958;--bg:#f5f7f8}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;font:16px/1.65 system-ui,Segoe UI,sans-serif;color:var(--ink);background:var(--bg)}a{color:var(--accent);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}a:focus-visible,summary:focus-visible{outline:3px solid #bc6500;outline-offset:4px}.skip{position:absolute;left:16px;top:-100px;z-index:5;background:white;padding:12px}.skip:focus{top:8px}.rail{position:fixed;inset:0 auto 0 0;width:245px;background:#172e36;color:#e8f0f1;padding:30px 22px;overflow:auto}.rail a{color:#d2ebe4;display:block;margin:10px 0;text-decoration:none;font-size:14px;line-height:1.5}.rail a:hover{text-decoration:underline}.rail .brand{font-size:21px;font-weight:750;color:white}.rail .kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#a8c3c6;margin:30px 0 12px}.rail .divider{border-top:1px solid #476069;margin:24px 0}.rail .small{font-size:12px;color:#b6ccd0}.paper{max-width:1410px;margin-left:245px;padding:42px 44px 90px}article{background:white;border:1px solid var(--line);border-radius:14px;padding:40px 42px;min-width:0}h1{font-size:36px;line-height:1.18;letter-spacing:-.025em;max-width:900px;margin:0 0 24px}h2{font-size:25px;line-height:1.3;margin:48px 0 18px;padding-top:18px;border-top:1px solid var(--line)}h3{font-size:19px;line-height:1.4;margin:30px 0 12px}p,li{max-width:96ch}li{margin:6px 0}blockquote{border-left:4px solid #168c73;background:#edf7f3;margin:24px 0;padding:14px 22px}blockquote p{margin:8px 0}code{font: .86em/1.5 ui-monospace,Consolas,monospace;background:#eef2f4;border-radius:4px;padding:2px 4px;overflow-wrap:anywhere}pre{overflow:auto;background:#eef2f4;padding:20px;border-radius:8px}pre code{padding:0}.table-wrap{overflow-x:auto;margin:20px 0 30px;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55;min-width:760px}th,td{padding:14px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eaf1f2;font-weight:700;color:#203e46}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#f8fafb}td:first-child{font-weight:550}td a{overflow-wrap:anywhere}img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;margin:20px 0;max-height:730px;object-fit:contain;object-position:left top;background:#eef2f4}.meta{font-size:13px;color:var(--muted);margin:0 0 20px}.source{display:inline-block;margin-right:16px}.footer{color:var(--muted);font-size:13px;margin-top:24px}@media(max-width:1050px){.rail{width:210px;padding:24px 18px}.paper{margin-left:210px;padding:24px 20px}article{padding:28px 24px}}@media(max-width:760px){.rail{position:static;width:auto;max-height:none;padding:20px}.rail nav{display:flex;flex-wrap:wrap;gap:4px 16px}.rail nav a{margin:4px 0}.rail .toc,.rail .divider{display:none}.rail .kicker{margin:14px 0 4px}.paper{margin:0;padding:12px}article{padding:24px 18px}h1{font-size:29px}h2{font-size:23px}table{font-size:13px}.table-wrap{margin-left:-4px;margin-right:-4px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{.rail,.skip,.meta{display:none}.paper{margin:0;padding:0;max-width:none}article{border:0;padding:0}body{background:white;font-size:11pt}h1{font-size:26pt}h2{break-after:avoid}table{min-width:0;font-size:9pt}.table-wrap{overflow:visible}img{max-height:180mm;break-inside:avoid}a{color:inherit}th,td{padding:7px}h2{margin-top:28px}}</style></head><body><a class="skip" href="#content">Skip to report</a><aside class="rail"><div class="brand">Switchflow UI review</div><p class="small">22 September 2026<br>Human interactions and improvement path</p><p class="kicker">Report & evidence</p><nav aria-label="Report documents"><a href="REPORT.html" aria-current="page">Main review</a><a href="rendered-observations.html">Screenshots &amp; walkthrough</a><a href="local-ui-audit.html">Source interaction audit</a><a href="research-asana-jira.html">Asana &amp; Jira</a><a href="research-trello-plane.html">Trello &amp; Plane</a><a href="research-backlog-md.html">Backlog.md</a><a href="research-plane-code.html">Plane: code interactions</a><a href="research-backlog-code.html">Backlog.md: code interactions</a></nav><div class="divider"></div><div class="toc"><p class="kicker">On this page</p><nav aria-label="On this page"><a href="#contents">Contents</a><a href="#1-your-four-concerns">1. Your four concerns</a><a href="#2-evidence-and-limits">2. Evidence and limits</a><a href="#3-real-comparison-workflows">3. Real comparison workflows</a><a href="#4-findings-and-reasons-for-change">4. Findings and reasons for change</a><a href="#5-proposed-human-interaction-model">5. Proposed human interaction model</a><a href="#6-spacing-typography-and-scrolling-contract">6. Spacing, typography and scrolling contract</a><a href="#7-everyday-actions-and-exceptional-states">7. Everyday actions and exceptional states</a><a href="#8-improvement-path">8. Improvement path</a><a href="#9-human-acceptance-scenarios">9. Human acceptance scenarios</a><a href="#10-evidence-index-and-remaining-verification">10. Evidence index and remaining verification</a></nav></div></aside><main class="paper" id="content"><p class="meta"><a class="source" href="REPORT.md">Markdown source</a>Read-only review · Proposed improvements are not implemented</p><article><h1 id="switchflow-ui-review-make-the-next-human-action-clear">Switchflow UI review: make the next human action clear</h1>
+<p><strong>22 September 2026 · Current UI baseline: <code>763297bf791771a9a3d2633630960b625f290d73</code></strong></p>
+<p><strong>Recommended next step:</strong> the Switchflow product/design owner should adopt a shared interaction contract for navigation, next-action selection, task reading and history, then validate a rendered redesign using the existing long records. Start with the sidebar and readable task details, while resolving the meaning of “Needs you” before adding any automatic “Next” recommendation. The roadmap below separates small repairs from the larger interaction redesign.</p>
+<p>The principal problem is that Switchflow makes records available but asks the human to reconstruct their importance. It gives substantial space to metadata, repeated explanatory text and history, while the current decision, task narrative and path back to the previous context receive less support. Moving the top navigation into a sidebar is appropriate, but the largest improvement will come from making the everyday sequence coherent: <strong>orient → choose → read → act → return</strong>.</p>
+<p>This report contains <strong>33 consolidated findings</strong>, five product comparisons, two follow-up public-code investigations, 13 current Switchflow screenshots, an action inventory, proposed layout/scroll rules, and an improvement path with testable outcomes. The code follow-up adds two drag/drop findings and sharpens existing recommendations for conditional content, context retention, loading and recovery.</p>
+<h2 id="contents">Contents</h2>
+<ol>
+<li><a href="#1-your-four-concerns">Your four concerns</a></li>
+<li><a href="#2-evidence-and-limits">Evidence and limits</a></li>
+<li><a href="#3-real-comparison-workflows">Real comparison workflows</a></li>
+<li><a href="#4-findings-and-reasons-for-change">Findings and reasons for change</a></li>
+<li><a href="#5-proposed-human-interaction-model">Proposed human interaction model</a></li>
+<li><a href="#6-spacing-typography-and-scrolling-contract">Spacing, typography and scrolling contract</a></li>
+<li><a href="#7-everyday-actions-and-exceptional-states">Everyday actions and exceptional states</a></li>
+<li><a href="#8-improvement-path">Improvement path</a></li>
+<li><a href="#9-human-acceptance-scenarios">Human acceptance scenarios</a></li>
+<li><a href="#10-evidence-index-and-remaining-verification">Evidence index and remaining verification</a></li>
+</ol>
+<h2 id="1-your-four-concerns">1. Your four concerns</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Review conclusion</th>
+<th>Recommended improvement</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Topbar should become sidebar</td>
+<td><strong>Agree.</strong> Nine destinations occupy a second horizontal band and scroll sideways on narrow screens.</td>
+<td>Persistent, collapsible desktop sidebar; mobile navigation drawer; small contextual page header.</td>
+<td>Stable places are easier to recognize and return to; content gets more vertical space.</td>
+</tr>
+<tr>
+<td>Next milestone/task is unclear</td>
+<td><strong>Confirmed.</strong> All 17 live milestones were Unsequenced; alphabetical order put the final launch milestone first. The overview said 0 need attention while five Ready tasks belonged to Human.</td>
+<td>Separate <strong>Needs you</strong>, <strong>Agent working</strong>, <strong>Next eligible</strong>, and <strong>Waiting</strong>. Show the reason and evidence for each recommendation.</td>
+<td>A status, sort order or completion percentage does not tell a person what they should do next.</td>
+</tr>
+<tr>
+<td>Task text boxes do not show their contents well</td>
+<td><strong>Confirmed and measured.</strong> A real 3,404-character notes field had only 100px of visible height for 705px of content.</td>
+<td>Readable task detail by default, explicit edit mode, adaptive narrative editor and full-page expansion.</td>
+<td>Opening a task is usually an act of reading and understanding before editing.</td>
+</tr>
+<tr>
+<td>Too much full-history scrolling</td>
+<td><strong>Confirmed as an inconsistent policy, with an additional completeness problem.</strong> Comments/runs/Done history expand, while initiative events silently stop at 25. Some other elements already scroll internally.</td>
+<td>Summaries first; filtered, bounded histories with older-record access; one primary reading scroll per detail.</td>
+<td>The human needs current context quickly and complete evidence when investigating. Neither endless expansion nor silent truncation provides both.</td>
+</tr>
+</tbody></table></div>
+<h3 id="what-the-current-screens-demonstrate">What the current screens demonstrate</h3>
+<p><strong>Desktop task detail:</strong> metadata occupies the top of an edit form, followed by a 100px description and an equally large empty Block reason field. The sticky action footer is a useful existing behavior to preserve.</p>
+<p><img src="screenshots/04-task-description.png" alt="Current task detail: metadata above a cramped description"></p>
+<p><strong>Long notes:</strong> the implementation notes field exposes approximately 14% of its scroll height at once. That ratio describes geometry, not measured comprehension. Manual resizing is available, but the default makes every reader repair the layout.</p>
+<p><img src="screenshots/05-task-long-notes.png" alt="A substantial task history in a four-row notes box"></p>
+<p><strong>Milestones:</strong> the first visible outcome is the final launch, because every milestone lacks explicit sequence and the fallback is alphabetical. Tiny independent description scrollers and literal Markdown headings make the cards hard to scan.</p>
+<p><img src="screenshots/06-milestones.png" alt="Unsequenced milestone cards and small description scroll areas"></p>
+<p><strong>Narrow layout:</strong> at 390 × 844, the Tasks screen contains navigation, search and filters but no visible task card. In the task dialog, metadata similarly consumes the first screen before the description becomes readable.</p>
+<p><img src="screenshots/12-tasks-mobile.png" alt="Narrow Tasks view before any task is visible"></p>
+<h2 id="2-evidence-and-limits">2. Evidence and limits</h2>
+<p>This combines the original four delegated investigations and rendered walkthrough with two follow-up agents tracing Plane and Backlog.md&#39;s public UI code. The follow-up examines gestures, state transitions and conditional rendering that static screenshots cannot establish.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Evidence class</th>
+<th>What was checked</th>
+<th>What it supports</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>R — Rendered</strong></td>
+<td>Existing local Switchflow service, Anagrind selected; 97 tasks, 17 milestones, documents, decisions, drafts, insights, settings, skills, search and the initiative creation form. Desktop 1440 × 1000, narrow 390 × 844, and the initial app-panel viewport.</td>
+<td>Current visible layout, record counts, modal sizing, search results, navigation and close/refresh behavior. <a href="rendered-observations.html">Walkthrough register</a>.</td>
+</tr>
+<tr>
+<td><strong>S — Source</strong></td>
+<td>All 21 public UI files. Their served content matches the reviewed checkout after line-ending normalization.</td>
+<td>Conditional states and interaction paths, including populated initiative gates, conflict handling and history limits. <a href="local-ui-audit.html">Source audit</a>, <a href="live-source-comparison.json">match manifest</a>.</td>
+</tr>
+<tr>
+<td><strong>D — Documented comparison</strong></td>
+<td>Current official Asana, Jira, Trello and Plane help documentation and product illustrations; official Backlog.md release/docs/source.</td>
+<td>Real supported human workflows and available interface patterns. Does not mean a logged-in account was operated.</td>
+</tr>
+<tr>
+<td><strong>C — Comparator code</strong></td>
+<td>Plane and Backlog.md public UI implementations at the immutable revisions recorded in the two code appendices; handlers, callers, state and render predicates traced.</td>
+<td>Implementation-specific interaction evidence, including drag/drop, conditional content and grouped loading. Not proof of a current hosted edition, successful browser operation or accessibility conformance.</td>
+</tr>
+<tr>
+<td><strong>P — Proposal</strong></td>
+<td>Consolidated layouts, sizes, sorting rules, batch sizes and acceptance targets below.</td>
+<td>Design hypotheses and implementation direction. They are not claimed to be universal industry requirements or measured improvements.</td>
+</tr>
+</tbody></table></div>
+<p>The live project has no initiatives. Populated Intake, Planning, UAT, active-run/recovery and long initiative histories were therefore source-reviewed, not exercised live. No project records, approvals, settings or production agent runs were changed. Competitor evidence is official documentation/source, not hands-on tenant testing. No participant study, full assistive-technology audit or performance benchmark was performed. The follow-up&#39;s Switchflow drag-visibility probe invokes the actual handler with DOM/API doubles; it is explicitly not a real browser gesture test.</p>
+<p>“Industry standard” is used here carefully. <strong>Common product conventions</strong> include sidebars, personal queues, contextual detail panes, rich narrative reading and filtered activity. <strong>Accessibility requirements</strong> provide more precise rules for focus, reflow and targets. Exact widths, colors, padding and pagination sizes remain Switchflow design decisions to validate.</p>
+<h2 id="3-real-comparison-workflows">3. Real comparison workflows</h2>
+<p>These are sequences a person actually follows according to the products&#39; primary sources. Each comparison identifies the useful interaction, its relevance and what should not be inferred.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Product</th>
+<th>Concrete human workflow</th>
+<th>What Switchflow should learn</th>
+<th>Evidence / limits</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Asana</strong></td>
+<td>Sidebar → My tasks → filter/group an incomplete personal queue → select task → read details alongside work → expand full screen if needed → inspect comments/previous updates → return to queue.</td>
+<td>Give attention its own destination; preserve the source list while reading; distinguish current description from prior updates.</td>
+<td><a href="https://help.asana.com/s/article/navigating-asana">Navigation</a>, <a href="https://help.asana.com/s/article/maximize-productivity-with-my-tasks">My tasks</a>, <a href="https://help.asana.com/s/article/task-fields">task fields</a>, <a href="https://help.asana.com/s/article/task-comments-and-attachments">comments/history</a>. Earlier updates can be collapsed; this does not establish page-numbered history.</td>
+</tr>
+<tr>
+<td><strong>Jira</strong></td>
+<td>Sidebar → board/backlog/list → quick filter → choose density/fields → open preview or detail → read main narrative with contextual properties → choose Comments or History → return to the filtered workset.</td>
+<td>Let people reduce the workset before scrolling; use aligned lists and configurable density; separate narrative from categorization; filter the activity question.</td>
+<td><a href="https://support.atlassian.com/jira-software-cloud/docs/what-is-the-new-navigation-in-jira/">Navigation</a>, <a href="https://support.atlassian.com/jira-software-cloud/docs/customize-your-view-of-the-board-and-backlog/">board/backlog controls</a>, <a href="https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-work-items-from-your-list/">list preview</a>, <a href="https://support.atlassian.com/jira-software-cloud/docs/what-are-the-different-types-of-activity-on-an-issue/">activity types</a>. No claim of item-history pagination; advanced dependency planning may be plan-dependent.</td>
+</tr>
+<tr>
+<td><strong>Trello</strong></td>
+<td>Open board switcher → search/recent/starred board → optionally pin switcher as sidebar → filter cards → open card → format description → return to board; personal Home provides a bounded Up Next route.</td>
+<td>Keep global navigation separate from board actions; provide a bounded attention queue; support simple, contextual capture and clear return.</td>
+<td><a href="https://support.atlassian.com/trello/docs/navigation-in-trello/">Navigation</a>, <a href="https://support.atlassian.com/trello/docs/the-home-page/">Home</a>, <a href="https://support.atlassian.com/trello/docs/how-to-format-your-text-in-trello/">formatting</a>. Home documents up to 20 due-date cards. This is triage, not proof of history pagination or authoritative task sequencing.</td>
+</tr>
+<tr>
+<td><strong>Plane</strong></td>
+<td>Sidebar → Your Work or saved project View → filter → open side peek → choose modal/full screen for deeper work → collapse properties → inspect activity by tab/type/order → return to the source workset.</td>
+<td>Adapt the reading surface to the task; retain context; put frequently reused questions into named views; make history explicitly selectable.</td>
+<td><a href="https://docs.plane.so/workspaces-and-users/customize-navigation">Navigation</a>, <a href="https://docs.plane.so/your-work">Your Work</a>, <a href="https://docs.plane.so/core-concepts/issues/overview">detail and activity</a>, <a href="https://docs.plane.so/core-concepts/views">Views</a>. Tabs/filtering/sorting are documented; internal history scrolling/pagination is not established.</td>
+</tr>
+<tr>
+<td><strong>Backlog.md</strong></td>
+<td>Local browser → sidebar quick search or filtered board → task detail → read/preview → edit large Markdown fields with metadata alongside → save and return with context retained. Current source also renders all comments.</td>
+<td>Reuse familiar local-tool patterns: sidebar, readable detail, large narrative editors, dependency/readiness explanations and filter/scroll retention.</td>
+<td><a href="https://github.com/MrLesk/Backlog.md/releases/tag/v1.51.0">Official v1.51.0 release</a>, <a href="https://raw.githubusercontent.com/MrLesk/Backlog.md/main/src/web/components/TaskDetailsModal.tsx">task detail source</a>. Switchflow pins v1.50.1 plus its patch; current upstream behavior must not be attributed to that pinned runtime. Backlog.md is not a complete solution to history or Switchflow&#39;s approval workflow.</td>
+</tr>
+</tbody></table></div>
+<p>The comparison supports a shared pattern: <strong>a focused workset plus a contextual detail surface</strong>. It does not justify copying an entire competitor, adding calendars/timelines without a user need, or treating Ready as permission for an agent to execute.</p>
+<p>Detailed step-by-step evidence and primary URLs: <a href="research-asana-jira.html">Asana/Jira</a>, <a href="research-trello-plane.html">Trello/Plane</a>, <a href="research-backlog-md.html">Backlog.md</a>. Additional implementation evidence: <a href="research-plane-code.html">Plane code interactions</a> and <a href="research-backlog-code.html">Backlog.md code interactions</a>. The code appendices supplement the original comparisons; their transfer suggestions are candidates, with the consolidated contract below taking precedence.</p>
+<h3 id="what-the-code-review-adds-beyond-the-screenshots">What the code review adds beyond the screenshots</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Interaction invisible in a static screenshot</th>
+<th>Source-backed comparison</th>
+<th>Consequence for this report</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Reach an initially empty destination</td>
+<td>Backlog.md defers revealing hidden columns until after native drag starts; Plane keeps configured visible columns as drop targets even when empty.</td>
+<td>New F32. Hiding unused space must not remove the next interaction; reveal timing itself needs a real gesture test.</td>
+</tr>
+<tr>
+<td>Place a card exactly where intended</td>
+<td>Backlog.md handles upper/lower card halves, insertion markers and self-drop; Plane provides insertion guidance, drag-over feedback and board/column autoscroll.</td>
+<td>New F33 plus stronger F13 acceptance. Verify gesture intent, final order and cancellation, not merely that a drag handler exists.</td>
+</tr>
+<tr>
+<td>Understand absent or unavailable content</td>
+<td>Plane conditions parent detail, editing and the activity composer on record/permission state. Backlog.md omits an empty Final Summary in preview but reveals it in Edit; Description/Plan/Notes instead retain “No …” placeholders, while unresolved parent/subtask sections are absent.</td>
+<td>Refine F07/F31 with a field-specific presence/action matrix. Preserve discoverable creation paths where supported; missing required evidence remains explicit.</td>
+</tr>
+<tr>
+<td>Reach more work inside a long column</td>
+<td>Plane&#39;s inspected board requests initial grouped batches and subsequent group/subgroup pages; subgroup rendering includes a visible Load more path.</td>
+<td>Strengthens F16/Stage 4 with actual code precedent for per-group loading. This does <strong>not</strong> establish activity-history pagination. Backlog.md&#39;s full task-list/comment rendering remains a counterexample.</td>
+</tr>
+<tr>
+<td>Navigate while data changes</td>
+<td>Backlog.md preserves source query state and rejects stale modal reads; Plane guards peek-close behavior around nested overlays and restores focus on its Escape path.</td>
+<td>Sharpen F18/F20/F23/F31: test rapid A→B navigation, nested overlay Escape, dirty writing and exact focus return. Preserve existing Switchflow generation guards.</td>
+</tr>
+<tr>
+<td>Recover after a partially understood move</td>
+<td>Backlog.md exposes applied/partial/unknown mutation outcomes; selection paths explain affected records.</td>
+<td>Refine F31: reconcile before retry and do not promise a naive undo over concurrent changes. Bulk selection is an optional future contract, not a new feature requirement.</td>
+</tr>
+</tbody></table></div>
+<p>All rows are <strong>C — comparator source</strong>, with immutable file/line links and limitations in <a href="research-plane-code.html">Plane</a> and <a href="research-backlog-code.html">Backlog.md</a>. The exact inspected versions are comparators, not a claim about every release, hosted tier or browser. Existing controls, accessibility gaps and partial error recovery in those implementations are reasons to borrow the useful behavior selectively.</p>
+<h2 id="4-findings-and-reasons-for-change">4. Findings and reasons for change</h2>
+<p><strong>Priority:</strong> P1 = core decision, reading or trust problem; P2 = material navigation/interaction friction; P3 = bounded consistency/polish. These are repair priorities, not a claim of a production incident. Source-only findings should be reproduced in disposable fixtures before changing behavior. References L01–L27 point to the detailed <a href="local-ui-audit.html">source audit</a>; R01–R15 to <a href="rendered-observations.html">rendered observations</a>. The consolidated recommendations in this report supersede the research agents&#39; provisional prescriptions; the appendices retain their evidence and alternatives.</p>
+<h3 id="orientation-next-work-and-milestones">Orientation, next work and milestones</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Priority / evidence</th>
+<th>Finding and human cost</th>
+<th>Improvement and why</th>
+<th>Acceptance example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F01</td>
+<td>P1 · R01/R02, S L01</td>
+<td>“0 need attention” sits alongside five Ready Human tasks. The counter covers initiatives, but appears project-wide.</td>
+<td>Count or explicitly separate pending initiative decisions and ready human tasks. A precise label prevents false reassurance.</td>
+<td>The same dataset says “0 initiative decisions · 5 ready human tasks,” with a route to each. It does not claim every Ready task is approved to execute.</td>
+</tr>
+<tr>
+<td>F02</td>
+<td>P1 · R02/R06, S L01</td>
+<td>No combined explanation of current, next and blocked work. IDs, card order, milestone sequence and readiness compete as possible signals.</td>
+<td>Add distinct Needs you / Agent working / Next eligible / Waiting sections with reasons and origin links. This reduces inference and protects approval meaning.</td>
+<td>A blocked earliest milestone cannot become “Next” solely because it sorts first; ambiguous order is labelled unresolved.</td>
+</tr>
+<tr>
+<td>F03</td>
+<td>P2 · R01/R12, S L05</td>
+<td>Two horizontal navigation bands, offscreen destinations and repeated onboarding consume working space.</td>
+<td>Sidebar with visible current project/destination, collapsible groups and narrow-screen drawer. Shorten returning-user intro. Asana/Jira/Plane and Backlog.md support the convention.</td>
+<td>All destinations remain discoverable, keyboard focus returns after drawer close, current context stays visible while reading.</td>
+</tr>
+<tr>
+<td>F04</td>
+<td>P1 · R06, S L01</td>
+<td>Every live milestone is Unsequenced, so “Accept and launch” appears first. The prose explains IDs, but offers no recovery from missing sequence.</td>
+<td>Separate ordered upcoming work, active work, completed outcomes and unsequenced records. Offer “Review milestone order” only as a planning action.</td>
+<td>Show “Order not established” rather than inventing the next milestone; editing display order does not silently change authorization.</td>
+</tr>
+<tr>
+<td>F05</td>
+<td>P2 · R06, S milestones.css:5</td>
+<td>Tall cards mix raw Markdown, independent description scrollbars and 0/0 progress for contract records. Users must inspect many boxes to understand one outcome.</td>
+<td>Show title, one short summary, meaningful state, task counts and blocker/next cue; put full formatted scope in detail. Give 0-task records a truthful “No delivery tasks linked” state.</td>
+<td>Milestone cards scan without inner prose scrolling; 0/0 is not presented as failure or acceptance.</td>
+</tr>
+<tr>
+<td>F06</td>
+<td>P2 · R07, S L06</td>
+<td>Edit opens after the entire milestone grid, then close targets the first item. Reading a milestone feels like being transported elsewhere.</td>
+<td>Use consistent detail navigation and restore the exact origin. Offer “Open milestone” separately from edit.</td>
+<td>Open a middle milestone, inspect a linked task and return to the same card/filter/position.</td>
+</tr>
+</tbody></table></div>
+<h3 id="task-reading-editing-and-manipulation">Task reading, editing and manipulation</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Priority / evidence</th>
+<th>Finding and human cost</th>
+<th>Improvement and why</th>
+<th>Acceptance example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F07</td>
+<td>P1 · R03/R04/R14, S L02</td>
+<td>Every prose field starts at four rows / 100px, even 3,404-character notes. Metadata comes first; reading requires field scrolling and resizing.</td>
+<td>Read view by default; narrative as the main area, compact secondary properties; explicit edit/expand. Asana/Plane/Jira and Backlog.md all offer useful contextual detail patterns.</td>
+<td>Long formatted description/notes are readable with one primary content scroll; a 1-line blocker is compact; narrow layout shows task purpose before metadata.</td>
+</tr>
+<tr>
+<td>F08</td>
+<td>P2 · R02/R14, S L21</td>
+<td>Small critical metadata and repeated Open / move controls use card space without clarifying the primary action. Title becomes a clipping input in detail.</td>
+<td>Use a wrapping task title as the heading, readable status/owner, one clear open target and a contextual menu. Place Move in that menu with an explicit destination.</td>
+<td>Users can name task, owner and status without opening it or deciphering small labels; title is fully readable.</td>
+</tr>
+<tr>
+<td>F09</td>
+<td>P2 · S L11</td>
+<td>Dependency entry is comma-separated IDs; reserved “dependent” may reach task cards without useful explanation.</td>
+<td>Linked titles, predecessor states, “Blocked by / Blocks,” and a searchable relationship picker. This turns relationship data into a human explanation.</td>
+<td>User identifies the actual prerequisite and navigates to it without remembering an ID.</td>
+</tr>
+<tr>
+<td>F10</td>
+<td>P2 · S L12</td>
+<td>AC needs <code>[x]</code> syntax; DoD has adjacent Keep and completion checkboxes. Clearing the wrong control can remove rather than complete a criterion.</td>
+<td>Consistent checklist rows: complete, edit, remove; advanced bulk text mode optional.</td>
+<td>Checking a criterion never removes it; removal names the criterion and is reversible before save.</td>
+</tr>
+<tr>
+<td>F11</td>
+<td>P2 · S L16</td>
+<td>Ordinary Close silently keeps task edits; there is no ordinary discard path. Draft policy sits below the form.</td>
+<td>Visible saved/unsaved/draft state and consistent Save / Discard / Close meaning. Keep recovery but explain what survives.</td>
+<td>Edit → close → reopen → discard → reopen restores the saved value without developer tools.</td>
+</tr>
+<tr>
+<td>F12</td>
+<td>P1 · S L15/L26</td>
+<td>Conflict comparison uses raw JSON; discarding a document draft has no undo. Recovery asks the user to understand storage structure or risks losing prose.</td>
+<td>Human field-level comparison and reversible discard. Keep revision checks intact.</td>
+<td>A description/labels conflict is understandable without JSON; accidental discard of a long draft can be recovered.</td>
+</tr>
+<tr>
+<td>F13</td>
+<td>P2 · S L18</td>
+<td>Within-column task ordering is drag-only. Open / move does not provide equivalent position control.</td>
+<td>Move menu with before/after/top/bottom choices and clear feedback; distinguish visual order from approved work order.</td>
+<td>Keyboard and touch users can perform the same placement as a pointer drag.</td>
+</tr>
+</tbody></table></div>
+<h3 id="reading-history-finding-work-and-retaining-context">Reading history, finding work and retaining context</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Priority / evidence</th>
+<th>Finding and human cost</th>
+<th>Improvement and why</th>
+<th>Acceptance example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F14</td>
+<td>P1 · S L03</td>
+<td>All comments precede their composer; all initiative runs render into detail. History pushes contribution and current actions away.</td>
+<td>Recent meaningful update, discussion/activity filters, collapsed run summaries, accessible older-record loading. Keep the composer readily reachable.</td>
+<td>100 comments/50 runs do not make the initial task view longer; all earlier records remain reachable.</td>
+</tr>
+<tr>
+<td>F15</td>
+<td>P1 · S L04</td>
+<td>Initiative activity silently shows only the latest 25 events. This can look like a complete history.</td>
+<td>Loaded/total or truthful “latest” label plus older-event access.</td>
+<td>In a 26-event fixture, event 1 remains retrievable and the limit is apparent.</td>
+</tr>
+<tr>
+<td>F16</td>
+<td>P2 · R02/R09, S L20</td>
+<td>Long task columns and 63 Done history rows expand the page. The largest column controls the board&#39;s vertical burden.</td>
+<td>Persistent column headings, bounded board lanes; explicit paging/load-more for lists and audit tables.</td>
+<td>Long Done column does not push controls out of reach; current/total ranges are visible.</td>
+</tr>
+<tr>
+<td>F17</td>
+<td>P2 · R13, S L09</td>
+<td>Searching one task still says 97 tasks; empty board columns can hide that match offscreen.</td>
+<td>“1 of 97 tasks,” active filter indicators and an obvious filtered-list route; collapse empty filtered groups when appropriate.</td>
+<td>A one-result query produces a visible, truthful one-result state with Clear filters.</td>
+</tr>
+<tr>
+<td>F18</td>
+<td>P2 · S L09/L10</td>
+<td>List reuses card content; sort choices and durable working-view state are absent.</td>
+<td>Aligned comparison rows, a restrained sort/density control, per-project view retention. Jira/Plane illustrate this workset model.</td>
+<td>Switching away/back preserves the workset; rows permit scanning status/owner/milestone down consistent columns.</td>
+</tr>
+<tr>
+<td>F19</td>
+<td>P2 · R10, S L19</td>
+<td>Global search has a 40-result native request cap and one undifferentiated list, with no scope/type controls, matched excerpts or continuation.</td>
+<td>Type filters, snippets, relevant status context and truthful cap/continuation wording.</td>
+<td>Two similarly titled records are distinguishable; a capped result set does not claim completeness.</td>
+</tr>
+<tr>
+<td>F20</td>
+<td>P2 · R05, S L07/L08</td>
+<td>Close leaves task selected in URL; reload reopens it. Linked tasks also lose initiative/milestone origin.</td>
+<td>Route detail open/close consistently, with explicit origin breadcrumb and Back/Forward behavior.</td>
+<td>Close→reload stays closed; linked task→Back returns to the exact plan/milestone position.</td>
+</tr>
+</tbody></table></div>
+<h3 id="human-gates-accessibility-and-supporting-surfaces">Human gates, accessibility and supporting surfaces</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Priority / evidence</th>
+<th>Finding and human cost</th>
+<th>Improvement and why</th>
+<th>Acceptance example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F21</td>
+<td>P1 · S L13</td>
+<td>The current initiative action appears below request/context/scope/plan. Returning to a decision requires retraversing evidence.</td>
+<td>Stable decision/action region plus Scope / Plan / Evidence navigation; keep consequence text beside approval.</td>
+<td>Long-plan review can jump to evidence and return to the decision without losing the reading position.</td>
+</tr>
+<tr>
+<td>F22</td>
+<td>P1 · S L14/L27</td>
+<td>UAT has no progress/resume overview. Source additionally shows per-check results/notes are submitted by Accept, while Request rework submits only overall feedback and then clears UAT drafts. Detailed failed observations can be lost from that path.</td>
+<td>First reproduce the rework path in a disposable fixture; retain and submit the review&#39;s observations when requesting rework. Add completed/remaining counts and next-unchecked navigation.</td>
+<td>Mark one check Needs rework with detailed notes, submit rework, reopen: those notes and their check association remain available to both user and correction workflow. No automatic acceptance.</td>
+</tr>
+<tr>
+<td>F23</td>
+<td>P2 · S L17</td>
+<td>Task action/review dialogs have headings but no programmatically associated dialog name.</td>
+<td>Name every dialog; deliberate entry focus, Escape and exact focus return. Follow the <a href="https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/">WAI modal dialog pattern</a>.</td>
+<td>Archive/promote/repair dialogs announce purpose and return to the initiating item after cancel.</td>
+</tr>
+<tr>
+<td>F24</td>
+<td>P2 · R12/R14, S L05/L22</td>
+<td>Narrow layouts stack the entire navigation/filter/property hierarchy above work. Hidden connection status also removes useful context.</td>
+<td>Drawer navigation, compact active-filter summary, primary narrative first, collapsed optional metadata and a compact connection state.</td>
+<td>At 390px, the first task or task purpose is visible promptly; disconnection remains discoverable.</td>
+</tr>
+<tr>
+<td>F25</td>
+<td>P2 · R08, S L22</td>
+<td>Documents already have a good reader, but narrow browse/TOC stacks and bottom-only edit actions can delay reading/saving.</td>
+<td>Reuse its prose renderer for tasks; collapse Browse/Contents on small screens and keep identity/save state accessible.</td>
+<td>Open a long document on narrow screen and reach content immediately; save remains easy during a long edit.</td>
+</tr>
+<tr>
+<td>F26</td>
+<td>P2 · R09, S L23</td>
+<td>Insights shows raw milestone IDs and unlinked Done task rows. It describes totals without helping the user investigate them.</td>
+<td>Outcome titles, links into filtered work and paged Done history; keep “Share marked Done” and “Last updated” wording honest.</td>
+<td>A person opens the relevant completed task from Insights and returns to the same history position.</td>
+</tr>
+<tr>
+<td>F27</td>
+<td>P2 · R15, S L16</td>
+<td>Drafts means saved backlog draft records, while task prose is also retained as an unsaved browser draft elsewhere. Same word, different recovery expectations.</td>
+<td>Clearly label “Draft tasks” versus “Unsaved edits in this tab”; provide an explicit recovery route.</td>
+<td>A user knows where an unfinished new task and an edited existing task can each be recovered.</td>
+</tr>
+<tr>
+<td>F28</td>
+<td>P3 · S L24</td>
+<td>Add DoD default focuses the first existing row instead of the newly appended row.</td>
+<td>Focus the new input explicitly.</td>
+<td>With three items, Add places the cursor in item four.</td>
+</tr>
+<tr>
+<td>F29</td>
+<td>P3 · R15, S L25</td>
+<td>Date display preferences are not consistently reflected in comments/activity/Insights. General Settings also includes native-browser-only fields.</td>
+<td>Scope settings by effect; shared date formatting where promised, or accurate narrower wording.</td>
+<td>The user can tell what a setting changes and sees the documented date format on affected surfaces.</td>
+</tr>
+<tr>
+<td>F30</td>
+<td>P2 · R01/R02/R06, S L21</td>
+<td>Type sizes, padding, card height and control placement reflect individual components more than a common reading hierarchy.</td>
+<td>Shared typography/spacing/action rules, tested with long titles and real prose; comfortable default and optional compact list.</td>
+<td>Core state/owner/blocker remain readable while redundant controls and arbitrary gaps shrink. No claim of a contrast violation from font size alone.</td>
+</tr>
+<tr>
+<td>F31</td>
+<td>P2 · S cross-cutting inventory</td>
+<td>Loading/empty/offline/busy/conflict states exist, but action explanations and recovery placement vary by surface. Skills, native diagnostics and ordinary work also compete at one navigation level.</td>
+<td>Shared state patterns and grouped navigation: explain what happened, whether drafts survive and the next available action; separate routine work from diagnostics.</td>
+<td>Each disabled operation has a nearby reason; failure retains input; no-match offers clear filters; returning connection does not reset the reader&#39;s place.</td>
+</tr>
+</tbody></table></div>
+<h3 id="additional-findings-from-the-public-code-follow-up">Additional findings from the public-code follow-up</h3>
+<p>These extend the original 31 findings. They were discovered by contrasting competitor interaction code with Switchflow&#39;s handlers, not by inspecting another screenshot. <a href="probe-drag-visibility.mjs">Probe source</a> and <a href="drag-visibility-probe.json">recorded result</a> use disposable in-memory records and zero production writes.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Priority / evidence</th>
+<th>Finding and human cost</th>
+<th>Improvement and why</th>
+<th>Acceptance example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F32</td>
+<td>P2 · S + handler probe; C Backlog B01</td>
+<td>With <code>hideEmptyColumns</code>, Switchflow&#39;s render predicate allows empty columns while dragging, but <code>dragstart</code> only sets a variable. No redraw occurs; even an unchanged refresh skips rendering. The user cannot target an absent column. <a href="../../template/.switchflow/scripts/control/public/tasks.js#L31">Render predicate</a>, <a href="../../template/.switchflow/scripts/control/public/tasks.js#L115">handlers</a>.</td>
+<td>Reveal eligible empty destinations safely after drag starts and restore the compact board after drop/cancel. Backlog.md explicitly defers its reveal to avoid aborting native Chromium dragging. Preserve the lifted node; a synchronous wholesale board rebuild is not an adequate fix.</td>
+<td>Hide an empty Done column, begin a drag, reach the revealed destination, then cancel/drop. Verify pointer behavior, compact-state restoration and the non-drag Move alternative in a disposable browser fixture.</td>
+</tr>
+<tr>
+<td>F33</td>
+<td>P2 · S + handler probe; C Backlog B02</td>
+<td>Drop placement is always before the hovered card, with no before/after marker. Dropping onto the lifted card removes its ID before lookup, fails to find the target, then appends it to the end. A two-card handler fixture requests reversing their order. <a href="../../template/.switchflow/scripts/control/public/tasks.js#L118">Drop calculation</a>.</td>
+<td>Show the proposed insertion position, honor top/bottom intent and make unchanged/self-drops no-ops. Preserve the visible workset on success; announce the task and destination. Order must remain distinct from execution authority.</td>
+<td>Drop above/below another card and onto the lifted card; the marker matches the saved outcome, and a self-drop sends no reorder. Repeat under filtering and across columns; keep all hidden tasks accounted for.</td>
+</tr>
+</tbody></table></div>
+<p>These findings supplement F13&#39;s accessible alternative to dragging. They do not establish the behavior of actual pointer hit-testing, touch dragging or browser cancellation, which still needs a rendered fixture.</p>
+<h3 id="what-should-be-preserved">What should be preserved</h3>
+<p>The redesign should retain the three explicit human gates; initiative next-action explanations; project-scoped draft recovery; explicit saves; failed-save retention; revision/conflict protections; keyboard focus styling; skip links; native dialogs; reduced-motion handling; document/skill readers; local image/link boundaries; and the task/settings sticky action controls. The review does not justify replacing these working safeguards or introducing additional routine human gates.</p>
+<h2 id="5-proposed-human-interaction-model">5. Proposed human interaction model</h2>
+<h3 id="a-sidebar-and-page-shell">A. Sidebar and page shell</h3>
+<p>Use a stable hierarchy rather than moving all nine topbar items into an equally weighted vertical list:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Sidebar group</th>
+<th>Destinations / contents</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Project identity</td>
+<td>Current project picker, search, collapse control</td>
+<td>Keep “where am I?” and “find something” in a consistent place.</td>
+</tr>
+<tr>
+<td>Work</td>
+<td>Overview, Needs you, Initiatives, Tasks, Milestones</td>
+<td>Group daily decisions and delivery context. Needs you is a view over existing records, not a new gate.</td>
+</tr>
+<tr>
+<td>Knowledge</td>
+<td>Documents, Decisions</td>
+<td>Preserve the distinction between instructions and recorded choices.</td>
+</tr>
+<tr>
+<td>More</td>
+<td>Draft tasks, Insights</td>
+<td>Keep secondary work available without equal visual emphasis. Promote Draft tasks if usage warrants it.</td>
+</tr>
+<tr>
+<td>Project tools</td>
+<td>Skills, Framework health, Settings</td>
+<td>Make maintenance findable while keeping it out of the primary decision path.</td>
+</tr>
+</tbody></table></div>
+<p>Use a short contextual header for breadcrumb/title, local search/filter and the relevant creation action. Project-wide New initiative should remain easy to find, but a task page should make Create task its local primary action. On a small screen use a labelled menu button and drawer; do not squeeze an icon rail and a detail pane beside 390px content.</p>
+<h3 id="b-make-next-work-explainable">B. Make next work explainable</h3>
+<p>The recommendation must be a truthful presentation of existing state, not a new implicit scheduling policy. Display these questions separately:</p>
+<ol>
+<li><strong>What needs my decision?</strong> Intake questions, scope/plan review, UAT, or a named recovery/access action. Show gate, affected initiative and the exact next interaction.</li>
+<li><strong>What human-owned task is ready to inspect?</strong> Include standalone/legacy tasks, which the current initiative attention count omits. Show their readiness and approval context separately.</li>
+<li><strong>What is the agent doing?</strong> Current task/phase, last meaningful update and whether it is running, queued, interrupted or waiting.</li>
+<li><strong>What is eligible next under the approved plan?</strong> Derive from accepted plan order and dependencies, and explain the reason. If several tasks can run in parallel, show an eligible group. If authority/order cannot be established, say so.</li>
+<li><strong>What is waiting, and on whom?</strong> Name the prerequisite, decision/access owner and condition that will unblock it.</li>
+</ol>
+<p>Within a category, use authoritative plan order when available. When unrelated initiatives are simultaneously actionable, show the set with a transparent display sort or owner pin; do not pretend one is uniquely correct. Priority and dates can support sorting but must not manufacture execution permission. The live snapshot has 96 tasks without priority, so priority alone would not solve this project.</p>
+<p><strong>Example based on the observed dataset, not an instruction to execute:</strong></p>
+<blockquote>
+<p><strong>Needs you:</strong> 5 Ready human tasks. No initiative decisions pending.<br><strong>Task marked In Progress:</strong> AN-35 · Reduce hosted study latency · assigned to Codex. Active execution is not established by this status.<br><strong>Milestone order:</strong> Not established for 17 milestones. Review the approved plan before selecting the next outcome.<br><strong>Waiting:</strong> 20 blocked tasks. Open a task to see its named prerequisites.</p>
+</blockquote>
+<p>This is already more honest and useful than a single “0 need attention.” A production recommendation should reconcile current authority and stale records before claiming work can proceed.</p>
+<h3 id="c-task-detail-for-reading-then-editing">C. Task detail for reading, then editing</h3>
+<p>Open a task in a contextual side panel when enough width remains for the source list. Offer <strong>Open full page</strong> for long work. On narrow screens use the full-page/detail presentation directly. A separate third modal mode is optional; shipping all modes is not necessary to meet the need.</p>
+<p>The detail should begin with a wrapping title and ID, status, owner, milestone/initiative breadcrumb, and current blocker/next-action explanation. Put formatted Description and acceptance criteria next. Use a properties rail or collapsed section for labels, type and infrequent fields. Separate <strong>Overview</strong>, <strong>Discussion</strong> and <strong>Activity</strong> where those are substantial. Summary and current guidance should precede implementation logs.</p>
+<p>Edit one section or enter a deliberate full-edit mode. Preserve Markdown source, draft safety, validation and explicit saving. Keep save state and consequences visible. A compact block reason should not receive the same default height as a multi-page plan.</p>
+<p><strong>Presence is an interaction state, not just a spacing choice.</strong> Switchflow&#39;s current editor emits its optional narrative fields regardless of content (<a href="../../template/.switchflow/scripts/control/public/tasks-editor.js#L13">source</a>). The read-first redesign should specify both what disappears and how the user can add it again. A blanket “hide empty sections” rule would remove useful creation paths or conceal missing evidence.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>State</th>
+<th>Read presentation</th>
+<th>Available action / reason</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Optional plan, notes or final summary absent</td>
+<td>Omit the large empty content panel; keep a compact, named Add action for writable records</td>
+<td>People can discover the field without scrolling through blank boxes. Editing still exposes it deliberately.</td>
+</tr>
+<tr>
+<td>Existing narrative present</td>
+<td>Render its formatted content, with edit/expand when allowed</td>
+<td>Presence determines reading space; editing permission determines the affordance.</td>
+</tr>
+<tr>
+<td>No blocker on an ordinary unblocked task</td>
+<td>Omit an empty Block reason panel</td>
+<td>Do not make absence look like unfinished mandatory data.</td>
+</tr>
+<tr>
+<td>Task is Blocked but has no reason, or required approval evidence is missing</td>
+<td>Show “Reason missing” / “Evidence missing” and a recovery action appropriate to authority</td>
+<td>Missing required information is a meaningful state and must not be hidden.</td>
+</tr>
+<tr>
+<td>No dependencies/subtasks</td>
+<td>Keep a compact Add relationship/create-child route where supported; omit an empty graph/list</td>
+<td>Empty related work should not occupy a full section or make relationship creation undiscoverable.</td>
+</tr>
+<tr>
+<td>No discussion</td>
+<td>Short empty state with a reachable composer for writable records</td>
+<td>An empty conversation is a place to contribute, not a reason to remove the entry point.</td>
+</tr>
+<tr>
+<td>Read-only or temporarily fenced</td>
+<td>Keep saved content readable; show the reason beside unavailable editing actions</td>
+<td>Absence, permission, loading failure and active-agent fencing are different states.</td>
+</tr>
+</tbody></table></div>
+<p>Clearing a populated field must be a deliberate edit/save; a field omitted from a read view must never silently become an empty write. Existing revision and draft protections remain necessary.</p>
+<p><strong>Human workflow after redesign:</strong> Needs you → choose named task → read instructions and criteria → inspect linked prerequisite → return → record result/comment or edit a section → save → close to the same workset. Do not require repeated main-page navigation to perform that sequence.</p>
+<h3 id="d-histories-that-remain-complete-and-manageable">D. Histories that remain complete and manageable</h3>
+<p>Use three layers: current summary, recent meaningful events, full audit. Show Discussion separately from machine/run activity. Collapse a run into stage, outcome, time and next-action summary, with diagnostics available on demand.</p>
+<p>For conversational history, start with a small recent batch and <strong>Load older</strong>. For an audit table, use page/range controls and filters. Use independent scrolling only for a sufficiently large, labelled auxiliary history panel or board column. Avoid a page, modal, section and textarea all scrolling within one another.</p>
+<p>Do not silently discard old evidence from view. Display loaded/total when a trustworthy total exists; otherwise say “Latest 25” or “More available.” Loading older items should retain the visible anchor, focus and unsaved work. Search/filter should cover the intended complete history, not only the currently loaded batch.</p>
+<p>The research supports progressive disclosure and filtering. The exact choice of batches versus pages is a Switchflow proposal, not a verified universal competitor behavior.</p>
+<h3 id="e-gestures-refresh-and-recovery">E. Gestures, refresh and recovery</h3>
+<p>The code follow-up adds requirements underneath the visible layout:</p>
+<ul>
+<li><strong>Drag:</strong> keep eligible destinations reachable, indicate exact insertion, support cancel/self-drop as no-ops, and provide the equivalent named Move action. Test edge scrolling with long columns. Do not turn a presentation reorder into approval or execution order (F13/F32/F33).</li>
+<li><strong>Context:</strong> opening from search/Needs you should retain the source route and workset; closing should remove detail state without dropping filters. Ignore late reads for a previous task/project and retain readable content when a background refresh fails. Switchflow already has generation guards in its task loader; preserve and exercise them rather than claim they are missing (F18/F20/F31; <a href="research-backlog-code.html">Backlog B06/B07</a>).</li>
+<li><strong>Conditional actions:</strong> define empty, populated, unavailable and loading states together. When content can be created from the current surface, a hidden empty section needs a discoverable Add route; otherwise explain unavailability or provide a deliberate creation route where supported. A required missing field needs an explicit warning, not suppression (F07/F31).</li>
+<li><strong>Uncertain mutation outcomes:</strong> distinguish a rejected operation from a write that succeeded but failed to refresh, or whose outcome is unknown. Reconcile current state before inviting retry. Backlog&#39;s archive/demotion paths provide a source-backed example; extending this presentation in Switchflow may need structured service results and must not guess from generic errors (F31; <a href="research-backlog-code.html">Backlog B08</a>).</li>
+<li><strong>Future multiselect only:</strong> expose count/target, make selection under filters explicit, exclude ineligible records and report partial outcomes. Do not add bulk workflow transitions solely because a comparator has them; Switchflow&#39;s authority model must govern their availability (<a href="research-backlog-code.html">Backlog B03/B04</a>).</li>
+</ul>
+<h2 id="6-spacing-typography-and-scrolling-contract">6. Spacing, typography and scrolling contract</h2>
+<p>These are <strong>starting values for rendered testing</strong>, not copied product specifications or legal requirements.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Proposed starting rule</th>
+<th>Human rationale / verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Sidebar</td>
+<td>Approximately 224–256px expanded; collapse when space is needed; drawer at narrow widths</td>
+<td>Stable labels without starving task narrative. Validate long project names and keyboard access.</td>
+</tr>
+<tr>
+<td>Main prose</td>
+<td>15–16px body, about 1.5–1.65 line height, roughly 60–85 characters per line</td>
+<td>Make plans and instructions readable; full viewport width is not always a useful text width. Test real Markdown and zoom.</td>
+</tr>
+<tr>
+<td>Metadata</td>
+<td>Usually 12–14px; status, blocker and owner must stay readily readable</td>
+<td>Current 10–11px metadata is overly subordinate to padding and repeated buttons. Size alone does not establish WCAG failure.</td>
+</tr>
+<tr>
+<td>Spacing</td>
+<td>Reusable 4/8/12/16/24/32px scale; close spacing within a field/group, larger gaps between distinct decisions</td>
+<td>Help proximity explain relationships. Avoid uniform large gaps between every input.</td>
+</tr>
+<tr>
+<td>Task narrative editor</td>
+<td>Approximately 240–320px starting height for substantial prose; grow to a useful limit; explicit expand</td>
+<td>Backlog.md provides a concrete 320px description/280px plan-notes precedent; final Switchflow values depend on viewport and content.</td>
+</tr>
+<tr>
+<td>Short fields</td>
+<td>Single-line control or modest auto-growth for short blocker text; hide empty optional read sections</td>
+<td>Match the control to its information, rather than treating all strings equally.</td>
+</tr>
+<tr>
+<td>Action regions</td>
+<td>One clear primary action per decision; stable save/close region; destructive actions separated</td>
+<td>Make consequence and recovery visible; avoid sticky controls obscuring focused content.</td>
+</tr>
+<tr>
+<td>Card content</td>
+<td>Title → state/owner → blocker/next cue → limited metadata; full scope in detail</td>
+<td>Cards support choosing; detail supports understanding.</td>
+</tr>
+<tr>
+<td>Targets</td>
+<td>Aim for comfortable 36–44px routine controls where practical; verify actual accessibility minimums separately</td>
+<td><a href="https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html">WCAG 2.2 target-size guidance</a> uses 24 × 24 CSS px with exceptions; 44px is not the universal AA minimum.</td>
+</tr>
+<tr>
+<td>Focus and reflow</td>
+<td>Visible, unobscured focus; meaningful narrow layout/zoom; non-drag alternatives</td>
+<td>Use <a href="https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html">focus-not-obscured guidance</a>, <a href="https://www.w3.org/WAI/WCAG22/Understanding/reflow.html">reflow guidance</a> and the <a href="https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/">dialog pattern</a>. Formal conformance remains to be tested.</td>
+</tr>
+</tbody></table></div>
+<h3 id="assign-one-scroll-policy-to-each-surface">Assign one scroll policy to each surface</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Recommended default</th>
+<th>What should remain stable</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Overview</td>
+<td>Short page: attention/current/upcoming summaries; drill into detail</td>
+<td>Navigation and project identity</td>
+</tr>
+<tr>
+<td>Kanban</td>
+<td>Horizontal board when needed; viewport-bounded vertical columns with headings; list alternative</td>
+<td>Column identity, filters, task counts</td>
+</tr>
+<tr>
+<td>Task list</td>
+<td>Compact rows; page or explicit load-more with range/total</td>
+<td>Sort, filters, selected row, return position</td>
+</tr>
+<tr>
+<td>Task detail</td>
+<td>One primary narrative scroll; separate Activity view if large</td>
+<td>Task identity, mode, save state and close/back</td>
+</tr>
+<tr>
+<td>Milestone cards</td>
+<td>No tiny prose scrollboxes; brief summary</td>
+<td>Consistent card hierarchy</td>
+</tr>
+<tr>
+<td>Milestone detail</td>
+<td>One main scroll; bounded linked-task table where needed</td>
+<td>Outcome identity, next-state explanation</td>
+</tr>
+<tr>
+<td>Discussion</td>
+<td>Recent batch with older loading; reachable composer</td>
+<td>Selected task and visible event anchor</td>
+</tr>
+<tr>
+<td>Runs/audit</td>
+<td>Collapsed summaries; paged/filterable full history</td>
+<td>Date/type filters and audit completeness cues</td>
+</tr>
+<tr>
+<td>Documents/Skills</td>
+<td>Primary prose scroll, navigation/TOC as useful secondary regions</td>
+<td>Record identity and reading location</td>
+</tr>
+<tr>
+<td>UAT</td>
+<td>Current scenario or navigable bounded set with progress</td>
+<td>Candidate, saved results, remaining count, finish action</td>
+</tr>
+</tbody></table></div>
+<p>Avoid implementing pagination everywhere. A long document should remain naturally readable; a small conversation need not be split; a large audit table benefits from explicit page boundaries. The governing question is what the human is trying to retain in context.</p>
+<h2 id="7-everyday-actions-and-exceptional-states">7. Everyday actions and exceptional states</h2>
+<p>This action register ensures the redesign includes more than the four initial symptoms. The full file/line inventory appears in <a href="local-ui-audit.html">local-ui-audit.md</a>.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Human action</th>
+<th>Desired interaction contract</th>
+<th>Findings / evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Switch project / destination</td>
+<td>Current context always visible; preserve per-project workset; guard unsaved writing</td>
+<td>F03, F18, F20, F31</td>
+</tr>
+<tr>
+<td>Add project</td>
+<td>Clearly distinguish selecting a local checkout from creating a product initiative; explain validation failure next to input</td>
+<td>Source shell inventory; future rendered error-path check</td>
+</tr>
+<tr>
+<td>Search globally / within view</td>
+<td>Explain scope, counts and truncation; keyboard selection; return to results</td>
+<td>F17–F19</td>
+</tr>
+<tr>
+<td>Create initiative / use dictation</td>
+<td>Outcome-led prompt; explicit Start intake; text remains viable when dictation unavailable</td>
+<td>R11: good existing baseline; dictation permission not exercised</td>
+</tr>
+<tr>
+<td>Answer intake questions</td>
+<td>Keep prior answers, show outstanding questions, make Submit consequence clear</td>
+<td>F21, F31; source-only populated state</td>
+</tr>
+<tr>
+<td>Approve scope / plan</td>
+<td>Show exactly what is approved and what starts next; preserve evidence-reading context</td>
+<td>F02, F21</td>
+</tr>
+<tr>
+<td>Follow delivery / cancel / retry</td>
+<td>Distinguish running, queued, interrupted and blocked; latest meaningful update; clear consequence of cancel/retry</td>
+<td>F02, F14/F15, F31</td>
+</tr>
+<tr>
+<td>Release recovery hold</td>
+<td>Keep the explicit stopped-process confirmation; explain what check is required</td>
+<td>Source recovery flow; no extra routine gate proposed</td>
+</tr>
+<tr>
+<td>Read/update task / comment</td>
+<td>Read-first, section edit, reachable composer, clear saved/draft status</td>
+<td>F07–F12, F14</td>
+</tr>
+<tr>
+<td>Change status / order / assign</td>
+<td>Explicit named destinations and search pickers; keyboard equivalent; reveal eligible hidden targets; exact insertion cue and self-drop no-op; status is not authorization</td>
+<td>F09/F13, F18, F32/F33</td>
+</tr>
+<tr>
+<td>Check criteria</td>
+<td>Consistent completion/edit/remove semantics</td>
+<td>F10</td>
+</tr>
+<tr>
+<td>Create/edit milestone / assign tasks</td>
+<td>Outcome detail near its origin; assignment search with counts; explain display sequence separately</td>
+<td>F04–F06</td>
+</tr>
+<tr>
+<td>Archive/promote/cleanup/repair</td>
+<td>Named review dialog, affected items/count, specific final action, cancellation returns to origin</td>
+<td>F23; mutation paths source-reviewed only</td>
+</tr>
+<tr>
+<td>Read/create/edit document or decision</td>
+<td>Formatted reading, source/preview mode, safe navigation, understandable conflict, recoverable discard</td>
+<td>F12, F25</td>
+</tr>
+<tr>
+<td>Resume drafts</td>
+<td>Distinguish draft records from unsaved browser edits and their lifetime</td>
+<td>F11/F27</td>
+</tr>
+<tr>
+<td>Inspect evidence / run UAT</td>
+<td>Candidate and scenario visible; progress; notes retained; failed results travel into rework</td>
+<td>F21/F22</td>
+</tr>
+<tr>
+<td>Add project update / request scope change</td>
+<td>Clearly distinguish informational update from a change that returns to Intake; preserve consequence copy</td>
+<td>Source initiative ancillary flow; F21/F31</td>
+</tr>
+<tr>
+<td>Inspect insights / past work</td>
+<td>Explain totals; navigate to underlying work; use milestone titles; retain audit location</td>
+<td>F16/F26</td>
+</tr>
+<tr>
+<td>Inspect skills / health / settings</td>
+<td>Group as project tools; clarify read-only/native/workspace effects; save/discard state consistent</td>
+<td>F28/F29/F31</td>
+</tr>
+<tr>
+<td>Recover from empty/no-match/loading/offline/conflict</td>
+<td>Show state-specific explanation, retained input and exact recovery action</td>
+<td>F12, F17, F31</td>
+</tr>
+</tbody></table></div>
+<p>Preserve action-specific safeguards. Consistency means familiar placement, feedback and language; it does not mean giving Approve plan, Save label and Delete record identical confirmation flows.</p>
+<h2 id="8-improvement-path">8. Improvement path</h2>
+<p>Effort bands describe scope, not time estimates. No implementation or migration is included in this review.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Work and sequence</th>
+<th>Owner / scope</th>
+<th>Why now</th>
+<th>Exit evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>0. Agree the interaction rules</strong></td>
+<td>Adopt sidebar groups; distinguish attention/readiness/authority; specify detail/return/draft/scroll semantics. Validate the next-work wording on the live dataset.</td>
+<td>Product/design owner with workflow maintainer; small design package</td>
+<td>Prevent a visual makeover from preserving misleading information or changing authorization.</td>
+<td>Annotated screen flows and explicit ambiguous/parallel/blocked examples approved for prototyping.</td>
+</tr>
+<tr>
+<td><strong>1. Repair clear interaction defects</strong></td>
+<td>F01 attention label/count scope; F17 result count; F20 task close route; F23 dialog names; F28 new-row focus. Reproduce and repair F22 rework observation loss early. Add older-event completeness cue/access for F15. Reproduce F32/F33 with real pointer dragging before repairing target reveal and self-drop/placement.</td>
+<td>UI maintainer; mostly small bounded repairs, F22/F15 may cross service boundary</td>
+<td>Improves trust and recovery without requiring the whole redesign.</td>
+<td>Focused functional checks and disposable-fixture walkthroughs; no lost notes, truthful counts, correct routes; drag markers/destinations agree with the saved order.</td>
+</tr>
+<tr>
+<td><strong>2. Deliver shell and task reading</strong></td>
+<td>Sidebar/mobile drawer; short overview; read-first task detail; prose sizing; conditional optional sections with Add paths; compact metadata; stable actions; exact origin return; preserve all existing draft and stale-response safeguards.</td>
+<td>Product designer + UI implementer; medium cohesive change</td>
+<td>Covers the most frequent orientation/read/act cycle and your immediate sidebar/modal concerns.</td>
+<td>Desktop/narrow/zoom screenshots with empty and populated long tasks; keyboard walkthrough; user can read, add absent content and return without re-finding work.</td>
+</tr>
+<tr>
+<td><strong>3. Explain next milestone/task</strong></td>
+<td>Needs you queue, current agent work, approved next eligible group, blockers; milestone state/order recovery; dependency links.</td>
+<td>Product/workflow maintainer + UI implementer; medium, semantically sensitive</td>
+<td>A trustworthy recommendation depends on state meaning, not just layout. Requires Stage 0 and should reuse Stage 2 shell.</td>
+<td>Fixture matrix for unsequenced, blocked, parallel, stale, standalone-human and authorized work; explicit reason on every recommendation.</td>
+</tr>
+<tr>
+<td><strong>4. Bound history and scale</strong></td>
+<td>Discussion/activity separation, older loading, run summaries, board/list/history boundaries, filter persistence and compact list.</td>
+<td>UI implementer; medium, with API support only where needed</td>
+<td>Mature records must remain navigable. First validate UI behavior; use server-side paging when volume justifies it.</td>
+<td>200 tasks, 100 comments, 50 runs, 150 completed rows; no missing evidence or lost scroll/focus/drafts.</td>
+</tr>
+<tr>
+<td><strong>5. Finish authoring and consistency</strong></td>
+<td>Checklists/pickers, field-level conflict compare, draft recovery, milestone detail, document mobile layout, dates/settings/insights links.</td>
+<td>UI implementer with design review; medium</td>
+<td>Removes repetitive friction across less frequent but consequential actions.</td>
+<td>Full action/state matrix, both themes, keyboard and screen-reader checks, final human journeys.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Suggested first reviewable slice:</strong> sidebar + task read/edit detail + corrected count/route behavior. Include the next-work contract in its design review, but do not fake a Next queue before authoritative selection is defined. Treat UAT note retention as a separate early defect investigation because it affects the reliability of a human review.</p>
+<p>Keep these design changes separate from migration of existing task/milestone data. The report identifies missing order and legacy records; it does not authorize rewriting their sequence, approvals or status. Render ambiguity honestly while a deliberate planning action resolves it.</p>
+<h2 id="9-human-acceptance-scenarios">9. Human acceptance scenarios</h2>
+<p>These are proposed success criteria, not results already achieved. The suggested time targets should be calibrated with Alex and a small number of representative users; they are not competitor benchmarks.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable comparison table"><table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Test dataset / interaction</th>
+<th>Proposed pass condition</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Morning orientation</td>
+<td>Five Ready Human tasks, zero initiatives, one active agent task, 20 blockers</td>
+<td>Within roughly 10 seconds, user can distinguish their actions, agent work and unresolved sequence without opening multiple records.</td>
+</tr>
+<tr>
+<td>Ambiguous next work</td>
+<td>Earlier blocked milestone, later Ready task, two independent pending decisions, missing plan order</td>
+<td>UI explains each category and ambiguity; never labels an unauthorized task simply “Next to run.”</td>
+</tr>
+<tr>
+<td>Read a long task</td>
+<td>2,000-word description, formatted lists/code, 15 criteria, long notes</td>
+<td>User scans instructions and criteria without manually resizing several fields; full-page expansion preserves work.</td>
+</tr>
+<tr>
+<td>Return from evidence</td>
+<td>Filtered list → initiative/milestone → task → linked document → back</td>
+<td>Context, selection, filter and reading position remain recoverable in predictable steps.</td>
+</tr>
+<tr>
+<td>Close and refresh</td>
+<td>Task open → close → refresh; then direct deep link and Back/Forward</td>
+<td>Route and visible state agree at every step.</td>
+</tr>
+<tr>
+<td>Find older evidence</td>
+<td>100 comments, 50 runs, over 25 initiative events</td>
+<td>Find a named prior decision without scanning everything; every old record is accessible; loading retains focus/anchor.</td>
+</tr>
+<tr>
+<td>Complete/rework UAT</td>
+<td>20 checks, some passed, one failed with detailed notes, interruption/reopen</td>
+<td>Resume at unfinished work; rework includes failed observations; acceptance remains an explicit human verdict.</td>
+</tr>
+<tr>
+<td>Save/conflict/discard</td>
+<td>Long draft, concurrent description+label change, mistaken discard</td>
+<td>Clear field comparison, preserved writing, understandable save outcome and recovery from discard.</td>
+</tr>
+<tr>
+<td>Work without dragging</td>
+<td>Keyboard-only task ordering, status move, checklist editing, dialog cancel</td>
+<td>Equivalent operations and announcements; focus returns to the triggering item.</td>
+</tr>
+<tr>
+<td>Drag through changing layout</td>
+<td>Hide empty columns; drag to an empty status, above/below a card and onto the lifted card; cancel near scroll edges</td>
+<td>Eligible targets remain reachable without aborting the gesture; insertion cue matches result; cancel/self-drop causes no write; scroll and source workset remain usable.</td>
+</tr>
+<tr>
+<td>Empty versus unavailable content</td>
+<td>Empty optional narratives and relationships, no comments, Blocked without reason; repeat read-only and while loading</td>
+<td>Blank optional panels stay compact with appropriate Add paths; missing required evidence remains visible; read-only and loading are explained rather than mistaken for absence.</td>
+</tr>
+<tr>
+<td>Rapid navigation and uncertain outcome</td>
+<td>Slow response for task A arrives after opening B; background refresh fails; mutation outcome cannot be determined</td>
+<td>B remains B, existing readable content/drafts survive, and the UI reconciles before recommending a repeated mutation.</td>
+</tr>
+<tr>
+<td>Narrow and zoom</td>
+<td>390px and 320 CSS px layouts; desktop 200%/400% zoom as applicable</td>
+<td>Primary content readable, controls reachable, focus unobscured; essential board/table exceptions handled with usable alternatives.</td>
+</tr>
+<tr>
+<td>Scale and filtering</td>
+<td>200 tasks, 40 milestones, 150 Done rows; one-result/no-result filters</td>
+<td>Correct shown/total counts, manageable first screen, explicit paging/loading and retained view state.</td>
+</tr>
+<tr>
+<td>Disconnection/active agent</td>
+<td>Edit draft then lose connection or enter read-only running state</td>
+<td>Input retained; reason and recovery visible; no accidental submission or silent reset.</td>
+</tr>
+</tbody></table></div>
+<p>Observe error rate, lost context, wrong-item selection, ability to explain the next action and recovery success alongside timings. A polished screenshot or passing test suite alone does not establish that a person can confidently complete the workflow.</p>
+<h2 id="10-evidence-index-and-remaining-verification">10. Evidence index and remaining verification</h2>
+<ul>
+<li><a href="rendered-observations.html">Rendered observations and all screenshot links</a>: R01–R15, 13 images.</li>
+<li><a href="local-ui-audit.html">Complete source interaction audit</a>: per-surface/action inventory, 27 detailed findings, file/line references and preserved behaviors.</li>
+<li><a href="research-asana-jira.html">Asana and Jira research</a>: real workflow steps, primary links, documented/illustrated evidence labels.</li>
+<li><a href="research-trello-plane.html">Trello and Plane research</a>: navigation, personal work, task detail, history, search and keyboard workflows.</li>
+<li><a href="research-backlog-md.html">Backlog.md research</a>: upstream/pinned distinction, source-level detail and history comparison.</li>
+<li><a href="research-plane-code.html">Plane public-code follow-up</a>: source-traced gestures, conditional UI and grouped loading at a fixed revision.</li>
+<li><a href="research-backlog-code.html">Backlog.md public-code follow-up</a>: source-traced drag reveal, insertion, selection, routing and recovery at a fixed revision.</li>
+<li><a href="probe-drag-visibility.mjs">Switchflow drag handler probe</a> and <a href="drag-visibility-probe.json">result</a>: hidden destination and self-drop request reproduction with DOM/API doubles; no production writes or real gesture claim.</li>
+<li><a href="live-source-comparison.json">Live/source comparison manifest</a>: current served UI matches the reviewed source.</li>
+<li><a href="report-review.md">Independent report review</a>: three consistency/evidence corrections in the original report identified and verified resolved; this predates the public-code follow-up.</li>
+<li><a href="artifact-validation.json">Artifact validation</a>: eight HTML reports, 33 consolidated findings, 27 original source findings, 13 screenshots and local-link/HTML-anchor results. The original desktop/narrow visual checks remain applicable to unchanged styling. Both new appendices rendered correctly; cross-report navigation, the main findings anchor, image loading and console errors were checked in the browser. Both research agents checked the integrated comparison claims; one conditional-Add wording correction was applied. The temporary preview server and browser tab were closed afterward. <a href="validate-artifacts.py">Validation script</a>.</li>
+</ul>
+<p>Read the offline HTML version by opening <code>REPORT.html</code> alongside this directory&#39;s other files. Keep the screenshots folder with it. Regenerate after Markdown changes with <code>node analysis/ui-review-2026-09-22/render-report.mjs</code> from the repository root; the renderer uses the installed bundled <code>marked</code> package, with a <code>MARKED_MODULE</code> override for another installation.</p>
+<p>Remaining verification is explicit: source-only UAT/rework, approval/recovery, mutation and conflict paths need disposable fixture reproduction; contrast and screen-reader behavior need formal checks; competitor account operation and actual user usability measurements have not been performed. The operations ledger helper was unavailable under the current filesystem permissions, so no operational-cost or interruption-rate claims are made.</p>
+<p>The useful direction is concrete: <strong>show what matters now, give that content enough room, and keep the person&#39;s place as they act.</strong> The report proposes that direction while preserving Switchflow&#39;s existing approval and record-safety boundaries.</p>
+</article><p class="footer">Generated from the accompanying Markdown. No external scripts, fonts or styles are required.</p></main></body></html>

@@ -1,0 +1,11 @@
+{
+  "htmlReports": 8,
+  "consolidatedFindings": 33,
+  "sourceFindings": 27,
+  "comparatorCodeFindings": {
+    "plane": 10,
+    "backlogMd": 9
+  },
+  "screenshots": 13,
+  "brokenLocalLinksOrAnchors": []
+}

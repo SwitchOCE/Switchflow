@@ -16,26 +16,35 @@
 </head>
 <body>
   <a class="skip-link" href="#board">Skip to project board</a>
-  <header class="topbar">
+  <header class="topbar"><button id="nav-toggle" class="button quiet" aria-controls="workspace-navigation" aria-expanded="true">Menu</button>
     <a class="brand" href="/" aria-label="Switchflow home"><span class="brand-mark" aria-hidden="true">S</span>Switchflow<span class="brand-divider">/</span><span id="project-name">Project control</span></a>
     <div class="project-picker"><label for="project-select" class="sr-only">Project</label><select id="project-select" aria-label="Project"><option>Loading projects…</option></select><button id="add-project" class="button quiet">Add project</button></div>
     <div class="header-actions"><span id="connection" class="connection" role="status">Connecting…</span><button id="workspace-search" class="button quiet" aria-label="Search project (Ctrl K)">Search</button><button id="theme-toggle" class="button quiet" aria-label="Use dark theme">Dark</button><button class="button primary" id="new-initiative">+ New initiative</button></div>
   </header>
-  <nav class="workspace-nav" aria-label="Project workspace"><div class="workspace-tabs"><button class="nav-tab" data-view="board" aria-current="page">Initiatives</button><button class="nav-tab" data-view="tasks">Tasks</button><button class="nav-tab" data-view="milestones">Milestones</button><button class="nav-tab" data-view="documents">Documents</button><button class="nav-tab" data-view="decisions">Decisions</button><button class="nav-tab" data-view="drafts">Drafts</button><button class="nav-tab" data-view="statistics">Insights</button><button class="nav-tab" data-view="skills">Skills</button><button class="nav-tab" data-view="settings">Settings</button></div><span id="project-overview" role="status"></span></nav>
+  <div id="nav-backdrop" hidden></div>
+  <nav id="workspace-navigation" class="workspace-nav" aria-label="Project workspace">
+    <div class="nav-heading"><strong>Workspace</strong><button id="nav-close" class="button quiet">Close</button></div>
+    <div class="workspace-tabs">
+      <div class="nav-group"><span class="nav-group-title">Work</span><button class="nav-tab" data-view="board" aria-current="page">Overview · Needs you</button><button class="nav-tab" data-view="tasks">Tasks</button><button class="nav-tab" data-view="milestones">Milestones</button></div>
+      <details class="nav-group" open><summary>Knowledge</summary><button class="nav-tab" data-view="documents">Documents</button><button class="nav-tab" data-view="decisions">Decisions</button><button class="nav-tab" data-view="drafts">Drafts</button></details>
+      <details class="nav-group" open><summary>Project tools</summary><button class="nav-tab" data-view="statistics">Insights</button><button class="nav-tab" data-view="skills">Skills</button><button class="nav-tab" data-view="settings">Settings</button><button id="operations-open" class="nav-tab">Framework health</button></details>
+    </div><span id="project-overview" role="status"></span>
+  </nav>
   <main>
     <div id="error-banner" class="banner error" role="alert" hidden></div>
     <div id="notice-banner" class="banner" role="status" hidden></div>
     <div id="workspace-board">
-    <section class="intro" aria-labelledby="page-title">
-      <div><p class="eyebrow">PROJECT WORKSPACE</p><h1 id="page-title">Your decisions. Agent delivery.</h1><p class="intro-copy">Shape the scope, approve the plan, and try the result.<br> Agents carry the work between these three checkpoints.</p></div>
-      <div class="human-steps" aria-label="Three human checkpoints"><span><b>01</b> Intake</span><i aria-hidden="true">→</i><span><b>02</b> Planning</span><i aria-hidden="true">→</i><span><b>03</b> UAT</span></div>
-    </section>
+    <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">PROJECT WORKSPACE</p><h1 id="page-title">Overview</h1><p class="intro-copy">Your decisions, current activity and waiting work.</p></div></section>
+    <section id="overview-queues" class="overview-queues" aria-label="Current work"></section>
+    <details class="overview-detail"><summary>All initiatives</summary>
     <section class="board-section" aria-labelledby="board-title">
       <div class="section-heading"><div><h2 id="board-title">Project board</h2><span id="board-count" class="muted">Loading initiatives…</span></div><div class="board-tools"><label class="search-label" for="filter">Find an initiative<input id="filter" type="search" placeholder="Search initiatives…"></label><button id="refresh" class="button quiet" aria-label="Refresh board">Refresh</button></div></div>
       <div class="board" id="board" tabindex="-1" aria-busy="true"></div>
       <div id="empty-state" class="empty-state" hidden><span class="empty-symbol" aria-hidden="true">↗</span><h3>Start with the outcome you want.</h3><p>Describe an initiative. Your agent will inspect what exists and bring back a scope for your review.</p><button class="button primary" id="empty-create">Create your first initiative</button></div>
     </section>
-    <section class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><div><h2 id="tasks-title">Delivery tasks</h2><span id="task-count" class="muted">Project work items</span></div><div class="detail-actions"><button id="all-tasks" class="button quiet">All tasks →</button><button id="operations-open" class="button quiet">Framework health ↗</button></div></div><p class="muted">Track delivery work, dependencies and readiness. Open Tasks to manage the full board.</p><div id="tasks-list" class="tasks-grid"></div></section>
+    </details><details class="overview-detail"><summary>Recent delivery tasks</summary>
+    <section class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><div><h2 id="tasks-title">Delivery tasks</h2><span id="task-count" class="muted">Project work items</span></div><div class="detail-actions"><button id="all-tasks" class="button quiet">All tasks →</button></div></div><p class="muted">Track delivery work, dependencies and readiness. Open Tasks to manage the full board.</p><div id="tasks-list" class="tasks-grid"></div></section>
+    </details>
     <section class="delivery-strip" aria-label="Delivery activity"><div><span class="pulse-dot" aria-hidden="true"></span><strong id="activity-title">Agent activity</strong></div><p id="activity-summary">Waiting for the project connection.</p><span class="muted" id="updated-at"></span></section>
     </div>
     <section id="workspace-skills" hidden aria-label="Switchflow skills"></section>
