@@ -7,11 +7,11 @@
 .skills-reader .docs-nav>.button{margin:.5rem}
 .skills-reader .docs-excerpt{overflow-wrap:anywhere}
 .skills-reader .muted{color:var(--docs-muted)}
-[data-theme=dark] .skills-reader{--docs-border:#40535a;--docs-muted:#b6c6cc;--docs-accent:#8eb9ff;background:#203037;color:#e4edf0}
-[data-theme=dark] .skills-reader .docs-toolbar,[data-theme=dark] .skills-reader .docs-code-bar{background:#283b44}
-[data-theme=dark] .skills-reader .docs-toolbar input,[data-theme=dark] .skills-reader .docs-toolbar button,[data-theme=dark] .skills-reader .docs-code button{background:#19282e;color:#e4edf0;border-color:#607680}
-[data-theme=dark] .skills-reader .docs-nav button,[data-theme=dark] .skills-reader .docs-toc a,[data-theme=dark] .skills-reader .docs-prose :is(h1,h2,h3,h4,h5,h6){color:#e4edf0}
-[data-theme=dark] .skills-reader .docs-nav button:hover,[data-theme=dark] .skills-reader .docs-nav button[aria-current=page]{background:#35525b;color:#bdebe0}
-[data-theme=dark] .skills-reader .docs-prose :is(code,blockquote),[data-theme=dark] .skills-reader .docs-code pre,[data-theme=dark] .skills-reader .docs-table th,[data-theme=dark] .skills-reader .docs-table tr:nth-child(even){background:#19282e;color:#e4edf0}
-[data-theme=dark] .skills-reader .docs-code-bar{color:#b6c6cc}
+[data-theme=dark] .skills-reader{--docs-border:var(--line);--docs-muted:var(--muted);--docs-accent:var(--teal);background:var(--surface);color:var(--ink)}
+[data-theme=dark] .skills-reader .docs-toolbar,[data-theme=dark] .skills-reader .docs-code-bar{background:var(--soft)}
+[data-theme=dark] .skills-reader .docs-toolbar input,[data-theme=dark] .skills-reader .docs-toolbar button,[data-theme=dark] .skills-reader .docs-code button{background:var(--canvas);color:var(--ink);border-color:var(--line)}
+[data-theme=dark] .skills-reader .docs-nav button,[data-theme=dark] .skills-reader .docs-toc a,[data-theme=dark] .skills-reader .docs-prose :is(h1,h2,h3,h4,h5,h6){color:var(--ink)}
+[data-theme=dark] .skills-reader .docs-nav button:hover,[data-theme=dark] .skills-reader .docs-nav button[aria-current=page]{background:var(--soft);color:var(--teal)}
+[data-theme=dark] .skills-reader .docs-prose :is(code,blockquote),[data-theme=dark] .skills-reader .docs-code pre,[data-theme=dark] .skills-reader .docs-table th,[data-theme=dark] .skills-reader .docs-table tr:nth-child(even){background:var(--canvas);color:var(--ink)}
+[data-theme=dark] .skills-reader .docs-code-bar{color:var(--muted)}
 @media(max-width:650px){.skills-reader .docs-nav{max-height:18rem}}

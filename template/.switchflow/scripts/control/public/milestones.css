@@ -4,7 +4,7 @@
 .milestone-card h3 { margin-block: .5rem; overflow-wrap: anywhere; }
 .milestone-description { overflow-wrap: anywhere; line-height: 1.55; }
 .milestone-labels { font-size: .875rem; overflow-wrap: anywhere; }
-.milestone-card progress { display: block; width: 100%; height: .5rem; margin: .75rem 0 1rem; accent-color: var(--accent, #087f78); }
+.milestone-card progress { display: block; width: 100%; height: .5rem; margin: .75rem 0 1rem; accent-color: var(--teal, #087f78); }
 .milestone-editor:empty { display: none; }
 .milestone-editor { margin-top: 1rem; padding: 1.25rem; border: 1px solid var(--line, var(--border, #ccd3d9)); border-radius: .75rem; min-width: 0; }
 .milestone-editor form { display: grid; gap: 1rem; }
@@ -24,7 +24,7 @@
 
 .milestone-group,.milestone-list > .milestone-editor { grid-column: 1 / -1; }
 .milestone-group { margin: 1rem 0 0; }
-.milestone-editor .docs-prose { max-width:78ch; line-height:1.7; }
+.milestone-editor .docs-prose { max-width:100%; line-height:1.7; }
 .milestone-tasks > button { display:block; margin-block:.5rem; }
 
 .milestone-tasks > div > button { display:block; margin-block:.5rem; }
