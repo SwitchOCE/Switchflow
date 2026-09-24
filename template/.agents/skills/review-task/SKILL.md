@@ -45,7 +45,7 @@ When escalating, identify changed symbols, persisted shapes, wire formats, artif
 
 Report actionable findings first with precise references, then verification, uncertainty, and the acceptance decision. State clearly when there are no findings.
 
-Write full findings as a task comment. Return five lines to the orchestrator:
+Write full findings as a task comment whose first line is exactly `Verdict: accept` or `Verdict: block`, with nothing else on that line. Every re-review writes its own comment with the same first line. `backlog.ps1 reviews` counts these lines to measure first-pass acceptance, so any other wording goes uncounted. Return five lines to the orchestrator:
 
 ```text
 task: {{TASK_PREFIX}}-14

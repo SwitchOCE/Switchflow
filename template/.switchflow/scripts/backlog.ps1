@@ -15,7 +15,7 @@ if ($args.Count -ge 1 -and $args[0] -in @('control', 'browser')) {
 if ($args.Count -ge 1 -and $args[0] -eq 'browser-native') { $args[0] = 'browser' }
 $projectRoot = Resolve-GovernanceRoot -ProjectRoot $projectRoot
 $governanceScripts = Join-Path $projectRoot '.switchflow\scripts'
-$readOnlyCommand = $args.Count -eq 0 -or $args[0] -in @('doctor', 'flow', '--version', '-V', '--help', '-h', 'help') -or
+$readOnlyCommand = $args.Count -eq 0 -or $args[0] -in @('doctor', 'flow', 'reviews', '--version', '-V', '--help', '-h', 'help') -or
     ($args.Count -ge 2 -and $args[0] -in @('task', 'tasks', 'doc', 'docs', 'milestone', 'milestones') -and $args[1] -in @('view', 'list', 'search'))
 $cliPath = Resolve-BacklogCli -ProjectRoot $projectRoot -RequireFork:(-not $readOnlyCommand)
 
@@ -64,6 +64,11 @@ try {
     elseif ($args.Count -ge 1 -and $args[0] -eq 'flow') {
         $flowArgs = @($args | Select-Object -Skip 1)
         & node (Join-Path $governanceScripts 'flow.mjs') $cliPath $projectRoot @flowArgs
+        $cliExitCode = $LASTEXITCODE
+    }
+    elseif ($args.Count -ge 1 -and $args[0] -eq 'reviews') {
+        $reviewArgs = @($args | Select-Object -Skip 1)
+        & node (Join-Path $governanceScripts 'review-outcomes.mjs') $projectRoot @reviewArgs
         $cliExitCode = $LASTEXITCODE
     }
     elseif ($isMilestoneList) {
