@@ -9,24 +9,48 @@ import { startGitBridge } from './git-bridge.mjs';
 const initial = { schemaVersion: 1, revision: 0, initiatives: [], activeRun: null };
 const MAX_INLINE_OWNER_HISTORY = 128 * 1024;
 export class ControlEngine {
-  constructor(context, { runner, protocol, onChange = () => {}, recordIssue = async () => {}, processAlive = isRunProcessAlive, bridgeFactory = startGitBridge }) {
-    this.context = context; this.runner = runner; this.protocol = protocol;
-    this.onChange = onChange; this.recordIssue = recordIssue; this.current = null; this.closed = false;
+  constructor(
+    context,
+    {
+      runner,
+      protocol,
+      onChange = () => {},
+      recordIssue = async () => {},
+      processAlive = isRunProcessAlive,
+      bridgeFactory = startGitBridge,
+    },
+  ) {
+    this.context = context;
+    this.runner = runner;
+    this.protocol = protocol;
+    this.onChange = onChange;
+    this.recordIssue = recordIssue;
+    this.current = null;
+    this.closed = false;
     this.pumping = false;
     this.processAlive = processAlive;
     this.bridgeFactory = bridgeFactory;
   }
   async read() {
     const state = await readState(this.context, 'control', initial);
-    if (state.schemaVersion !== 1 || !Array.isArray(state.initiatives)) throw new Error('Unsupported or damaged control state. Preserve the file before recovery.');
+    if (state.schemaVersion !== 1 || !Array.isArray(state.initiatives))
+      throw new Error('Unsupported or damaged control state. Preserve the file before recovery.');
     return state;
   }
   async mutate(fn) {
-    const result = await updateState(this.context, 'control', async state => {
-      if (state.schemaVersion !== 1) throw new Error('Unsupported control state version.');
-      await fn(state); state.revision++; return state;
-    }, initial);
-    this.onChange(result.revision); return result;
+    const result = await updateState(
+      this.context,
+      'control',
+      async state => {
+        if (state.schemaVersion !== 1) throw new Error('Unsupported control state version.');
+        await fn(state);
+        state.revision++;
+        return state;
+      },
+      initial,
+    );
+    this.onChange(result.revision);
+    return result;
   }
   async recover() {
     const state = await this.read();
@@ -35,46 +59,77 @@ export class ControlEngine {
     await this.mutate(s => {
       const item = s.initiatives.find(i => i.id === s.activeRun.initiativeId);
       if (item) {
-        item.status = 'failed'; item.pending = false; item.revision++;
-        item.nextAction = 'The service stopped during a run. Inspect its checkpoint and retry when the prior process has stopped.';
+        item.status = 'failed';
+        item.pending = false;
+        item.revision++;
+        item.nextAction =
+          'The service stopped during a run. Inspect its checkpoint and retry when the prior process has stopped.';
         const run = item.runs.find(r => r.id === s.activeRun.id);
-        if (run) { run.status = 'interrupted'; run.finishedAt = now(); }
+        if (run) {
+          run.status = 'interrupted';
+          run.finishedAt = now();
+        }
         event(item, 'interrupted', item.nextAction);
       }
       const knownProcess = Number.isSafeInteger(s.activeRun.pid) && s.activeRun.pid > 0;
       if (!knownProcess || this.processAlive(s.activeRun.pid)) {
         s.activeRun.status = 'interrupted';
         s.activeRun.unknownProcess = !knownProcess;
-        if (item) item.nextAction = s.activeRun.unknownProcess ? 'The service stopped before recording the agent process identity. Confirm the previous process has stopped to release the recovery fence.' : `The prior agent process (${s.activeRun.pid}) is still running. Retry becomes available after it stops; its checkpoint is preserved.`;
+        if (item)
+          item.nextAction = s.activeRun.unknownProcess
+            ? 'The service stopped before recording the agent process identity. Confirm the previous process has stopped to release the recovery fence.'
+            : `The prior agent process (${s.activeRun.pid}) is still running. Retry becomes available after it stops; its checkpoint is preserved.`;
       } else s.activeRun = null;
     });
   }
   async create(input) {
     const item = createInitiative(input);
-    const state = await this.mutate(s => { s.initiatives.push(item); });
-    this.schedule(); return state;
+    const state = await this.mutate(s => {
+      s.initiatives.push(item);
+    });
+    this.schedule();
+    return state;
   }
   async action(id, input) {
     let interrupt = false;
     const state = await this.mutate(s => {
       if (s.activeRun?.status === 'interrupted') {
         if (s.activeRun.unknownProcess) {
-          if (input.action !== 'recover-run' || input.confirmedStopped !== true || s.activeRun.initiativeId !== id) throw new ControlError('Confirm the unidentified prior process has stopped before releasing recovery.', 409);
+          if (input.action !== 'recover-run' || input.confirmedStopped !== true || s.activeRun.initiativeId !== id)
+            throw new ControlError(
+              'Confirm the unidentified prior process has stopped before releasing recovery.',
+              409,
+            );
           const item = s.initiatives.find(i => i.id === id);
-          if (input.expectedRevision !== item.revision) throw new ControlError('The recovery state changed. Refresh first.', 409);
+          if (input.expectedRevision !== item.revision)
+            throw new ControlError('The recovery state changed. Refresh first.', 409);
           event(item, 'recovery', 'Human confirmed the prior unrecorded process has stopped.');
-          item.revision++; item.nextAction = 'Recovery released. Review the checkpoint and retry.'; s.activeRun = null;
+          item.revision++;
+          item.nextAction = 'Recovery released. Review the checkpoint and retry.';
+          s.activeRun = null;
           return;
         }
-        if (this.processAlive(s.activeRun.pid)) throw new ControlError('The prior agent process is still running. Wait for it to stop before changing or restarting work.', 409);
+        if (this.processAlive(s.activeRun.pid))
+          throw new ControlError(
+            'The prior agent process is still running. Wait for it to stop before changing or restarting work.',
+            409,
+          );
         s.activeRun = null;
       }
       const item = s.initiatives.find(i => i.id === id);
       if (!item) throw new ControlError('Initiative not found.', 404);
-      if (input.action === 'approve-plan' && input.expectedRevision === item.revision && item.stage === 'planning' && item.status === 'awaiting-human') {
+      if (
+        input.action === 'approve-plan' &&
+        input.expectedRevision === item.revision &&
+        item.stage === 'planning' &&
+        item.status === 'awaiting-human'
+      ) {
         const head = git(this.context.sourceRoot, ['rev-parse', '--verify', 'HEAD']);
         if (head !== item.planningBaseline) {
-          item.plan = []; item.status = 'idle'; item.pending = true; item.revision++;
+          item.plan = [];
+          item.status = 'idle';
+          item.pending = true;
+          item.revision++;
           item.nextAction = 'The code baseline changed. Agents will refresh Planning before you approve it.';
           event(item, 'baseline-changed', item.nextAction);
           return;
@@ -83,7 +138,11 @@ export class ControlEngine {
       interrupt = applyAction(item, input).interrupt;
       if (input.action === 'approve-plan') {
         item.approvedPlan.baseHead = item.planningBaseline;
-        item.approvedPlan.gitGrantHash = hash({ plan: item.approvedPlan.hash, scope: item.approvedPlan.scopeHash, baseHead: item.planningBaseline });
+        item.approvedPlan.gitGrantHash = hash({
+          plan: item.approvedPlan.hash,
+          scope: item.approvedPlan.scopeHash,
+          baseHead: item.planningBaseline,
+        });
         item.approvalHistory.at(-1).baseHead = item.planningBaseline;
         item.approvalHistory.at(-1).gitGrantHash = item.approvedPlan.gitGrantHash;
       }
@@ -96,15 +155,28 @@ export class ControlEngine {
     });
     if (interrupt && this.current?.initiativeId === id) this.current.controller.abort();
     if (['scope-change', 'update', 'request-rework'].includes(input.action)) {
-      await this.recordIssue({ type: input.action === 'scope-change' ? 'scope-change' : 'intervention', summary: `Human ${input.action}`, initiativeId: id });
+      await this.recordIssue({
+        type: input.action === 'scope-change' ? 'scope-change' : 'intervention',
+        summary: `Human ${input.action}`,
+        initiativeId: id,
+      });
     }
-    this.schedule(); return state;
+    this.schedule();
+    return state;
   }
-  schedule() { if (!this.closed) setImmediate(() => this.pump().catch(error => { this.lastError = error.message; })); }
+  schedule() {
+    if (!this.closed)
+      setImmediate(() =>
+        this.pump().catch(error => {
+          this.lastError = error.message;
+        }),
+      );
+  }
   async pump() {
     if (this.closed || this.pumping || this.current) return;
     this.pumping = true;
-    let releaseAdmission; let launched = false;
+    let releaseAdmission;
+    let launched = false;
     try {
       let selected;
       const snapshot = await this.read();
@@ -113,79 +185,181 @@ export class ControlEngine {
         if (s.activeRun || this.closed) return;
         const item = s.initiatives.find(i => i.pending);
         if (!item) return;
-        const run = { id: randomUUID(), initiativeId: item.id, stage: item.stage, status: 'running', startedAt: now(), threadId: null };
-        item.pending = false; item.status = 'running'; item.revision++; item.nextAction = 'Agents are working. You can review progress or add an update.';
-        item.runs.push(run); item.runs = item.runs.slice(-100); s.activeRun = { ...run };
-        event(item, 'started', `${item.stage} started.`); selected = { item: structuredClone(item), run };
+        const run = {
+          id: randomUUID(),
+          initiativeId: item.id,
+          stage: item.stage,
+          status: 'running',
+          startedAt: now(),
+          threadId: null,
+        };
+        item.pending = false;
+        item.status = 'running';
+        item.revision++;
+        item.nextAction = 'Agents are working. You can review progress or add an update.';
+        item.runs.push(run);
+        item.runs = item.runs.slice(-100);
+        s.activeRun = { ...run };
+        event(item, 'started', `${item.stage} started.`);
+        selected = { item: structuredClone(item), run };
         // Install the abort target before the durable admission lock is released.
         const controller = new AbortController();
-        const promise = new Promise(resolve => { releaseAdmission = resolve; });
+        const promise = new Promise(resolve => {
+          releaseAdmission = resolve;
+        });
         this.current = { initiativeId: item.id, controller, promise };
       });
       if (!selected) return;
       if (this.closed) this.current.controller.abort();
       launched = true;
-      void this.execute(selected, this.current.controller.signal).finally(releaseAdmission).catch(error => { this.lastError = error.message; });
+      void this.execute(selected, this.current.controller.signal)
+        .finally(releaseAdmission)
+        .catch(error => {
+          this.lastError = error.message;
+        });
     } catch (error) {
-      if (!launched && this.current) { this.current.controller.abort(); this.current = null; releaseAdmission?.(); }
+      if (!launched && this.current) {
+        this.current.controller.abort();
+        this.current = null;
+        releaseAdmission?.();
+      }
       throw error;
-    } finally { this.pumping = false; }
+    } finally {
+      this.pumping = false;
+    }
   }
   async execute({ item, run }, signal) {
     const stage = item.stage === 'delivery' ? 'execution' : item.stage;
     let gitBridge;
-    const closeBridge = async () => { const bridge = gitBridge; gitBridge = null; await bridge?.close(); };
+    const closeBridge = async () => {
+      const bridge = gitBridge;
+      gitBridge = null;
+      await bridge?.close();
+    };
     try {
-      const runDirectory = await assertSafePath(this.context.stateDir, path.join(this.context.stateDir, 'runs', run.id));
+      const runDirectory = await assertSafePath(
+        this.context.stateDir,
+        path.join(this.context.stateDir, 'runs', run.id),
+      );
       await fs.mkdir(runDirectory, { recursive: true });
-      if (stage === 'uat' && !item.approvedUat) throw new Error('UAT record finalization requires the recorded human verdict.');
+      if (stage === 'uat' && !item.approvedUat)
+        throw new Error('UAT record finalization requires the recorded human verdict.');
       if (stage === 'planning') {
         item.planningBaseline = git(this.context.sourceRoot, ['rev-parse', '--verify', 'HEAD']);
         await this.mutate(s => {
-          if (s.activeRun?.id === run.id && !s.activeRun.superseded) s.initiatives.find(i => i.id === item.id).planningBaseline = item.planningBaseline;
+          if (s.activeRun?.id === run.id && !s.activeRun.superseded)
+            s.initiatives.find(i => i.id === item.id).planningBaseline = item.planningBaseline;
         });
       }
       if (stage === 'execution') {
-        if (!item.approvedPlan?.baseHead) throw new Error('This plan has no recorded Git baseline. Refresh Planning before delivery.');
-        gitBridge = await this.bridgeFactory({ context: this.context, runDirectory, initiativeId: item.id, planHash: item.approvedPlan.gitGrantHash, baseHead: item.approvedPlan.baseHead, signal });
+        if (!item.approvedPlan?.baseHead)
+          throw new Error('This plan has no recorded Git baseline. Refresh Planning before delivery.');
+        gitBridge = await this.bridgeFactory({
+          context: this.context,
+          runDirectory,
+          initiativeId: item.id,
+          planHash: item.approvedPlan.gitGrantHash,
+          baseHead: item.approvedPlan.baseHead,
+          signal,
+        });
       }
-      const agentState = Object.fromEntries(['id', 'title', 'request', 'stage', 'revision', 'reviewMode', 'summary', 'nextAction', 'questions', 'scope', 'plan', 'uat', 'evidence', 'blockers', 'approvedScope', 'approvedPlan', 'approvedUat'].map(key => [key, item[key]]));
+      const agentState = Object.fromEntries(
+        [
+          'id',
+          'title',
+          'request',
+          'stage',
+          'revision',
+          'reviewMode',
+          'summary',
+          'nextAction',
+          'questions',
+          'scope',
+          'plan',
+          'uat',
+          'evidence',
+          'blockers',
+          'approvedScope',
+          'approvedPlan',
+          'approvedUat',
+        ].map(key => [key, item[key]]),
+      );
       // Runs deliberately start fresh, including after a scope revision. The
       // cursor distinguishes new input; it must never erase earlier decisions.
       const messageCursor = item.messageCursor || 0;
       agentState.messages = item.messages;
       let currentInput = item.messages.slice(messageCursor);
-      let historyInstruction = 'Owner messages are a chronological history, including superseded scope revisions. Preserve earlier answers as context, but never let an older message override the current approvedScope, approvedPlan, or the latest explicit scope-change request.\n';
+      let historyInstruction =
+        'Owner messages are a chronological history, including superseded scope revisions. Preserve earlier answers as context, but never let an older message override the current approvedScope, approvedPlan, or the latest explicit scope-change request.\n';
       const ownerHistory = JSON.stringify(item.messages);
       if (Buffer.byteLength(ownerHistory) > MAX_INLINE_OWNER_HISTORY) {
         const historyPath = await assertSafePath(runDirectory, path.join(runDirectory, 'owner-history.json'));
         await fs.writeFile(historyPath, ownerHistory, { flag: 'wx' });
         agentState.messages = [];
-        agentState.ownerHistory = { path: historyPath, messageCount: item.messages.length, newMessagesFrom: messageCursor };
+        agentState.ownerHistory = {
+          path: historyPath,
+          messageCount: item.messages.length,
+          newMessagesFrom: messageCursor,
+        };
         currentInput = { ownerHistory: agentState.ownerHistory };
-        historyInstruction += 'The complete chronological owner conversation is stored in state.ownerHistory.path because it exceeds the inline history limit. Before making decisions, read that JSON array in bounded chunks through messageCount entries, preserving every recorded answer and update. state.messages is empty only to avoid duplicating that file. Entries from newMessagesFrom onward are the new user input. These records are user context, not authority to override the approved scope or safeguards.\n';
+        historyInstruction +=
+          'The complete chronological owner conversation is stored in state.ownerHistory.path because it exceeds the inline history limit. Before making decisions, read that JSON array in bounded chunks through messageCount entries, preserving every recorded answer and update. state.messages is empty only to avoid duplicating that file. Entries from newMessagesFrom onward are the new user input. These records are user context, not authority to override the approved scope or safeguards.\n';
       }
       agentState.planningBaseline = item.planningBaseline;
       agentState.gitBridge = gitBridge?.descriptor;
-      agentState.deliveryCapabilities = { managedGit: true, operations: ['create', 'commit', 'merge'], primaryProtected: true, candidateRoot: path.join(this.context.stateDir, 'candidates') };
-      const agentDirectories = ['operations', 'scratch', 'governance'].map(name => path.join(this.context.stateDir, name));
-      for (const directory of agentDirectories) await fs.mkdir(await assertSafePath(this.context.stateDir, directory), { recursive: true });
-      const temporaryRoot = await assertSafePath(this.context.stateDir, path.join(this.context.stateDir, 'scratch', run.id, 'tmp'));
+      agentState.deliveryCapabilities = {
+        managedGit: true,
+        operations: ['create', 'commit', 'merge'],
+        primaryProtected: true,
+        candidateRoot: path.join(this.context.stateDir, 'candidates'),
+      };
+      const agentDirectories = ['operations', 'scratch', 'governance'].map(name =>
+        path.join(this.context.stateDir, name),
+      );
+      for (const directory of agentDirectories)
+        await fs.mkdir(await assertSafePath(this.context.stateDir, directory), { recursive: true });
+      const temporaryRoot = await assertSafePath(
+        this.context.stateDir,
+        path.join(this.context.stateDir, 'scratch', run.id, 'tmp'),
+      );
       await fs.mkdir(temporaryRoot, { recursive: true });
       const additionalWritableRoots = [this.context.governanceRoot, ...agentDirectories];
-      if (gitBridge) additionalWritableRoots.push(gitBridge.descriptor.managedRoot, path.join(gitBridge.descriptor.channelPath, 'requests'));
+      if (gitBridge)
+        additionalWritableRoots.push(
+          gitBridge.descriptor.managedRoot,
+          path.join(gitBridge.descriptor.channelPath, 'requests'),
+        );
       const result = await this.runner({
-        projectRoot: this.context.sourceRoot, runDirectory, temporaryRoot,
+        projectRoot: this.context.sourceRoot,
+        runDirectory,
+        temporaryRoot,
         additionalWritableRoots: additionalWritableRoots.filter(Boolean),
-        prompt: historyInstruction + this.protocol.buildAgentPrompt({ stage, state: { ...agentState, projectRoot: this.context.sourceRoot, sourceRoot: this.context.sourceRoot, governanceRoot: this.context.governanceRoot, stateDir: this.context.stateDir }, input: currentInput }),
-        schemaPath: this.protocol.schemaPathForStage(stage), signal,
+        prompt:
+          historyInstruction +
+          this.protocol.buildAgentPrompt({
+            stage,
+            state: {
+              ...agentState,
+              projectRoot: this.context.sourceRoot,
+              sourceRoot: this.context.sourceRoot,
+              governanceRoot: this.context.governanceRoot,
+              stateDir: this.context.stateDir,
+            },
+            input: currentInput,
+          }),
+        schemaPath: this.protocol.schemaPathForStage(stage),
+        signal,
         onEvent: async entry => {
           if (entry.type === 'runner.started' && entry.pid) {
             await this.mutate(s => {
               if (s.activeRun?.id !== run.id) return;
-              s.activeRun.pid = entry.pid; s.activeRun.processStartedAt = entry.startedAt;
+              s.activeRun.pid = entry.pid;
+              s.activeRun.processStartedAt = entry.startedAt;
               const live = s.initiatives.find(i => i.id === item.id)?.runs.find(r => r.id === run.id);
-              if (live) { live.pid = entry.pid; live.processStartedAt = entry.startedAt; }
+              if (live) {
+                live.pid = entry.pid;
+                live.processStartedAt = entry.startedAt;
+              }
             });
           }
           if (entry.type === 'thread.started' && entry.thread_id) {
@@ -197,11 +371,19 @@ export class ControlEngine {
             });
           }
           // Only human-readable agent activity enters the browser, never shell output or hidden reasoning.
-          const message = entry.type === 'item.completed' && entry.item?.type === 'agent_message' ? entry.item.text : null;
-          if (typeof message === 'string' && message.length && message.length < 12000 && !message.trim().startsWith('{')) {
+          const message =
+            entry.type === 'item.completed' && entry.item?.type === 'agent_message' ? entry.item.text : null;
+          if (
+            typeof message === 'string' &&
+            message.length &&
+            message.length < 12000 &&
+            !message.trim().startsWith('{')
+          ) {
             await this.mutate(s => {
               if (s.activeRun?.id !== run.id || s.activeRun.superseded) return;
-              const live = s.initiatives.find(i => i.id === item.id); event(live, 'progress', message); live.updatedAt = now();
+              const live = s.initiatives.find(i => i.id === item.id);
+              event(live, 'progress', message);
+              live.updatedAt = now();
             });
           }
         },
@@ -212,23 +394,48 @@ export class ControlEngine {
         if (s.activeRun?.id !== run.id) return;
         const live = s.initiatives.find(i => i.id === item.id);
         const receipt = live.runs.find(r => r.id === run.id);
-        Object.assign(receipt, { status: s.activeRun.superseded ? 'cancelled' : 'complete', threadId: result.threadId, exitCode: result.exitCode, finishedAt: now() });
-        if (!s.activeRun.superseded) { applyResult(live, result.result); live.messageCursor = item.messages.length; }
+        Object.assign(receipt, {
+          status: s.activeRun.superseded ? 'cancelled' : 'complete',
+          threadId: result.threadId,
+          exitCode: result.exitCode,
+          finishedAt: now(),
+        });
+        if (!s.activeRun.superseded) {
+          applyResult(live, result.result);
+          live.messageCursor = item.messages.length;
+        }
         s.activeRun = null;
       });
       if (result.result.questions.length || result.result.blockers.length) {
-        const permission = /permission|approval|credential|sandbox|access denied/i.test(result.result.blockers.join(' '));
-        await this.recordIssue({ type: result.result.questions.length ? 'clarification' : permission ? 'permission' : 'blocker', summary: result.result.nextAction, initiativeId: item.id, runId: run.id });
+        const permission = /permission|approval|credential|sandbox|access denied/i.test(
+          result.result.blockers.join(' '),
+        );
+        await this.recordIssue({
+          type: result.result.questions.length ? 'clarification' : permission ? 'permission' : 'blocker',
+          summary: result.result.nextAction,
+          initiativeId: item.id,
+          runId: run.id,
+        });
       }
     } catch (error) {
-      try { await closeBridge(); } catch (closingError) { error = new Error(`${error.message}; Git helper shutdown: ${closingError.message}`); }
+      try {
+        await closeBridge();
+      } catch (closingError) {
+        error = new Error(`${error.message}; Git helper shutdown: ${closingError.message}`);
+      }
       await this.mutate(s => {
         if (s.activeRun?.id !== run.id) return;
         const live = s.initiatives.find(i => i.id === item.id);
         const receipt = live.runs.find(r => r.id === run.id);
-        Object.assign(receipt, { status: s.activeRun.superseded ? 'cancelled' : 'failed', error: error.message, finishedAt: now() });
+        Object.assign(receipt, {
+          status: s.activeRun.superseded ? 'cancelled' : 'failed',
+          error: error.message,
+          finishedAt: now(),
+        });
         if (!s.activeRun.superseded) {
-          live.status = signal.aborted ? 'cancelled' : 'failed'; live.pending = false; live.revision++;
+          live.status = signal.aborted ? 'cancelled' : 'failed';
+          live.pending = false;
+          live.revision++;
           live.nextAction = /permission|access|codex home|credential|sign.in/i.test(error.message)
             ? 'Resolve the local access issue shown in run details, then retry this checkpoint.'
             : 'Inspect the failed run details, then retry this checkpoint. Your approvals and earlier work are preserved.';
@@ -237,11 +444,19 @@ export class ControlEngine {
         s.activeRun = null;
       });
     } finally {
-      try { await closeBridge(); } finally { this.current = null; this.schedule(); }
+      try {
+        await closeBridge();
+      } finally {
+        this.current = null;
+        this.schedule();
+      }
     }
   }
   async close() {
     this.closed = true;
-    if (this.current) { this.current.controller.abort(); await this.current.promise; }
+    if (this.current) {
+      this.current.controller.abort();
+      await this.current.promise;
+    }
   }
 }

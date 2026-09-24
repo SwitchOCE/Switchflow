@@ -1,17 +1,81 @@
-.skill-source{margin-top:2rem;border-top:1px solid var(--docs-border);padding-top:1rem}
-.skill-source summary{cursor:pointer;font-weight:600}
-.skill-source pre{white-space:pre-wrap;overflow-wrap:anywhere;font:.85rem/1.6 ui-monospace,Consolas,monospace}
-.skill-references{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
-.skills-reader .docs-nav{max-height:75vh}
-.skills-reader .docs-nav[aria-busy=true]{opacity:.68}
-.skills-reader .docs-nav>.button{margin:.5rem}
-.skills-reader .docs-excerpt{overflow-wrap:anywhere}
-.skills-reader .muted{color:var(--docs-muted)}
-[data-theme=dark] .skills-reader{--docs-border:var(--line);--docs-muted:var(--muted);--docs-accent:var(--teal);background:var(--surface);color:var(--ink)}
-[data-theme=dark] .skills-reader .docs-toolbar,[data-theme=dark] .skills-reader .docs-code-bar{background:var(--soft)}
-[data-theme=dark] .skills-reader .docs-toolbar input,[data-theme=dark] .skills-reader .docs-toolbar button,[data-theme=dark] .skills-reader .docs-code button{background:var(--canvas);color:var(--ink);border-color:var(--line)}
-[data-theme=dark] .skills-reader .docs-nav button,[data-theme=dark] .skills-reader .docs-toc a,[data-theme=dark] .skills-reader .docs-prose :is(h1,h2,h3,h4,h5,h6){color:var(--ink)}
-[data-theme=dark] .skills-reader .docs-nav button:hover,[data-theme=dark] .skills-reader .docs-nav button[aria-current=page]{background:var(--soft);color:var(--teal)}
-[data-theme=dark] .skills-reader .docs-prose :is(code,blockquote),[data-theme=dark] .skills-reader .docs-code pre,[data-theme=dark] .skills-reader .docs-table th,[data-theme=dark] .skills-reader .docs-table tr:nth-child(even){background:var(--canvas);color:var(--ink)}
-[data-theme=dark] .skills-reader .docs-code-bar{color:var(--muted)}
-@media(max-width:650px){.skills-reader .docs-nav{max-height:18rem}}
+.skill-source {
+  margin-top: 2rem;
+  border-top: 1px solid var(--docs-border);
+  padding-top: 1rem;
+}
+.skill-source summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.skill-source pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    0.85rem/1.6 ui-monospace,
+    Consolas,
+    monospace;
+}
+.skill-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.skills-reader .docs-nav {
+  max-height: 75vh;
+}
+.skills-reader .docs-nav[aria-busy='true'] {
+  opacity: 0.68;
+}
+.skills-reader .docs-nav > .button {
+  margin: 0.5rem;
+}
+.skills-reader .docs-excerpt {
+  overflow-wrap: anywhere;
+}
+.skills-reader .muted {
+  color: var(--docs-muted);
+}
+[data-theme='dark'] .skills-reader {
+  --docs-border: var(--line);
+  --docs-muted: var(--muted);
+  --docs-accent: var(--teal);
+  background: var(--surface);
+  color: var(--ink);
+}
+[data-theme='dark'] .skills-reader .docs-toolbar,
+[data-theme='dark'] .skills-reader .docs-code-bar {
+  background: var(--soft);
+}
+[data-theme='dark'] .skills-reader .docs-toolbar input,
+[data-theme='dark'] .skills-reader .docs-toolbar button,
+[data-theme='dark'] .skills-reader .docs-code button {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--line);
+}
+[data-theme='dark'] .skills-reader .docs-nav button,
+[data-theme='dark'] .skills-reader .docs-toc a,
+[data-theme='dark'] .skills-reader .docs-prose :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--ink);
+}
+[data-theme='dark'] .skills-reader .docs-nav button:hover,
+[data-theme='dark'] .skills-reader .docs-nav button[aria-current='page'] {
+  background: var(--soft);
+  color: var(--teal);
+}
+[data-theme='dark'] .skills-reader .docs-prose :is(code, blockquote),
+[data-theme='dark'] .skills-reader .docs-code pre,
+[data-theme='dark'] .skills-reader .docs-table th,
+[data-theme='dark'] .skills-reader .docs-table tr:nth-child(even) {
+  background: var(--canvas);
+  color: var(--ink);
+}
+[data-theme='dark'] .skills-reader .docs-code-bar {
+  color: var(--muted);
+}
+@media (max-width: 650px) {
+  .skills-reader .docs-nav {
+    max-height: 18rem;
+  }
+}

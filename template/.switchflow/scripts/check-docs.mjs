@@ -14,7 +14,7 @@ const decisions = [];
 
 function collectMarkdown(directory) {
   if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return collectMarkdown(path);
     return entry.isFile() && entry.name.endsWith('.md') ? [path] : [];
@@ -28,7 +28,7 @@ function readFrontmatter(path, content) {
     return null;
   }
 
-  const value = (key) => {
+  const value = key => {
     const field = new RegExp(`^${key}:\\s*["']?([^"'\\r\\n]+?)["']?\\s*$`, 'm').exec(match[1]);
     return field?.[1]?.trim() ?? '';
   };
@@ -55,7 +55,7 @@ function slugifyHeading(heading) {
 
 function checkHeading(sourcePath, targetDocument, encodedFragment, rawTarget) {
   if (!encodedFragment) return;
-  const headings = [...targetDocument.content.matchAll(/^#{1,6}\s+(.+)$/gm)].map((heading) => slugifyHeading(heading[1]));
+  const headings = [...targetDocument.content.matchAll(/^#{1,6}\s+(.+)$/gm)].map(heading => slugifyHeading(heading[1]));
   if (!headings.includes(decodeURIComponent(encodedFragment).toLowerCase())) {
     errors.push(`${relative(projectRoot, sourcePath)}: missing heading for ${rawTarget}`);
   }
@@ -69,7 +69,7 @@ function checkLinks(sourceDocument) {
     const [encodedPath, encodedFragment = ''] = rawTarget.split('#', 2);
     const routeMatch = /^\/documentation\/(\d+)\/([a-z0-9-]+)$/.exec(encodedPath);
     if (routeMatch) {
-      const targetDocument = documents.find((document) => document.id === `doc-${routeMatch[1]}`);
+      const targetDocument = documents.find(document => document.id === `doc-${routeMatch[1]}`);
       if (!targetDocument || slugifyHeading(targetDocument.title) !== routeMatch[2]) {
         errors.push(`${relative(projectRoot, sourceDocument.path)}: broken Backlog document route ${rawTarget}`);
         continue;
@@ -80,7 +80,7 @@ function checkLinks(sourceDocument) {
 
     const decisionMatch = /^\/decisions\/(decision-\d+)$/.exec(encodedPath);
     if (decisionMatch) {
-      const targetDecision = decisions.find((decision) => decision.id === decisionMatch[1]);
+      const targetDecision = decisions.find(decision => decision.id === decisionMatch[1]);
       if (!targetDecision) {
         errors.push(`${relative(projectRoot, sourceDocument.path)}: broken Backlog decision route ${rawTarget}`);
         continue;
@@ -91,7 +91,9 @@ function checkLinks(sourceDocument) {
 
     const decodedPath = decodeURIComponent(encodedPath);
     if (decodedPath.toLowerCase().endsWith('.md')) {
-      errors.push(`${relative(projectRoot, sourceDocument.path)}: Markdown document links must use a /documentation/<id>/<slug> browser route: ${rawTarget}`);
+      errors.push(
+        `${relative(projectRoot, sourceDocument.path)}: Markdown document links must use a /documentation/<id>/<slug> browser route: ${rawTarget}`,
+      );
       continue;
     }
 
@@ -146,7 +148,9 @@ if (backlogCli && errors.length === 0) {
       encoding: 'utf8',
     });
     if (result.status !== 0) {
-      errors.push(`${relative(projectRoot, document.path)}: Backlog could not read ${document.id}: ${(result.stderr || result.stdout).trim()}`);
+      errors.push(
+        `${relative(projectRoot, document.path)}: Backlog could not read ${document.id}: ${(result.stderr || result.stdout).trim()}`,
+      );
     }
   }
 
@@ -174,4 +178,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Validated ${documents.length} Backlog documents, ${decisions.length} decisions, browser routes, and local links.`);
+console.log(
+  `Validated ${documents.length} Backlog documents, ${decisions.length} decisions, browser routes, and local links.`,
+);

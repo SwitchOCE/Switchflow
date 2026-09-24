@@ -13,10 +13,24 @@ export function schemaPathForStage(stage) {
 }
 
 export function validateAgentResult(stage, result) {
-  const fail = (reason) => { throw new Error(`Invalid ${stage} agent result: ${reason}`); };
+  const fail = reason => {
+    throw new Error(`Invalid ${stage} agent result: ${reason}`);
+  };
   if (!stageStatuses[stage] || !result || typeof result !== 'object' || Array.isArray(result)) fail('object required');
-  const keys = ['stage', 'status', 'summary', 'nextAction', 'questions', 'scope', 'plan', 'evidence', 'blockers', 'uat'];
-  if (Object.keys(result).some((key) => !keys.includes(key)) || keys.some((key) => !(key in result))) fail('unexpected or missing fields');
+  const keys = [
+    'stage',
+    'status',
+    'summary',
+    'nextAction',
+    'questions',
+    'scope',
+    'plan',
+    'evidence',
+    'blockers',
+    'uat',
+  ];
+  if (Object.keys(result).some(key => !keys.includes(key)) || keys.some(key => !(key in result)))
+    fail('unexpected or missing fields');
   result = { ...result };
   if (result.stage !== stage || !stageStatuses[stage].includes(result.status)) fail('stage or status mismatch');
   for (const key of ['summary', 'nextAction', 'scope']) {
@@ -24,22 +38,45 @@ export function validateAgentResult(stage, result) {
   }
   if (!result.summary.trim() || !result.nextAction.trim()) fail('summary and nextAction are required');
   for (const key of ['evidence', 'blockers', 'uat']) {
-    if (!Array.isArray(result[key]) || result[key].length > 1000 || result[key].some((v) => typeof v !== 'string' || v.length > 100000)) fail(`${key} must contain bounded strings`);
-    result[key] = result[key].filter((value) => value.trim());
+    if (
+      !Array.isArray(result[key]) ||
+      result[key].length > 1000 ||
+      result[key].some(v => typeof v !== 'string' || v.length > 100000)
+    )
+      fail(`${key} must contain bounded strings`);
+    result[key] = result[key].filter(value => value.trim());
   }
-  if (!Array.isArray(result.questions) || result.questions.length > 100 || result.questions.some((q) => !q || Object.keys(q).length !== 2 || ['id', 'prompt'].some((k) => typeof q[k] !== 'string' || !q[k].trim() || q[k].length > 10000))) fail('questions require id and prompt');
-  if (new Set(result.questions.map((q) => q.id)).size !== result.questions.length) fail('duplicate question IDs');
+  if (
+    !Array.isArray(result.questions) ||
+    result.questions.length > 100 ||
+    result.questions.some(
+      q =>
+        !q ||
+        Object.keys(q).length !== 2 ||
+        ['id', 'prompt'].some(k => typeof q[k] !== 'string' || !q[k].trim() || q[k].length > 10000),
+    )
+  )
+    fail('questions require id and prompt');
+  if (new Set(result.questions.map(q => q.id)).size !== result.questions.length) fail('duplicate question IDs');
   if (!Array.isArray(result.plan) || result.plan.length > 1000) fail('plan must be an array');
   for (const item of result.plan) {
-    if (!item || Object.keys(item).length !== 4 || ['phase', 'task', 'outcome', 'evidence'].some((k) => typeof item[k] !== 'string' || !item[k].trim() || item[k].length > 100000)) fail('invalid plan entry');
+    if (
+      !item ||
+      Object.keys(item).length !== 4 ||
+      ['phase', 'task', 'outcome', 'evidence'].some(
+        k => typeof item[k] !== 'string' || !item[k].trim() || item[k].length > 100000,
+      )
+    )
+      fail('invalid plan entry');
   }
-  result.questions = result.questions.map((question) => ({ ...question }));
-  result.plan = result.plan.map((item) => ({ ...item }));
+  result.questions = result.questions.map(question => ({ ...question }));
+  result.plan = result.plan.map(item => ({ ...item }));
   if (result.status === 'questions' && !result.questions.length) fail('questions required');
   if (result.status === 'blocked' && !result.blockers.length) fail('blockers required');
   if (stage === 'intake' && result.status === 'ready' && !result.scope.trim()) fail('scope required');
   if (stage === 'planning' && result.status === 'ready' && !result.plan.length) fail('plan required');
-  if (result.status === 'ready_for_uat' && (!result.evidence.length || !result.uat.length || result.blockers.length)) fail('evidence and UAT walkthrough required, with no blockers');
+  if (result.status === 'ready_for_uat' && (!result.evidence.length || !result.uat.length || result.blockers.length))
+    fail('evidence and UAT walkthrough required, with no blockers');
   return result;
 }
 

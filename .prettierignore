@@ -1,0 +1,13 @@
+# Historical records keep their original line references.
+analysis/
+tmp/
+
+# Prose, workflow YAML and generated files are not reformatted.
+*.md
+*.yml
+*.yaml
+package-lock.json
+template/backlog/
+
+# The fork runtime identity hashes these scripts; reformatting would force a rebuild.
+template/.switchflow/scripts/backlog-fork/
