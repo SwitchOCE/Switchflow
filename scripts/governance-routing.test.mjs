@@ -254,3 +254,89 @@ test('cleanup eligibility reads current primary task status rather than copied D
     assert.doesNotMatch(result, /Performing the operation/);
     assert.ok(ok(run('git', ['-C', primary, 'branch', '--list', 'task/TEST-1'], primary)).includes('task/TEST-1'));
   }));
+
+const environmentProfile = requirements =>
+  `---\nid: doc-02\ntitle: Project profile\n---\n\n# Project profile\n\n## Environment requirements\n\nFacts.\n\n\`\`\`json\n${JSON.stringify(requirements, null, 2)}\n\`\`\`\n\n\`\`\`text\n{ "files": [{ "path": "example-only" }] }\n\`\`\`\n\n## Approval posture\n\nNone.\n`;
+
+test('worktree preflight enforces declared environment requirements and prints a receipt', () =>
+  fixture(({ primary, linked }) => {
+    const script = join(linked, '.switchflow/scripts/check-worktree-tools.ps1');
+    const preflight = (extra = []) => ps(script, ['-Worktree', linked, '-TaskId', 'TEST-1', ...extra], linked);
+    mkdirSync(join(primary, 'backlog/docs'), { recursive: true });
+    mkdirSync(join(primary, 'out/evidence'), { recursive: true });
+    writeFileSync(join(primary, 'out/evidence/report.txt'), 'primary evidence');
+    writeFileSync(
+      join(primary, 'backlog/docs/doc-02 - Project-profile.md'),
+      environmentProfile({
+        files: [{ path: 'out/evidence/report.txt', reason: 'document checks read it' }],
+        checks: [
+          { name: 'Marker', run: 'if (-not (Test-Path marker.txt)) { exit 3 }', reason: 'tasks need the marker' },
+        ],
+        notes: ["Pass flags with 'npm run test:unit -- <flags>'."],
+      }),
+    );
+
+    const missing = preflight();
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /out\/evidence\/report\.txt \(document checks read it\)/);
+    assert.match(missing.stderr, /-ProvisionFiles/);
+
+    const failedCheck = preflight(['-ProvisionFiles']);
+    assert.notEqual(failedCheck.status, 0);
+    assert.match(failedCheck.stderr, /Environment check 'Marker' failed with exit code 3/);
+    assert.match(failedCheck.stderr, /tasks need the marker/);
+    assert.equal(readFileSync(join(linked, 'out/evidence/report.txt'), 'utf8'), 'primary evidence');
+
+    writeFileSync(join(linked, 'out/evidence/report.txt'), 'candidate copy');
+    writeFileSync(join(linked, 'marker.txt'), '');
+    const receipt = ok(preflight(['-ProvisionFiles']));
+    assert.equal(readFileSync(join(linked, 'out/evidence/report.txt'), 'utf8'), 'candidate copy');
+    const head = ok(run('git', ['-C', linked, 'rev-parse', 'HEAD'], linked)).trim();
+    assert.ok(receipt.includes(`- code: ${linked} at ${head}`), receipt);
+    assert.match(receipt, /- file out\/evidence\/report\.txt: present/);
+    assert.match(receipt, /- check passed: Marker/);
+    assert.match(receipt, /- note: Pass flags with 'npm run test:unit -- <flags>'\./);
+    assert.doesNotMatch(receipt, /example-only/);
+  }));
+
+test('worktree preflight bounds slow checks and rejects malformed requirements', () =>
+  fixture(({ primary, linked }) => {
+    const script = join(linked, '.switchflow/scripts/check-worktree-tools.ps1');
+    const preflight = () => ps(script, ['-Worktree', linked, '-TaskId', 'TEST-1'], linked);
+    const profile = join(primary, 'backlog/docs/doc-02 - Project-profile.md');
+    mkdirSync(join(primary, 'backlog/docs'), { recursive: true });
+
+    writeFileSync(
+      profile,
+      environmentProfile({
+        checks: [{ name: 'Slow', run: 'Start-Sleep -Seconds 30', reason: 'r', timeoutSeconds: 1 }],
+      }),
+    );
+    const started = Date.now();
+    const slow = preflight();
+    assert.match(slow.stderr, /Environment check 'Slow' did not finish within 1 seconds/);
+    assert.ok(Date.now() - started < 20000);
+
+    for (const [requirements, message] of [
+      [{ files: [{ path: '../outside', reason: 'r' }] }, /must be relative to the checkout without '\.\.'/],
+      [{ files: [{ path: 'C:/absolute', reason: 'r' }] }, /must be relative to the checkout/],
+      [{ files: [{ path: 'x' }] }, /needs a non-empty 'reason' string/],
+      [{ checks: 'gh auth status' }, /'checks' must be an array/],
+      [
+        { checks: [{ name: 'n', run: 'exit 0', reason: 'r', timeoutSeconds: 0 }] },
+        /timeoutSeconds must be a whole number/,
+      ],
+      [{ notes: [''] }, /Each note must be a non-empty string/],
+    ]) {
+      writeFileSync(profile, environmentProfile(requirements));
+      const result = preflight();
+      assert.notEqual(result.status, 0, JSON.stringify(requirements));
+      assert.match(result.stderr, message, JSON.stringify(requirements));
+    }
+    writeFileSync(profile, environmentProfile({}).replace(/```json[\s\S]*?```/, '```json\n{ not json\n```'));
+    assert.match(preflight().stderr, /Invalid JSON in the Environment requirements JSON block/);
+    writeFileSync(profile, '# Project profile\n\n## Approval posture\n\nNone.\n');
+    ok(preflight());
+    cpSync(join(source, '../../backlog/docs/doc-02 - Project-profile.md'), profile);
+    assert.match(ok(preflight()), /Environment receipt for TEST-1/);
+  }));

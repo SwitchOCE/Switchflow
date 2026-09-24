@@ -32,6 +32,30 @@ Before approving a project plan, record its authoritative board checkout, integr
 
 No application-specific build, test, lint, type-check, or artifact commands have been recorded yet. Add the smallest normal gate before the first runtime change.
 
+## Environment requirements
+
+Record environment facts that a fresh worktree or worker would otherwise rediscover. `check-worktree-tools.ps1` reads the JSON block below at every dispatch preflight, fails with the name and reason of anything missing, and prints an environment receipt to paste into the dispatch.
+
+- `files`: paths relative to the checkout that must exist in the worktree, usually ignored evidence or generated inputs. `-ProvisionFiles` copies a missing one from the primary checkout; it never overwrites.
+- `checks`: PowerShell commands run in the worktree that must exit with code 0, such as an access check. A command that only returns `False` passes, so make it fail explicitly. `timeoutSeconds` defaults to 60 and may be 1–600. A check proves access from the preflight's own process; a worker in a different sandbox can still differ.
+- `notes`: verified command forms and other facts copied into the receipt as written.
+
+When a worker has to rediscover a fact during delivery, add it here rather than only to the handoff.
+
+```json
+{ "files": [], "checks": [], "notes": [] }
+```
+
+Example entries:
+
+```text
+{
+  "files": [{ "path": "out/ui-handoff", "reason": "document checks read this ignored evidence" }],
+  "checks": [{ "name": "GitHub access", "run": "gh auth status", "reason": "publication tasks push release assets" }],
+  "notes": ["Pass Vitest flags with 'npm run test:unit -- <flags>'; 'npm test' drops them."]
+}
+```
+
 ## Approval posture
 
 Record which command families run without escalation in this project, and which always require a decision. Planning uses this: a task needing an action outside the approved set will halt mid-execution, which readiness condition 7 in the [task contract](/documentation/07/task-contract) is meant to catch before work starts.
