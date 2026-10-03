@@ -203,7 +203,7 @@ test('task access refresh reports supplied offline cause and generic unavailable
   assert.match(node('.sf-task-count').textContent, /temporarily unavailable/);
   writable = true;
   view.updateAccess();
-  assert.equal(node('.sf-task-count').textContent, '0 of 0 tasks');
+  assert.equal(node('.sf-task-count').textContent, '0 tasks');
   assert.equal(node('[data-create]').disabled, false);
   view.destroy();
 });
