@@ -69,6 +69,10 @@
         <path d="m20 20-4-4" />
       </symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.6-5.9L20 8.5" />
+        <path d="M20 4v4.5h-4.5" />
+      </symbol>
       <symbol id="i-moon" viewBox="0 0 24 24">
         <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
       </symbol>
@@ -210,7 +214,7 @@
             <h1 id="page-title">Overview</h1>
             <p>What needs you, what's running and what's next.</p>
           </div>
-          <span class="muted overview-updated" id="updated-at"></span>
+          <div class="page-actions"></div>
         </header>
         <section id="overview-stats" class="overview-stats" aria-label="Summary"></section>
         <section id="overview-queues" class="overview-queues" aria-label="Current work"></section>
@@ -223,13 +227,7 @@
           </div>
           <div class="page-actions">
             <label class="sr-only" for="filter">Find an initiative</label
-            ><input id="filter" type="search" placeholder="Filter initiatives" /><button
-              id="refresh"
-              class="button quiet"
-              aria-label="Refresh board"
-            >
-              Refresh
-            </button>
+            ><input id="filter" type="search" placeholder="Filter initiatives" />
           </div>
         </header>
         <div class="board" id="board" tabindex="-1" aria-busy="true"></div>

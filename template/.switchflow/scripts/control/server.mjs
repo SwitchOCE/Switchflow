@@ -52,6 +52,7 @@ const staticFiles = Object.fromEntries(
     'agents.css',
     'overview-model.js',
     'ui-date.js',
+    'refresh-control.js',
   ].map(file => [
     `/${file}`,
     [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript'],

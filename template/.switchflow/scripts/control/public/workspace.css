@@ -1,11 +1,6 @@
 /* Overview, Initiatives board and the initiative detail sheet. Tokens and primitives only. */
 
 /* Overview --------------------------------------------------------------- */
-.overview-updated {
-  align-self: flex-end;
-  color: var(--text-3);
-  font-size: var(--text-xs);
-}
 .overview-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -1,4 +1,5 @@
 import { renderMarkdown, bindProseInteractions } from './documents.js';
+import { createRefreshControl } from './refresh-control.js';
 import { taskRank } from './overview-model.js';
 // Host callbacks supply project-scoped APIs and CSRF; drafts never cross project keys.
 export const sortMilestones = values =>
@@ -253,6 +254,8 @@ export function createMilestonePanel({
     'button primary',
   );
   if (api) actions.append(create);
+  const refreshControl = createRefreshControl(() => refresh());
+  actions.append(refreshControl.create());
   const toolbar = node('div', undefined, 'toolbar ms-toolbar');
   const search = node('input');
   search.type = 'search';
@@ -1612,6 +1615,7 @@ export function createMilestonePanel({
       archived = Array.isArray(archiveValue) ? archiveValue : archiveValue.milestones || [];
       if (refreshFailed || message.textContent === 'Loading milestones…') message.textContent = '';
       refreshFailed = false;
+      refreshControl.loaded();
       renderList();
       if (updateReader) updateReader();
       else if (selected === null && !detail.childNodes.length) {
@@ -1624,6 +1628,7 @@ export function createMilestonePanel({
       if (current(ticket, project) && requestId === request) {
         message.textContent = errorText(error);
         refreshFailed = true;
+        refreshControl.failed(error);
       }
     }
   }
@@ -1660,6 +1665,7 @@ export function createMilestonePanel({
     destroy() {
       reset();
       destroyed = true;
+      refreshControl.destroy();
       container.replaceChildren();
     },
   };

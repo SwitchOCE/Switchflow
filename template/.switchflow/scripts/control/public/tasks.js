@@ -8,6 +8,7 @@ import {
   isoDay as day,
 } from './tasks-model.js';
 import { taskEditor } from './tasks-editor.js';
+import { createRefreshControl } from './refresh-control.js';
 
 const PAGE_SIZE = 30;
 // Board lanes are bounded; the finished lane reads newest first and grows in pages of 20.
@@ -16,8 +17,6 @@ const LANE_LIMIT = 50;
 const flip = { top: 'bottom', bottom: 'top', before: 'after', after: 'before' };
 const finishedLane = status => ['done', 'completed', 'complete'].includes(String(status || '').toLowerCase());
 const icon = {
-  refresh:
-    '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 4v3.5h-3.5"/></svg>',
   filter:
     '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 5h14M6 10h8M8.5 15h3"/></svg>',
   search:
@@ -125,10 +124,12 @@ export function mountTasks(
   };
   const milestoneName = id => milestones.find(x => x.id === id)?.title || id;
   container.classList.add('sf-tasks');
-  container.innerHTML = `<header class="page-header sf-tasks-header"><div><h1 data-title>Tasks</h1><p data-subtitle>Plan, assign and track work across your project.</p></div><div class="page-actions"><button type="button" class="button primary" data-create>Create task</button></div></header><div class="toolbar sf-task-toolbar"><label class="sf-task-search"><span class="sf-search-icon">${icon.search}</span><span class="sf-sr">Search tasks</span><input type="search" data-search placeholder="Search ID, title or description" autocomplete="off"></label><div class="segmented" role="group" aria-label="Task layout"><button type="button" data-layout="board" aria-pressed="true">Board</button><button type="button" data-layout="list" aria-pressed="false">List</button></div><button type="button" class="button quiet sf-filter-toggle" data-filters aria-expanded="false" aria-controls="${uid}-filters">${icon.filter}Filters<span class="count" data-filter-count hidden></span></button><div class="sf-active-filters" data-active-filters></div><div class="sf-toolbar-end"><p class="sf-task-count" aria-live="polite"></p><button type="button" class="icon-button" data-refresh aria-label="Refresh tasks" title="Refresh">${icon.refresh}</button><details class="sf-menu sf-maintenance"><summary class="icon-button" aria-label="More task actions" title="More"><span aria-hidden="true">⋯</span></summary><div class="sf-menu-list"><button type="button" data-maintenance="duplicates">Review duplicate IDs</button><button type="button" data-maintenance="cleanup">Review completed cleanup</button></div></details></div></div><div class="sf-filter-panel" id="${uid}-filters" data-filter-panel role="region" aria-label="Filters and view" hidden><div class="sf-task-filters"></div><div class="sf-task-view-options"><label>Sort<select data-sort><option value="ordinal">Board order</option><option value="title">Title</option><option value="status">Status</option><option value="priority">Priority</option></select></label><label>Density<select data-density><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label></div><div class="sf-filter-foot"><button type="button" class="button quiet button-small" data-clear>Clear filters</button><button type="button" class="button quiet button-small" data-filters-close>Done</button></div></div><p class="sf-task-notice" role="status"></p><div class="sf-task-results"></div>`;
+  container.innerHTML = `<header class="page-header sf-tasks-header"><div><h1 data-title>Tasks</h1><p data-subtitle>Plan, assign and track work across your project.</p></div><div class="page-actions"><button type="button" class="button primary" data-create>Create task</button><div class="refresh-control"></div></div></header><div class="toolbar sf-task-toolbar"><label class="sf-task-search"><span class="sf-search-icon">${icon.search}</span><span class="sf-sr">Search tasks</span><input type="search" data-search placeholder="Search ID, title or description" autocomplete="off"></label><div class="segmented" role="group" aria-label="Task layout"><button type="button" data-layout="board" aria-pressed="true">Board</button><button type="button" data-layout="list" aria-pressed="false">List</button></div><button type="button" class="button quiet sf-filter-toggle" data-filters aria-expanded="false" aria-controls="${uid}-filters">${icon.filter}Filters<span class="count" data-filter-count hidden></span></button><div class="sf-active-filters" data-active-filters></div><div class="sf-toolbar-end"><p class="sf-task-count" aria-live="polite"></p><details class="sf-menu sf-maintenance"><summary class="icon-button" aria-label="More task actions" title="More"><span aria-hidden="true">⋯</span></summary><div class="sf-menu-list"><button type="button" data-maintenance="duplicates">Review duplicate IDs</button><button type="button" data-maintenance="cleanup">Review completed cleanup</button></div></details></div></div><div class="sf-filter-panel" id="${uid}-filters" data-filter-panel role="region" aria-label="Filters and view" hidden><div class="sf-task-filters"></div><div class="sf-task-view-options"><label>Sort<select data-sort><option value="ordinal">Board order</option><option value="title">Title</option><option value="status">Status</option><option value="priority">Priority</option></select></label><label>Density<select data-density><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label></div><div class="sf-filter-foot"><button type="button" class="button quiet button-small" data-clear>Clear filters</button><button type="button" class="button quiet button-small" data-filters-close>Done</button></div></div><p class="sf-task-notice" role="status"></p><div class="sf-task-results"></div>`;
   const find = selector => container.querySelector(selector),
     notice = find('.sf-task-notice'),
     results = find('.sf-task-results');
+  const refreshControl = createRefreshControl(() => refresh());
+  refreshControl.mount(find('.refresh-control'));
   const blockedReason = () => writeBlockedReason() || 'Changes are temporarily unavailable.';
   function updateAccess() {
     updateCount();
@@ -332,6 +333,7 @@ export function mountTasks(
       hideEmptyColumns = response[2].hideEmptyColumns === true;
       defaultStatus = response[2].defaultStatus || statuses[0];
       updateCount();
+      refreshControl.loaded();
       if (notice.textContent === loadFeedback) notice.textContent = '';
       loadFeedback = '';
       if (dragging) return;
@@ -344,6 +346,7 @@ export function mountTasks(
       if (!destroyed && current === generation) {
         loadFeedback = `Unable to load ${mode}: ${error.message}. Use Refresh to retry.`;
         notice.textContent = loadFeedback;
+        refreshControl.failed(error);
       }
     }
   }
@@ -646,7 +649,6 @@ export function mountTasks(
       render();
       find('.sf-task-table-wrap')?.scrollTo?.({ top: 0 });
     }
-    if (button.hasAttribute('data-refresh')) refresh();
     if (button.dataset.open) openTask(button.dataset.open);
     if (button.hasAttribute('data-create') && !locked()) {
       editorGeneration++;
@@ -834,6 +836,7 @@ export function mountTasks(
     destroy() {
       destroyed = true;
       events.abort();
+      refreshControl.destroy();
       generation++;
       editorGeneration++;
       closeEditor();

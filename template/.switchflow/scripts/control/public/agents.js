@@ -1,6 +1,7 @@
 // Agents: live and recent provider sessions, the orchestrator → worker tree, a readable
 // transcript and a composer that steers the selected session mid-turn.
 import { renderMarkdown } from './documents.js';
+import { createRefreshControl } from './refresh-control.js';
 
 const providers = {
   claude: { name: 'Claude', mark: 'C' },
@@ -143,8 +144,9 @@ export function mountAgents(
     routingToggle.setAttribute('aria-expanded', String(showRouting));
     renderRouting();
   });
+  const refreshControl = createRefreshControl(() => refresh());
   const headerTools = el('div', 'agents-header-tools');
-  headerTools.append(providerChips, routingToggle);
+  headerTools.append(providerChips, routingToggle, refreshControl.create());
   header.append(titles, headerTools);
 
   const routing = el('section', 'agents-routing');
@@ -726,6 +728,7 @@ export function mountAgents(
       const next = await request('/agents');
       if (destroyed) return;
       data = next;
+      refreshControl.loaded();
       message.textContent = data?.notice || '';
       if (!selected || !current()) {
         const pick =
@@ -751,6 +754,7 @@ export function mountAgents(
     } catch (error) {
       if (destroyed) return;
       message.textContent = `Agent sessions are unavailable: ${error.message}`;
+      refreshControl.failed(error);
       if (!data) {
         renderProviders();
         renderList();
@@ -768,6 +772,7 @@ export function mountAgents(
     open: id => select(id),
     destroy() {
       destroyed = true;
+      refreshControl.destroy();
       clearInterval(timer);
       clearTimeout(streamTimer);
     },

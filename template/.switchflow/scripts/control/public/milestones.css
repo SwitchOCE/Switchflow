@@ -938,6 +938,9 @@ button.ms-task-name:hover {
   .milestone-panel .page-header {
     flex-wrap: wrap;
   }
+  .milestone-panel .page-actions {
+    flex-basis: 100%;
+  }
   .ms-toolbar input[type='search'] {
     width: 100%;
   }

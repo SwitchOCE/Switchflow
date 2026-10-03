@@ -39,6 +39,7 @@ test('production control server serves every imported UI module and stylesheet',
     }
     assert.ok(checked.has('overview-model.js'));
     assert.ok(checked.has('ui-date.js'));
+    assert.ok(checked.has('refresh-control.js'));
     assert.equal((await fetch(app.url + '/missing-ui-module.js')).status, 404);
   } finally {
     await app?.close();
