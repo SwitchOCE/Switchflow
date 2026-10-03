@@ -28,7 +28,7 @@ test('overview separates human readiness, authority, queued work and real runnin
   assert.equal(result.decisions.length, 1);
   assert.equal(result.groups.find(g => g.title === 'Running now').items.length, 0);
   assert.deepEqual(
-    result.groups.find(g => g.title === 'Up next').items.map(i => i.id),
+    result.groups.find(g => g.title === 'Agents up next').items.map(i => i.id),
     [],
   );
   assert.match(result.groups[0].items[1].reason, /Your task/);
@@ -227,7 +227,7 @@ test('one ranking orders work by milestone, priority, then board order, and Up n
     ['T-7', 'T-6'],
   );
   assert.equal(overview.nextSource, 'board');
-  const upNext = overview.groups.find(group => group.title === 'Up next').items;
+  const upNext = overview.groups.find(group => group.title === 'Agents up next').items;
   assert.deepEqual(
     upNext.map(t => t.id),
     ['T-5', 'T-4', 'T-3', 'T-2', 'T-1'],

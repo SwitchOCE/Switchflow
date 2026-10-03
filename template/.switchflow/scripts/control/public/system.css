@@ -405,9 +405,11 @@ label {
   box-shadow: none;
 }
 .segmented > button[aria-pressed='true'] {
-  background: var(--surface);
+  background: var(--surface-3);
   color: var(--text-1);
-  box-shadow: var(--shadow-1);
+  box-shadow:
+    inset 0 0 0 1px var(--border-strong),
+    var(--shadow-1);
 }
 
 /* Tables ----------------------------------------------------------------- */
