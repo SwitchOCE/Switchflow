@@ -1,0 +1,61 @@
+[
+ {
+  "t": 1791003704509,
+  "kind": "session.started",
+  "provider": "codex",
+  "transport": "app-server",
+  "threadId": "01a10023-b8f8-72b1-af87-720f5aba97f0",
+  "pid": 25812,
+  "model": "gpt-5.6-luna"
+ },
+ {
+  "t": 1791003704511,
+  "kind": "notice",
+  "level": "warning",
+  "text": "Under-development features enabled: default_mode_request_user_input. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in C:\\Users\\keech\\.codex\\config.toml."
+ },
+ {
+  "t": 1791003704632,
+  "kind": "steer",
+  "text": "Change of plan: numbers must be only 1, 2, 3 and marker must be \"STEERED\".",
+  "by": "owner",
+  "turnId": "01a10023-bcbf-70e3-8b1b-7b8a64c56bf9"
+ },
+ {
+  "t": 1791003704771,
+  "kind": "turn.started",
+  "turnId": "01a10023-bcbf-70e3-8b1b-7b8a64c56bf9"
+ },
+ {
+  "t": 1791003712443,
+  "kind": "message",
+  "text": "{\"numbers\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40],\"marker\":\"PLAIN\"}",
+  "final": true,
+  "phase": "final_answer"
+ },
+ {
+  "t": 1791003717207,
+  "kind": "message",
+  "text": "{\"numbers\":[1,2,3],\"marker\":\"STEERED\"}",
+  "final": true,
+  "phase": "final_answer"
+ },
+ {
+  "t": 1791003717270,
+  "kind": "turn.completed",
+  "turnId": "01a10023-bcbf-70e3-8b1b-7b8a64c56bf9",
+  "status": "completed",
+  "usage": {
+   "inputTokens": 40254,
+   "cachedInputTokens": 19200,
+   "outputTokens": 123,
+   "reasoningOutputTokens": 0,
+   "totalTokens": 40377,
+   "costUsd": null
+  }
+ },
+ {
+  "t": 1791003717327,
+  "kind": "session.closed"
+ }
+]

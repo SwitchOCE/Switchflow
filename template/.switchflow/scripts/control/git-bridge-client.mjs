@@ -43,11 +43,16 @@ export async function requestGitBridge(channelPath, request, { timeoutMs = 12000
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    let input = '';
-    for await (const chunk of process.stdin) {
-      input += chunk;
-      if (Buffer.byteLength(input) > 128 * 1024) throw new Error('Input exceeds limit');
-    }
+    // The request comes on stdin, or as one JSON argument for hosts whose command allowlist
+    // cannot approve a pipeline (Claude Code's Bash rules match single commands).
+    let input = process.argv[3] ?? '';
+    if (process.argv.length > 4) throw new Error('Pass one JSON request');
+    if (process.argv[3] === undefined)
+      for await (const chunk of process.stdin) {
+        input += chunk;
+        if (Buffer.byteLength(input) > 128 * 1024) throw new Error('Input exceeds limit');
+      }
+    if (Buffer.byteLength(input) > 128 * 1024) throw new Error('Input exceeds limit');
     const response = await requestGitBridge(process.argv[2], JSON.parse(input));
     process.stdout.write(`${JSON.stringify(response)}\n`);
     if (!response.ok) process.exitCode = 1;

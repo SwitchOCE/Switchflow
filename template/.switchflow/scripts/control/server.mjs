@@ -3,15 +3,16 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { updateState, withLock, assertSafePath } from '../operations/storage.mjs';
 import { recordIssue, listIssues, issueMetrics } from '../operations/issues.mjs';
 import { inspectWorktrees, planRetention } from '../operations/workspaces.mjs';
 import { ControlEngine } from './engine.mjs';
 import { ControlError } from './lifecycle.mjs';
 import { createBacklogAdapter } from './backlog-adapter.mjs';
-import { startCodexRun, isRunProcessAlive } from './codex-runner.mjs';
+import { isRunProcessAlive } from './codex-runner.mjs';
+import { AgentHost } from './agent-host.mjs';
+import { createOrchestrationFactory } from './orchestration.mjs';
+import { normalizeCapabilities, probeCapabilities } from './agent-settings.mjs';
 import * as protocol from './agent-protocol.mjs';
 import { previewUatArtifact } from './artifacts.mjs';
 import { listSkills, readSkill } from './skills.mjs';
@@ -19,7 +20,6 @@ import { listDocuments, readDocument } from './documents.mjs';
 import { sharedServiceContext, canonicalProject, acquireProjectService, ProjectRegistry } from './projects.mjs';
 import { createNativeBacklog } from './native-backlog.mjs';
 
-const exec = promisify(execFile);
 const publicRoot = fileURLToPath(new URL('./public/', import.meta.url));
 const staticFiles = Object.fromEntries(
   [
@@ -100,7 +100,10 @@ export async function createControlServer({
   projectRoot,
   context: suppliedContext,
   port = 0,
-  runner = startCodexRun,
+  runner,
+  providers,
+  agentExecutables,
+  orchestrationFactory = createOrchestrationFactory,
   agentProtocol = protocol,
   backlog,
   backlogFactory = createBacklogAdapter,
@@ -115,16 +118,7 @@ export async function createControlServer({
   const projects = new Map();
   const unavailable = new Map();
   const csrfToken = randomBytes(32).toString('hex');
-  const capabilities =
-    suppliedCapabilities ||
-    (await exec('codex', ['--version'], { windowsHide: true, timeout: 8000 })
-      .then(r => ({
-        codex: true,
-        version: r.stdout.trim(),
-        authentication: 'Checked when a run starts.',
-        diagnostic: r.stderr.trim(),
-      }))
-      .catch(error => ({ codex: false, diagnostic: error.message })));
+  const capabilities = normalizeCapabilities(suppliedCapabilities || (await probeCapabilities()));
   let baseUrl;
   let closed = false;
   let admission = Promise.resolve();
@@ -133,6 +127,7 @@ export async function createControlServer({
     if (projects.has(candidate.id)) return projects.get(candidate.id);
     const release = lockProjects ? await acquireProjectService(candidate) : async () => {};
     let engine;
+    let agents;
     try {
       let projectConfig = {};
       try {
@@ -143,8 +138,15 @@ export async function createControlServer({
         if (error.code !== 'ENOENT') throw error;
       }
       const adapter = customAdapter || backlogFactory(candidate);
+      agents = new AgentHost(candidate, {
+        capabilities,
+        ...(providers ? { providers } : {}),
+        executables: agentExecutables,
+        orchestrationFactory: orchestrationFactory?.({ serviceUrl: () => baseUrl, projectId: candidate.id, adapter }),
+      });
+      await agents.init();
       engine = new ControlEngine(candidate, {
-        runner,
+        runner: runner || agents.run,
         protocol: agentProtocol,
         recordIssue: issue =>
           recordIssue(candidate, {
@@ -154,6 +156,7 @@ export async function createControlServer({
             taskId: issue.runId || null,
           }),
       });
+      agents.bind(engine);
       await engine.recover();
       const project = {
         id: candidate.id,
@@ -167,6 +170,7 @@ export async function createControlServer({
         context: candidate,
         adapter,
         engine,
+        agents,
         project,
         release,
         native: nativeFactory(candidate),
@@ -188,6 +192,7 @@ export async function createControlServer({
       return session;
     } catch (error) {
       await engine?.close();
+      await agents?.close();
       await release();
       throw error;
     }
@@ -249,7 +254,12 @@ export async function createControlServer({
       const url = new URL(req.url, baseUrl);
       if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method))
         throw new ControlError('Method not allowed.', 405);
-      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      // Orchestrator tool calls come from the per-run MCP helper, not a browser. They carry the
+      // per-run token instead of the page token and are checked against the run in AgentHost.
+      const orchestrationCall =
+        req.method === 'POST' &&
+        /^\/api\/projects\/[a-f0-9]{64}\/orchestration\/[a-f0-9-]{36}\/[a-z_]+$/.test(url.pathname);
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !orchestrationCall) {
         const token = req.headers['x-switchflow-token'];
         if (
           typeof token !== 'string' ||
@@ -321,7 +331,7 @@ export async function createControlServer({
       const session = scoped ? projects.get(scoped[1]) : initial;
       if (!session) throw new ControlError('Project is unavailable. Add its current folder to reconnect it.', 404);
       if (scoped) url.pathname = '/api' + scoped[2];
-      const { context: selectedContext, adapter, engine, project, tasks } = session;
+      const { context: selectedContext, adapter, engine, agents, project, tasks } = session;
       const nativeApi = /^\/api\/native\/(.+)$/.exec(url.pathname);
       const nativeAsset = /^\/projects\/([a-f0-9]{64})\/backlog-assets\/(.+)$/.exec(url.pathname);
       if (nativeApi || nativeAsset) {
@@ -399,6 +409,30 @@ export async function createControlServer({
           planRetention(selectedContext),
         ]);
         return json(res, 200, { issues, metrics, worktrees, retention });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/agents') return json(res, 200, await agents.list());
+      if (req.method === 'PUT' && url.pathname === '/api/agents/settings')
+        return json(res, 200, await agents.updateSettings(await body(req)));
+      const agentRoute = /^\/api\/agents\/([a-f0-9-]{36})\/(events|steer|interrupt)$/.exec(url.pathname);
+      if (agentRoute?.[2] === 'events' && req.method === 'GET') {
+        const after = url.searchParams.get('after') ?? '0';
+        const limit = url.searchParams.get('limit') ?? '200';
+        if (!/^\d{1,9}$/.test(after) || !/^\d{1,4}$/.test(limit) || Number(limit) < 1 || Number(limit) > 500)
+          throw new ControlError('after must be a sequence number and limit 1–500.');
+        return json(res, 200, await agents.events(agentRoute[1], Number(after), Number(limit)));
+      }
+      if (agentRoute?.[2] === 'steer' && req.method === 'POST')
+        return json(res, 202, await agents.steer(agentRoute[1], await body(req)));
+      if (agentRoute?.[2] === 'interrupt' && req.method === 'POST') {
+        const empty = !req.headers['transfer-encoding'] && !(Number(req.headers['content-length']) > 0);
+        return json(res, 202, await agents.interrupt(agentRoute[1], empty ? {} : await body(req)));
+      }
+      const orchestration = /^\/api\/orchestration\/([a-f0-9-]{36})\/([a-z_]+)$/.exec(url.pathname);
+      if (orchestration && orchestrationCall && scoped) {
+        const token = req.headers['x-switchflow-run-token'];
+        return json(res, 200, {
+          result: await agents.orchestrationCall(orchestration[1], token, orchestration[2], await body(req)),
+        });
       }
       if (req.method === 'POST' && url.pathname === '/api/initiatives') {
         const input = await body(req);
@@ -479,6 +513,7 @@ export async function createControlServer({
         // Both writers must settle before admission is released. A rejected
         // native close does not prove its child stopped, so retain that fence.
         await session.engine.close();
+        await session.agents.close();
         await session.native.close();
         await session.release();
         session.released = true;

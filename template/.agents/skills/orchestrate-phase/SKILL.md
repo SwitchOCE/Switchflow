@@ -47,6 +47,10 @@ Resolve shared setup once, and run the preflight from the accepted dispatch chec
 
 **One task, one delivery boundary.** Keep criteria, commits, evidence and review separate for every task. A delegated worker stops at its handoff; corrections stay with it. The phase agent may retain context for the next authorized serial task after acceptance. Context reuse does not merge task scope or allow self-review.
 
+## Delegate through Switchflow tools
+
+When the `switchflow` MCP tools are present, use them for workers and reviewers instead of host subagents. `delegate_task` starts one worker for one task in a candidate worktree the Git helper created. Wait with `wait_for_workers`; read results with `worker_status`. A delivery worker first returns its approach: confirm or correct it with `send_to_worker`. Send blocking findings back to the author the same way, then delegate a fresh review. Reviewers are read-only, so record each returned verdict comment verbatim through the Backlog wrapper. The host refuses a reviewer on the author's provider and stops at the review-round limit: escalate then. Without these tools, delegate as described above.
+
 ## Checkpoint before implementation
 
 State the three-line approach for every task: files, approach, stop condition. Confirm or correct delegated workers before they implement. For direct delivery, check the approach against the accepted task and proceed within existing authority; do not wait for self-confirmation or invent a new approval gate.

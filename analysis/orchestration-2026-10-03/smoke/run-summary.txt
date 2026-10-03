@@ -1,0 +1,28 @@
+Real runs, 3 October 2026, throwaway repo under the session scratchpad. 5 model turns in total.
+
+1. Codex app-server adapter (codex-app-server-*.json*): gpt-5.6-luna, effort low, read-only.
+   One turn with outputSchema; steered right after turn/started via turn/steer + expectedTurnId.
+   The first answer (1..40, PLAIN) still completed, then the steer ran in the same turn:
+   final result {"numbers":[1,2,3],"marker":"STEERED"}. 40.4k input tokens (19.2k cached), 123 output.
+   thread/start echoed approvalPolicy never, approvalsReviewer user, sandbox readOnly; the user's extra
+   workspace root was gone from runtimeWorkspaceRoots and the user's MCP servers were sent enabled:false.
+
+2. Claude CLI adapter (claude-cli-*.json*): haiku (claude-haiku-4-5), effort low, read-only (dontAsk),
+   --restricted --strict-mcp-config --permission-prompts none --json-schema --max-turns 6.
+   Steer written to stdin 1.5 s after the first message with priority "next": it was replayed mid-turn
+   and merged into the same turn (one result, num_turns 3). structured_output
+   {"firstLine":"Throwaway smoke repo","marker":"STEERED"}. Tools in init: Bash, Glob, Grep, Read,
+   StructuredOutput; mcp_servers []. Cost $0.023.
+
+3. End to end (e2e-*.json): Claude haiku orchestrator (execution role) -> one Codex gpt-5.6-luna worker
+   (delivery role) in a candidate created by the real Git helper. The orchestrator called delegate_task,
+   wait_for_workers, send_to_worker (confirming the approach as a follow-up turn), wait_for_workers x4,
+   worker_status, then returned {"finalOutcome":"handoff","fileCreated":true}. hello.txt contained
+   "hello" in the candidate. 153 s. Orchestrator 131k input (113k cached), $0.053; worker 2 turns,
+   306k input (272k cached) - the worker searched for skills the throwaway repo lacks and read them from
+   the owner's other Codex worktrees (paths scrubbed here).
+
+4. Zero-turn checks (no model call) with mcpServerStatus/list: Codex accepts the per-thread switchflow
+   MCP server and lists its tools. They also showed codex_apps (131 ChatGPT app tools) and the bundled
+   computer-use plugin still connected; features.apps/plugins/computer_use=false removes both, and is
+   now set for every run. Runs 1 and 3 predate that fix.

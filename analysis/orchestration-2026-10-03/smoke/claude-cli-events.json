@@ -1,0 +1,59 @@
+[
+ {
+  "t": 1791003739160,
+  "kind": "turn.started",
+  "turnId": "828b0d2b-3399-468c-8c4f-8003097a79eb"
+ },
+ {
+  "t": 1791003740672,
+  "kind": "steer",
+  "text": "Change of plan: set marker to \"STEERED\" instead.",
+  "by": "owner",
+  "turnId": "828b0d2b-3399-468c-8c4f-8003097a79eb"
+ },
+ {
+  "t": 1791003741056,
+  "kind": "session.started",
+  "provider": "claude",
+  "transport": "cli",
+  "threadId": "09b39799-652a-43cd-94f7-10c97a8686ab",
+  "pid": 35816,
+  "model": "claude-haiku-4-5-20251001"
+ },
+ {
+  "t": 1791003743197,
+  "kind": "tool",
+  "name": "Read",
+  "summary": "C:\\Users\\keech\\AppData\\Local\\Temp\\claude\\C--Users-keech-Documents-Switchflow\\7bdb488d-19d9-4b6d-b010-3fb767a0d6be\\scratchpad\\smoke\\repo\\README.md"
+ },
+ {
+  "t": 1791003745212,
+  "kind": "tool",
+  "name": "StructuredOutput",
+  "summary": "{\"firstLine\":\"Throwaway smoke repo\",\"marker\":\"STEERED\"}"
+ },
+ {
+  "t": 1791003745240,
+  "kind": "message",
+  "text": "{\"firstLine\":\"Throwaway smoke repo\",\"marker\":\"STEERED\"}",
+  "final": true
+ },
+ {
+  "t": 1791003745240,
+  "kind": "turn.completed",
+  "turnId": "828b0d2b-3399-468c-8c4f-8003097a79eb",
+  "status": "completed",
+  "usage": {
+   "inputTokens": 20345,
+   "cachedInputTokens": 10002,
+   "outputTokens": 345,
+   "reasoningOutputTokens": 0,
+   "totalTokens": 20690,
+   "costUsd": 0.0233932
+  }
+ },
+ {
+  "t": 1791003746086,
+  "kind": "session.closed"
+ }
+]

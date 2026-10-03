@@ -101,3 +101,35 @@ The sidebar's **Agents** view lists live sessions as a tree (orchestrator → wo
 - Token budgets in dollars.
 - ACP, which cannot steer yet.
 - Automatic updates of consumer projects.
+
+## Deviations and follow-ups (implementation, 3 October 2026)
+
+Implemented in `template/.switchflow/scripts/control/`: `providers/`, `agent-settings.mjs`, `agent-sessions.mjs`, `agent-host.mjs`, `orchestration.mjs`, `orchestration-mcp.mjs`. The HTTP contract is in `docs/browser-control.md` under "Agents: providers, routing and steering". Smoke evidence is in `smoke/`.
+
+Deviations from the design above:
+
+- **Claude permissions.** Instead of a host permission handler, Claude runs with `--restricted --strict-mcp-config --permission-prompts none`, `acceptEdits` for writing roles and `dontAsk` for read-only roles. `--restricted` (found in CLI 2.1.288) ignores user, project and local settings, confines file tools to the working directories and refuses bypass. Anything not pre-approved is denied without a prompt.
+- **Claude process per schema.** `--json-schema` is fixed per process, so the CLI starts with the first turn and later turns must use the same schema. Workers keep one schema across follow-ups.
+- **Settings.** `efforts` (per provider) and `limits.maxTurns` (Claude `--max-turns`) were added. Codex has no turn cap; it relies on the session timeout.
+- **Reviewer verdicts.** Reviewers are truly read-only, so they cannot write the Backlog comment. They return the verdict comment in their result and the orchestrator records it verbatim. `review-task` says so in one sentence.
+- **Delivery approach turn.** A delegated delivery worker's first turn returns its three-line approach; the orchestrator confirms with `send_to_worker`. This keeps `deliver-task`'s "wait for confirmation" rule and costs one extra short turn.
+- **Git helper argument.** `git-bridge-client.mjs` also accepts the JSON request as a single argument, because Claude's Bash allowlist approves single commands, not pipelines.
+- **User MCP servers, apps and plugins.** Codex runs read `config/read` and disable every user MCP server for the thread; Claude runs use `--strict-mcp-config`. A zero-turn check with `mcpServerStatus/list` found two more tool sources the design missed: the built-in `codex_apps` connector (131 ChatGPT app tools on this account, including `supabase.execute_sql` and site deploys) and the bundled computer-use plugin. Both are now off for every run via `features.apps/plugins/computer_use=false` (process `-c` flags and thread config; also added to `codex exec`). Verified live: a run thread now lists only Switchflow's server, and the user's extra writable root no longer appears.
+- **Steering modes (added at the parent's request).** `steer` or `queue`; the response reports `steer`, `queue` or `followup`. A message queued to a stage agent becomes an owner update for the next checkpoint, since a stage session has one turn.
+- **Suite lock (added at the parent's request).** One project-wide lock (`acquire_suite_lock`, `release_suite_lock`) so parallel workers do not run the full suite at once. Workers get a second MCP server with only these two tools and their own token; the lock is released on request, when the holder's session ends, or after 30 minutes.
+- **Waiting.** `wait_for_workers` waits at most 50 seconds per call so it stays under MCP client tool timeouts; the orchestrator calls again.
+- **Review rounds** are counted per task within one run.
+- **Owner interrupt of a stage agent** ends that run as failed with a retry message, rather than leaving a half-finished stage open.
+
+Known gaps:
+
+- Worker processes are not part of the restart PID fence; only the orchestrator's PID is recorded in `activeRun`. After a crash, a worker could outlive the service.
+- Not exercised live: a Codex orchestrator calling the MCP tools (approval `never` should allow them; unverified), `turn/interrupt` and Claude's interrupt on a live turn, Codex approval requests, a real Claude reviewer.
+- Sandboxes restrict writes, not reads. In the end-to-end smoke the Codex worker could not find skills in the throwaway repo and read skill files from the owner's other Codex worktrees. The exec runner has the same exposure today.
+- Claude delivery workers can run only Switchflow wrappers and read-only Git, so project tests run through `operations.mjs check`. Widen the allowlist per project if that proves too narrow.
+- Owner steering is recorded after delivery; if the turn ends in the same instant, the next run may see the steer again as new input.
+- The browser's "agent runtime unavailable" notice still reads only `capabilities.codex`.
+- Codex's `review/start` reviewer is not used; reviews run as ordinary read-only sessions.
+- The `codex exec` fallback still loads the user's MCP servers (it has no per-thread config; `--ignore-user-config` would also drop the user's model defaults). This predates this change.
+- The real smoke runs in `smoke/` ran before the apps and plugins fix; their Codex threads had those tools available but did not call them.
+- Codex threads still load the user's global `~/.codex/AGENTS.md` and memories feature; Switchflow's prompt and the repository's AGENTS.md take precedence in practice, but they are not isolated.

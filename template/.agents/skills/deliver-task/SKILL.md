@@ -21,7 +21,7 @@ Account for every open {{OWNER_NAME}} comment as `doc-07` requires before relyin
 
 ## State the approach first
 
-Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
+Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker; when the Switchflow host dispatched you, return the approach as your result and stop until the orchestrator replies. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
 
 ## Implement
 
@@ -36,6 +36,8 @@ Run the changed-outcome tests the context map identifies, plus whatever the risk
 Use focused task evidence. Apply the phase gate from `doc-04` and the project profile on the integrated candidate: documentation and board checks for affected Documentation-only surfaces, or the full suite and required boundaries for runtime or operational changes. Honor any explicit task gate. Do not duplicate phase checks on every task branch.
 
 Do not re-run a suite that has not been invalidated by a change since its last run.
+
+When the `acquire_suite_lock` tool is present, hold it while running the full test or build suite and release it as soon as the run ends; focused tests do not need it.
 
 ## Check what review usually blocks
 
