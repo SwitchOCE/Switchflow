@@ -10,6 +10,7 @@ import { AgentSessionRegistry } from './agent-sessions.mjs';
 import { confirmRefusal } from './orchestration.mjs';
 import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
+import { defaultEnvironmentRegistry } from './environments/index.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -186,8 +187,11 @@ export class AgentHost {
       orchestrationFactory = null,
       capacity = {},
       processes = {},
+      environments = null,
     } = {},
   ) {
+    // Remote environments (environments/index.mjs): a registry, or an async function returning one.
+    this.environments = environments;
     this.context = context;
     this.capabilities = normalizeCapabilities(capabilities);
     this.providers = providers;
@@ -210,6 +214,18 @@ export class AgentHost {
   }
   settings() {
     return readAgentSettings(this.context);
+  }
+  /** The configured environment, or a 409 naming why it cannot take workers. Never falls back to local. */
+  async environment(id) {
+    if (!id || id === 'local') return null;
+    const registry =
+      typeof this.environments === 'function'
+        ? await this.environments()
+        : (this.environments ?? (await defaultEnvironmentRegistry(this.context)));
+    const entry = registry?.get(id);
+    if (!entry || typeof entry.openSession !== 'function')
+      throw new ControlError(`Environment ${id} is not configured for this project.`, 409);
+    return entry;
   }
   limitsFor(settings) {
     return { timeoutMs: settings.limits.timeoutMinutes * 60 * 1000, maxTurns: settings.limits.maxTurns };
@@ -242,8 +258,27 @@ export class AgentHost {
     mcpConfigPath,
     gitHelperPath,
     approval = null,
+    environment = 'local',
     forward = async () => {},
   }) {
+    const remote = await this.environment(environment);
+    if (remote)
+      return this.openRemoteSession(remote, {
+        id,
+        role,
+        kind,
+        runId,
+        initiativeId,
+        parentId,
+        task,
+        worktree,
+        reviewRound,
+        cwd,
+        sandbox,
+        signal,
+        approval,
+        forward,
+      });
     const settings = await this.settings();
     const model = settings.models[provider] ?? undefined;
     const effort = settings.efforts[provider] ?? undefined;
@@ -345,11 +380,51 @@ export class AgentHost {
   }
 
   /**
+   * A worker in a remote environment. No local process exists, so there is no PID to fence and no
+   * memory to admit; the environment's handle speaks the same session interface.
+   */
+  async openRemoteSession(remote, fields) {
+    const settings = await this.settings();
+    const meta = await this.registry.create({
+      ...fields,
+      provider: 'claude',
+      transport: remote.kind,
+      environment: remote.id,
+      model: remote.config?.model ?? null,
+      sandbox: fields.sandbox,
+    });
+    const onEvent = async entry => {
+      await this.registry.record(meta.id, entry);
+      await fields.forward(entry, meta);
+    };
+    let handle;
+    try {
+      handle = await remote.openSession({
+        task: fields.task ?? 'worker',
+        cwd: fields.cwd,
+        limits: this.limitsFor(settings),
+        onEvent,
+        signal: fields.signal,
+      });
+    } catch (error) {
+      await this.registry.finish(meta.id, { status: 'failed', error: error.message });
+      throw error;
+    }
+    this.registry.attach(meta.id, handle);
+    return { meta, handle };
+  }
+
+  /**
    * Ends a session: its agent process, then whatever that process left running (dev servers,
    * browsers), then its leases and memory reservation. Every close reason goes through here.
    */
   async closeSession(meta, handle, { status, error = null, result = null }) {
     try {
+      if (meta.environment && meta.environment !== 'local') {
+        // Remote: no local processes; closing disables the routine and removes its branches.
+        await handle?.close();
+        return;
+      }
       // Snapshot while the agent still runs: an orphan has no parent left to find it by.
       await this.processes.sample(meta.id).catch(() => {});
       await handle?.close();

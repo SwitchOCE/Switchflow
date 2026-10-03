@@ -76,6 +76,8 @@ export class AgentSessionRegistry {
       kind: fields.kind ?? 'stage',
       provider: fields.provider,
       transport: fields.transport ?? null,
+      // Where the agent runs (environments/index.mjs): local, or a remote environment ID.
+      environment: fields.environment ?? 'local',
       model: fields.model ?? null,
       threadId: null,
       task: fields.task ?? null,

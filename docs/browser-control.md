@@ -292,6 +292,30 @@ Each worker gets its own MCP server with only the lease tools (`acquire_lease`, 
 
 `GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `failed` (under Needs you) with an error naming their process, and their events stay readable. Their processes are fenced as described in [Recovery](#recovery).
 
+### Claude cloud workers
+
+`delegate_task` takes an optional `environment`: `local` (default) or a configured remote environment. `claude-cloud` (`scripts/control/environments/claude-cloud.mjs`) runs a Claude worker in a claude.ai/code cloud environment, billed to the owner's Claude subscription. An unconfigured environment is refused (409); it never falls back to local. Cloud workers are Claude only, skip memory admission and do not count against `limits.maxWorkers`; leases still apply. Summaries add `environment` and, once started, `sessionUrl`.
+
+What Claude Code 2.1.288 allows, verified on 2026-10-04:
+
+| Need | How | Latency |
+| --- | --- | --- |
+| Start | `claude -p --cloud "<task>"` is refused ("interactive only"). Switchflow creates a one-off routine (disabled), clears its connectors (`clear_mcp_connections: true`; a bare `[]` is ignored) and runs it. The calls go through a local headless `claude -p --tools RemoteTrigger --model haiku` turn, so the CLI signs them and Switchflow never handles an OAuth token. The host reads the raw API JSON from the stream and ignores any call that differs from its request. | about 5 s per call; the session starts in about 5 s once the environment's setup is cached |
+| Progress | `get_run_log` returns a condensed text log (commands, tool calls, messages, result), polled every `pollSeconds` (default 60) into `command`, `tool`, `message`, `notice`, `turn.completed` and `turn.failed` events | `pollSeconds`; each poll is one small Haiku turn |
+| Steer and follow-up | `claude -p --cloud <session_id>` with the message on stdin delivers it into the same session; the worker takes it at its next turn boundary. Confirming an approach and returning review findings are follow-ups in the same session. | about 2 s to deliver |
+| Questions | The worker pushes `status.md` (`STATUS …`, `QUESTION … \| default: …`) on `claude/sf-<key>-notes`; the host shows each new line as a notice (questions with `needs: "orchestrator"`). Unanswered questions fall back to the stated default after 20 minutes. | next poll |
+| Interrupt | Not available. Interrupt and cancel send "STOP" to the session and disable the routine; the session ends at its next step. Archive it at its `sessionUrl` to stop it at once. | next step |
+| Result | The worker commits on `claude/sf-<key>` and pushes it. After each writable turn the host fetches it into `refs/switchflow/cloud/<key>/result` and fast-forwards the candidate worktree when it is clean and the result descends from it, so review and merge run locally as for local workers. | one fetch |
+| Cleanup | On close: routines disabled; `sf-task/<key>`, `sf-inbox/<key>` and the notes branch deleted; the result branch kept. The routines API has no delete, so disabled routines stay listed at claude.ai/code/routines until the owner deletes them. | |
+
+**Approach gate.** The first turn is the approach turn. A routine's `allowed_tools` does not restrict the session (the probe wrote a file and pushed with only read tools allowed), so the read-only turn is enforced by instruction and checked by the host: if `claude/sf-<key>` or its notes branch exists after the approach turn, the turn fails. The cloud environment's own stop hook asks sessions to commit and push untracked files; the approach prompt tells the worker to ignore it. Confirmation is a follow-up message that allows writes.
+
+**Branches.** Each worker has a key (`<task>-<8 hex>`). The host pushes the candidate head to `sf-task/<key>` and the task text to `task.md` on `sf-inbox/<key>`; the routine prompt stays short and fixed because the relaying model must echo it exactly. Both pushes need the owner's push grant (`push: true`); without it submit is refused.
+
+**Configuration** (owner settings, kept in the service's state directory as `environments`, never in the checkout): `{ "environments": { "claude-cloud": { "kind": "claude-cloud", "environmentId": "env_…", "repository": "https://github.com/<owner>/<repo>", "remote": "origin", "model": "claude-opus-5-5", "push": true, "pollSeconds": 60 } } }`. Environments are created only in the claude.ai/code UI; the repository must be reachable by the Claude GitHub App. `health()` checks the configuration, `claude auth status`, that `remote` is the configured repository and answers, an optional pushed branch, and the push grant.
+
+**Not yet:** a cloud worker held by a service restart is not reconnected (it keeps running; its routine and branches remain until the owner cleans them up), and Codex cloud is not wired.
+
 ## Where data lives
 
 | Data | Owner/location |
