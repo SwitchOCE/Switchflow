@@ -1119,35 +1119,61 @@ function renderDetail() {
   if (displayedPlan?.length || (displayedPlan && !Array.isArray(displayedPlan)))
     body.append(section('Delivery plan', renderPlan(displayedPlan)));
   const actions = el('div', 'detail-actions');
-  const recoveryHold =
-    state.activeRun?.status === 'interrupted' &&
-    state.activeRun?.unknownProcess &&
-    state.activeRun?.initiativeId === item.id;
+  const recoveryHold = state.activeRun?.status === 'interrupted' && state.activeRun?.initiativeId === item.id;
   if (recoveryHold) {
+    // Older state has no list; its hold is one unidentified stage process.
+    const held = state.activeRun.held || [{ kind: 'stage', role: item.stage, pid: null, state: 'unknown' }];
+    const running = held.filter(entry => entry.state === 'running');
     const recovery = el('form');
+    const list = el('ul', 'recovery-processes');
+    for (const entry of held)
+      list.append(
+        el(
+          'li',
+          '',
+          `${entry.provider || 'Agent'} · ${entry.kind === 'stage' ? `${entry.role} agent` : `${entry.kind} worker for ${entry.task}`} · ${
+            entry.pid ? `process ${entry.pid}` : 'process not recorded'
+          } · ${entry.state === 'running' ? 'still running' : 'could not be confirmed stopped'}`,
+        ),
+      );
     recovery.append(
       el(
         'p',
         'gate-note',
-        'The previous agent process could not be identified. Check that it has stopped before releasing this hold.',
+        'The service stopped while these agent processes were open. No new work starts until they have stopped.',
       ),
+      list,
     );
-    const label = el('label', 'checkbox-label');
-    const confirmation = el('input');
-    confirmation.type = 'checkbox';
-    confirmation.required = true;
-    label.append(confirmation, el('span', '', 'I have checked that the previous agent process has stopped'));
-    const release = el('button', 'button quiet', 'Release recovery hold');
-    release.type = 'submit';
-    release.dataset.action = 'recover-run';
     const controls = el('div', 'detail-actions');
-    controls.append(release);
-    recovery.append(label, controls);
-    recovery.addEventListener('submit', event => {
-      event.preventDefault();
-      if (confirmation.checked) act('recover-run', { confirmedStopped: true });
-    });
-    body.append(section('Confirm the previous process has stopped', recovery));
+    if (running.length) {
+      controls.append(
+        actionButton(
+          `Stop ${running.length === 1 ? 'the running process' : `the ${running.length} running processes`}`,
+          'stop-processes',
+          undefined,
+          'danger',
+        ),
+      );
+    }
+    if (running.length < held.length) {
+      const label = el('label', 'checkbox-label');
+      const confirmation = el('input');
+      confirmation.type = 'checkbox';
+      confirmation.required = true;
+      label.append(confirmation, el('span', '', 'I have checked that the unconfirmed processes have stopped'));
+      const release = el('button', 'button quiet', 'Release recovery hold');
+      release.type = 'submit';
+      release.dataset.action = 'recover-run';
+      release.disabled = running.length > 0;
+      controls.append(release);
+      recovery.append(label);
+      recovery.addEventListener('submit', event => {
+        event.preventDefault();
+        if (confirmation.checked) act('recover-run', { confirmedStopped: true });
+      });
+    }
+    recovery.append(controls);
+    body.append(section('Agent processes from the interrupted run', recovery));
   }
   const normalGate = !isRunning(item) && !['failed', 'cancelled', 'blocked', 'complete'].includes(item.status);
   if (

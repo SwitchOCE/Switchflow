@@ -5,6 +5,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createControlServer } from '../template/.switchflow/scripts/control/server.mjs';
 import { AgentHost, normalizeExecEvent } from '../template/.switchflow/scripts/control/agent-host.mjs';
+import { ControlEngine } from '../template/.switchflow/scripts/control/engine.mjs';
+import { createInitiative } from '../template/.switchflow/scripts/control/lifecycle.mjs';
+import { updateState } from '../template/.switchflow/scripts/operations/storage.mjs';
+import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
 import {
   applySettingsPatch,
   defaultAgentSettings,
@@ -317,7 +321,7 @@ test('a restarted service closes sessions it can no longer reach', () =>
     const restarted = new AgentHost(context, { capabilities: both });
     await restarted.init();
     const [session] = (await restarted.list()).sessions;
-    assert.equal(session.status, 'cancelled');
+    assert.equal(session.status, 'failed');
     assert.equal(session.live, false);
     assert.match(session.error, /service stopped/);
     const events = await restarted.events(meta.id, 0, 10);
@@ -325,4 +329,87 @@ test('a restarted service closes sessions it can no longer reach', () =>
       events.events.map(e => e.kind),
       ['turn.started'],
     );
+  }));
+
+test('worker processes are recorded durably before they start and fence a restart that loses them', () =>
+  fixture(async context => {
+    const runId = randomUUID();
+    const item = createInitiative({ title: 'Orchestrated', request: 'Request', start: false });
+    item.status = 'running';
+    item.runs = [{ id: runId, status: 'running' }];
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item],
+      activeRun: { id: runId, initiativeId: item.id, stage: 'execution', status: 'running' },
+    }));
+    const seen = [];
+    const engine = new ControlEngine(context, { protocol, runner: async () => assert.fail('no run') });
+    const workersNow = async () => (await engine.read()).activeRun.workers ?? [];
+    const host = new AgentHost(context, {
+      capabilities: both,
+      providers: {
+        codex: async options => {
+          // The fence entry exists before the provider spawns anything.
+          seen.push((await workersNow()).map(worker => worker.pid));
+          return fakeProvider('codex')(options);
+        },
+        claude: async () => {
+          throw new Error('Claude failed to start');
+        },
+      },
+    });
+    await host.init();
+    host.bind(engine);
+    const open = (provider, kind) =>
+      host.openSession({
+        provider,
+        role: kind === 'deliver' ? 'delivery' : 'review',
+        kind,
+        runId,
+        initiativeId: item.id,
+        task: 'DEMO-1',
+        cwd: context.sourceRoot,
+        sandbox: kind === 'deliver' ? 'workspace-write' : 'read-only',
+        runDirectory: path.join(context.stateDir, 'runs', runId),
+      });
+    const first = await open('codex', 'deliver');
+    assert.deepEqual(seen, [[null]]);
+    let [entry] = await workersNow();
+    assert.equal(entry.sessionId, first.meta.id);
+    assert.equal(entry.pid, 4242);
+    assert.equal(entry.provider, 'codex');
+    assert.equal(entry.task, 'DEMO-1');
+    assert.ok(Date.parse(entry.recordedAt) <= Date.now());
+    // A provider that fails to open leaves no fence entry behind.
+    await assert.rejects(open('claude', 'review'), /failed to start/);
+    assert.equal((await workersNow()).length, 1);
+    await host.closeSession(first.meta, first.handle, { status: 'completed' });
+    assert.deepEqual(await workersNow(), []);
+
+    // A crash with a worker open: the restarted service holds the run and lists the worker as failed.
+    const second = await open('codex', 'deliver');
+    [entry] = await workersNow();
+    const restarted = new ControlEngine(context, {
+      protocol,
+      runner: async () => assert.fail('no run'),
+      processAlive: pid => pid === 4242,
+      processStarted: async () => Date.parse(entry.recordedAt) - 100,
+    });
+    const restartedHost = new AgentHost(context, { capabilities: both });
+    await restartedHost.init();
+    await restarted.recover();
+    const state = await restarted.read();
+    assert.equal(state.activeRun.status, 'interrupted');
+    assert.deepEqual(
+      state.activeRun.held.map(held => [held.kind, held.sessionId, held.pid, held.state]),
+      [
+        ['stage', null, null, 'unknown'],
+        ['deliver', second.meta.id, 4242, 'running'],
+      ],
+    );
+    const session = (await restartedHost.list()).sessions.find(listed => listed.id === second.meta.id);
+    assert.equal(session.status, 'failed');
+    assert.match(session.error, /process 4242/);
+    await restarted.close();
   }));

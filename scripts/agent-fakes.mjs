@@ -32,6 +32,7 @@ export function fakeProvider(name, log = [], respond = null) {
     let active = null;
     let closed = false;
     const emit = event => options.onEvent(event);
+    await options.onProcess?.(4242);
     await emit({ kind: 'session.started', provider: name, transport: 'fake', threadId: `${name}-thread`, pid: 4242 });
     const handle = {
       provider: name,

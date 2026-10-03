@@ -483,6 +483,179 @@ test('restart fences live and unknown processes; it never automatically replays 
     }
   }));
 
+test('restart fences delegated workers: verified ones can be stopped, unidentified ones need confirmation', () =>
+  fixture(async context => {
+    const recordedAt = '2026-10-03T10:00:00.000Z';
+    const recorded = Date.parse(recordedAt);
+    const item = createInitiative({ title: 'Orchestrated', request: 'Request', start: false });
+    item.status = 'running';
+    item.runs = [{ id: 'old', status: 'running' }];
+    const queued = createInitiative({ title: 'Queued', request: 'Request' });
+    const worker = (sessionId, kind, provider, task, pid) => ({
+      sessionId,
+      kind,
+      role: kind === 'deliver' ? 'delivery' : 'review',
+      provider,
+      task,
+      pid,
+      recordedAt: pid ? recordedAt : null,
+    });
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item, queued],
+      activeRun: {
+        id: 'old',
+        initiativeId: item.id,
+        stage: 'execution',
+        provider: 'claude',
+        pid: 100,
+        processStartedAt: recordedAt,
+        workers: [
+          worker('w1', 'deliver', 'codex', 'DEMO-1', 200),
+          worker('w2', 'review', 'claude', 'DEMO-1', null),
+          worker('w3', 'deliver', 'codex', 'DEMO-2', 300),
+        ],
+      },
+    }));
+    // 100 stopped; 200 is the recorded worker; 300 is a later process that reused a recorded PID.
+    const alive = new Set([200, 300]);
+    const started = { 200: recorded - 1000, 300: recorded + 60000 };
+    const stopped = [];
+    let launched = false;
+    const engine = new ControlEngine(context, {
+      protocol,
+      runner: async () => {
+        launched = true;
+        throw new Error('fixture');
+      },
+      processAlive: pid => alive.has(pid),
+      processStarted: async pid => started[pid] ?? null,
+      stopProcess: async pid => {
+        stopped.push(pid);
+        alive.delete(pid);
+        return true;
+      },
+    });
+    try {
+      await engine.recover();
+      await engine.pump();
+      assert.equal(launched, false);
+      let state = await engine.read();
+      assert.deepEqual(
+        state.activeRun.held.map(entry => [entry.sessionId, entry.pid, entry.state]),
+        [
+          ['w1', 200, 'running'],
+          ['w2', null, 'unknown'],
+        ],
+      );
+      assert.equal(state.activeRun.unknownProcess, true);
+      let current = state.initiatives[0];
+      assert.match(current.nextAction, /codex deliver worker for DEMO-1 \(process 200\)/);
+      assert.match(current.nextAction, /claude review worker for DEMO-1 \(process not recorded\)/);
+      await assert.rejects(
+        engine.action(item.id, { action: 'retry', expectedRevision: current.revision }),
+        /unidentified/,
+      );
+      const confirm = revision =>
+        engine.action(item.id, { action: 'recover-run', confirmedStopped: true, expectedRevision: revision });
+      await assert.rejects(confirm(current.revision), /still running/);
+      await assert.rejects(
+        engine.action(item.id, { action: 'stop-processes', expectedRevision: current.revision - 1 }),
+        /changed/,
+      );
+      assert.deepEqual(stopped, []);
+      // Only the verified worker is stopped; the reused PID 300 and the unrecorded worker are not touched.
+      await engine.action(item.id, { action: 'stop-processes', expectedRevision: current.revision });
+      assert.deepEqual(stopped, [200]);
+      state = await engine.read();
+      assert.deepEqual(
+        state.activeRun.held.map(entry => entry.sessionId),
+        ['w2'],
+      );
+      assert.equal(launched, false);
+      current = state.initiatives[0];
+      await confirm(current.revision);
+      await until(() => launched);
+      assert.equal((await engine.read()).initiatives[0].events.at(-1).type, 'recovery');
+    } finally {
+      await engine.close();
+    }
+  }));
+
+test('a verified hold releases when its processes stop; an unreadable identity needs confirmation', () =>
+  fixture(async context => {
+    const recordedAt = new Date().toISOString();
+    const seed = async workers => {
+      const item = createInitiative({ title: 'Held', request: 'Request', start: false });
+      item.status = 'running';
+      item.runs = [{ id: 'old', status: 'running' }];
+      await updateState(context, 'control', () => ({
+        schemaVersion: 1,
+        revision: 1,
+        initiatives: [item],
+        activeRun: {
+          id: 'old',
+          initiativeId: item.id,
+          stage: 'execution',
+          pid: 100,
+          processStartedAt: recordedAt,
+          workers,
+        },
+      }));
+      return item;
+    };
+    const alive = new Set([100, 200]);
+    let identity = async () => Date.parse(recordedAt) - 50;
+    const make = () =>
+      new ControlEngine(context, {
+        protocol,
+        runner: async () => {
+          throw new Error('fixture');
+        },
+        processAlive: pid => alive.has(pid),
+        processStarted: pid => identity(pid),
+        stopProcess: async () => assert.fail('Only verified processes may be stopped'),
+      });
+    const workers = [{ sessionId: 'w1', kind: 'deliver', provider: 'codex', task: 'T-1', pid: 200, recordedAt }];
+    let engine = make();
+    try {
+      let item = await seed(workers);
+      await engine.recover();
+      let state = await engine.read();
+      assert.equal(state.activeRun.unknownProcess, false);
+      assert.equal(state.activeRun.held.length, 2);
+      const retry = () => engine.action(item.id, { action: 'retry', expectedRevision: state.initiatives[0].revision });
+      await assert.rejects(retry(), /still running/);
+      alive.clear();
+      await retry();
+      await engine.close();
+
+      // A live PID whose start time cannot be read is held for the owner, never stopped.
+      alive.add(200);
+      identity = async () => null;
+      engine = make();
+      item = await seed(workers);
+      await engine.recover();
+      state = await engine.read();
+      assert.deepEqual(
+        state.activeRun.held.map(entry => entry.state),
+        ['unverified'],
+      );
+      await engine.action(item.id, { action: 'stop-processes', expectedRevision: state.initiatives[0].revision });
+      state = await engine.read();
+      assert.equal(state.activeRun.status, 'interrupted');
+      await engine.action(item.id, {
+        action: 'recover-run',
+        confirmedStopped: true,
+        expectedRevision: state.initiatives[0].revision,
+      });
+      assert.equal((await engine.read()).activeRun, null);
+    } finally {
+      await engine.close();
+    }
+  }));
+
 test('HTTP uses loopback, token/origin guards, real state, stale revisions, and safe static routes', () =>
   fixture(async context => {
     const app = await createControlServer({

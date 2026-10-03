@@ -39,15 +39,16 @@ export class AgentSessionRegistry {
     this.waiters = new Set();
   }
   async init() {
-    // A restarted service cannot reach earlier processes. Their sessions are closed, not replayed.
+    // A restarted service cannot reach earlier processes. Their sessions are closed, not replayed,
+    // and marked failed so the owner sees them; the engine's recovery hold fences live processes.
     await updateState(
       this.context,
       'agent-sessions',
       state => {
         for (const session of state.sessions)
           if (!FINAL.has(session.status)) {
-            session.status = 'cancelled';
-            session.error ??= 'The service stopped while this session was open.';
+            session.status = 'failed';
+            session.error = `The service stopped while this session was open${session.pid ? ` (process ${session.pid})` : ''}. It was not resumed; if its initiative shows a recovery hold, stop or confirm its processes there.`;
             session.endedAt ??= new Date().toISOString();
             session.canSteer = false;
             session.canInterrupt = false;
@@ -166,7 +167,8 @@ export class AgentSessionRegistry {
     if (entry.bytes <= MAX_EVENT_FILE)
       entry.writes = entry.writes.then(() => fs.appendFile(entry.file, line)).catch(() => {});
     this.refreshControls(entry);
-    if (statusChanged) await this.persist(meta);
+    // Process identity is persisted at once so a restart can name it.
+    if (statusChanged || event.kind === 'session.started') await this.persist(meta);
     this.wake();
     return stored;
   }
