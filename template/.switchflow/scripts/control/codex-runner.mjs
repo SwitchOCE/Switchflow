@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -14,6 +14,29 @@ export const CODEX_FEATURE_OVERRIDES = Object.freeze([
   '-c',
   'features.computer_use=false',
 ]);
+
+const SAFE_MCP_NAME = /^[A-Za-z0-9_-]+$/;
+
+/** Names of the user's configured MCP servers, so an exec run can switch each one off. */
+export function listUserMcpServers(executable = 'codex') {
+  return new Promise((resolve, reject) =>
+    execFile(
+      executable,
+      ['mcp', 'list', '--json'],
+      { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) return reject(error);
+        try {
+          const list = JSON.parse(stdout);
+          if (!Array.isArray(list)) throw new Error('unexpected output');
+          resolve(list.map(server => server?.name).filter(name => typeof name === 'string'));
+        } catch (parseError) {
+          reject(new Error(`codex mcp list returned unreadable output: ${parseError.message}`));
+        }
+      },
+    ),
+  );
+}
 
 /** Conservative recovery probe. A reused PID is considered alive: never kill an unverified process. */
 export function isRunProcessAlive(pid) {
@@ -33,6 +56,7 @@ export function codexArguments({
   sandboxMode = 'workspace-write',
   additionalWritableRoots = [],
   temporaryRoot,
+  disabledMcpServers = [],
 }) {
   if (!['workspace-write', 'read-only'].includes(sandboxMode)) throw new Error('Unsafe sandbox mode');
   if (resumeThreadId && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(resumeThreadId))
@@ -48,6 +72,11 @@ export function codexArguments({
   );
   // ChatGPT apps can reach live services and deploy; bundled plugins include computer use.
   args.push(...CODEX_FEATURE_OVERRIDES);
+  // The user's MCP servers can reach live services; exec runs switch every one of them off.
+  for (const name of disabledMcpServers) {
+    if (!SAFE_MCP_NAME.test(name)) throw new Error(`MCP server name cannot be disabled safely: ${name}`);
+    args.push('-c', `mcp_servers.${name}.enabled=false`);
+  }
   if (
     !Array.isArray(additionalWritableRoots) ||
     additionalWritableRoots.some(root => typeof root !== 'string' || !path.isAbsolute(root))
@@ -111,15 +140,24 @@ export async function startCodexRun({
   timeoutMs = 60 * 60 * 1000,
   executable = 'codex',
   spawnProcess = spawn,
+  listMcpServers = () => listUserMcpServers(executable),
 }) {
   if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > MAX_RESULT)
     throw new Error('Invalid or oversized prompt');
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000)
     throw new Error('Invalid run timeout');
   if (signal?.aborted) throw new Error('Codex run cancelled');
+  let disabledMcpServers;
+  try {
+    disabledMcpServers = await listMcpServers();
+  } catch (error) {
+    // Fail closed: without the list, user servers would load into an unattended run.
+    throw new Error(`Cannot confirm your Codex MCP servers are switched off for this run: ${error.message}`);
+  }
   await mkdir(runDirectory, { recursive: true });
   const outputPath = path.resolve(runDirectory, 'result.json');
   const args = codexArguments({
+    disabledMcpServers,
     schemaPath,
     outputPath,
     resumeThreadId,

@@ -39,6 +39,7 @@ async function fixture(t, script) {
     runDirectory: path.join(root, 'run'),
     prompt: 'A prompt with $(literal) and `literal`',
     spawnProcess: (_exe, args, options) => spawn(process.execPath, [scriptPath, ...args], options),
+    listMcpServers: async () => [],
   };
 }
 
@@ -58,6 +59,10 @@ test('fresh and resumed commands enforce sandbox and noninteractive approvals', 
   assert.throws(() => codexArguments({ sandboxMode: 'danger-full-access' }));
   assert.throws(() => codexArguments({ resumeThreadId: '--last' }));
   assert.throws(() => codexArguments({ temporaryRoot: 'relative-path' }));
+  const isolated = codexArguments({ outputPath: 'out.json', disabledMcpServers: ['brilliant', 'supabase'] });
+  assert.ok(isolated.includes('mcp_servers.brilliant.enabled=false'));
+  assert.ok(isolated.includes('mcp_servers.supabase.enabled=false'));
+  assert.throws(() => codexArguments({ outputPath: 'out.json', disabledMcpServers: ['bad"name'] }));
   const temporaryRoot = path.resolve(os.tmpdir(), 'bounded-scratch');
   const scoped = codexArguments({ outputPath: 'out.json', temporaryRoot });
   assert.ok(scoped.includes(`shell_environment_policy.set.TEMP=${JSON.stringify(temporaryRoot)}`));
