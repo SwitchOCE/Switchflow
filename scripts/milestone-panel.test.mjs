@@ -437,6 +437,123 @@ test('order planning moves, appends and writes only changed records', () => {
     { id: 'm-1', executionOrder: 3 },
   ]);
   assert.deepEqual(planMilestoneOrder([{ id: 'm-9', title: 'Z' }], ['m-9'], null), [{ id: 'm-9', executionOrder: 1 }]);
+  // Dropping onto an unordered milestone orders it too, at the end, with the moved one beside it.
+  assert.deepEqual(planMilestoneOrder([...values, { id: 'm-5', title: 'E' }], 'm-1', 'm-5', 'before'), [
+    { id: 'm-2', executionOrder: 1 },
+    { id: 'm-3', executionOrder: 2 },
+    { id: 'm-1', executionOrder: 3 },
+    { id: 'm-5', executionOrder: 4 },
+  ]);
+});
+
+const orderFixture = (records, tasks = []) => {
+  const writes = [];
+  const api = async (route, options) => {
+    if (options) {
+      writes.push({ route, body: options.body });
+      const record = records.find(r => route === `/milestones/${r.id}`);
+      Object.assign(record, { executionOrder: options.body.executionOrder, revision: `${record.revision}x` });
+      return record;
+    }
+    if (route.startsWith('/tasks')) return tasks;
+    if (route === '/milestones') return records.map(r => ({ ...r }));
+    return records.find(r => route === `/milestones/${r.id}`);
+  };
+  return { writes, ...setup({ api }) };
+};
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+const listOrder = container =>
+  container
+    .all()
+    .filter(el => el.className === 'ms-row')
+    .map(row => row.dataset.milestone);
+const altKey = async (container, id, key) => {
+  const list = container.all().find(el => el.role === 'listbox');
+  const row = container.all().find(el => el.className === 'ms-row' && el.dataset.milestone === id);
+  await list.listeners.keydown({ key, altKey: true, target: row, preventDefault() {} });
+  await settle();
+};
+const status = container => container.all().find(el => el.className === 'ms-message').textContent;
+
+test('the list is the execution order, then unordered milestones, and moves name the neighbour', async () => {
+  const records = [
+    { id: 'm-1', title: 'Launch', executionOrder: 2, revision: 'r1' },
+    { id: 'm-2', title: 'Foundation', executionOrder: 1, revision: 'r2' },
+    { id: 'm-3', title: 'Polish', revision: 'r3' },
+  ];
+  const { panel, container, writes } = orderFixture(records);
+  await panel.refresh();
+  assert.deepEqual(listOrder(container), ['m-2', 'm-1', 'm-3']);
+  assert.deepEqual(
+    container
+      .all()
+      .filter(el => el.className === 'ms-group')
+      .map(group => group.dataset.group),
+    ['ordered', 'unordered'],
+  );
+  await altKey(container, 'm-2', 'ArrowUp');
+  assert.equal(status(container), 'Foundation is already first in the order.');
+  await altKey(container, 'm-2', 'ArrowDown');
+  assert.equal(status(container), 'Foundation moved below Launch. It is now 2.');
+  assert.deepEqual(listOrder(container), ['m-1', 'm-2', 'm-3']);
+  assert.deepEqual(writes.at(-1), { route: '/milestones/m-2', body: { expectedRevision: 'r2', executionOrder: 2 } });
+  await altKey(container, 'm-2', 'ArrowDown');
+  assert.equal(status(container), 'Foundation is already last in the order.');
+  await altKey(container, 'm-3', 'ArrowDown');
+  assert.match(status(container), /Polish is not ordered yet\. Press Alt\+↑/);
+  await altKey(container, 'm-3', 'ArrowUp');
+  assert.equal(status(container), 'Polish added to the end of the order as 3.');
+  assert.deepEqual(listOrder(container), ['m-1', 'm-2', 'm-3']);
+  assert.equal(
+    container.all().find(el => el.dataset.group === 'unordered'),
+    undefined,
+  );
+});
+
+test('a filtered list moves past the visible neighbour and says so at its edge', async () => {
+  const records = [
+    { id: 'm-1', title: 'Active A', executionOrder: 1, revision: 'r1' },
+    { id: 'm-2', title: 'Quiet', executionOrder: 2, revision: 'r2' },
+    { id: 'm-3', title: 'Active B', executionOrder: 3, revision: 'r3' },
+  ];
+  const tasks = [
+    { id: 'T-1', status: 'In Progress', milestone: 'm-1' },
+    { id: 'T-2', status: 'In Progress', milestone: 'm-3' },
+  ];
+  const { panel, container, find } = orderFixture(records, tasks);
+  await panel.refresh();
+  container
+    .all()
+    .find(el => el.dataset.filter === 'active')
+    .listeners.click();
+  assert.deepEqual(listOrder(container), ['m-1', 'm-3']);
+  assert.ok(find('In progress'));
+  await altKey(container, 'm-3', 'ArrowUp');
+  assert.equal(status(container), 'Active B moved above Active A. It is now 1.');
+  assert.deepEqual(listOrder(container), ['m-3', 'm-1']);
+  await altKey(container, 'm-1', 'ArrowDown');
+  assert.match(status(container), /Active A is already last in this view\. Clear the filter or search/);
+});
+
+test('Order these orders every unordered milestone shown, as listed', async () => {
+  const records = [
+    { id: 'm-1', title: 'Ordered', executionOrder: 1, revision: 'r1' },
+    { id: 'm-2', title: 'Beta', revision: 'r2' },
+    { id: 'm-3', title: 'Alpha', revision: 'r3' },
+  ];
+  const { panel, container, find, writes } = orderFixture(records);
+  await panel.refresh();
+  await find('Order these 2').listeners.click();
+  await settle();
+  assert.deepEqual(
+    writes.map(w => [w.route, w.body.executionOrder]),
+    [
+      ['/milestones/m-3', 2],
+      ['/milestones/m-2', 3],
+    ],
+  );
+  assert.equal(status(container), '2 milestones added to the end of the order as 2–3, in the order listed.');
+  assert.deepEqual(listOrder(container), ['m-1', 'm-3', 'm-2']);
 });
 
 test('Alt+Up reorders as one batch with captured revisions and reports a partial failure', async () => {

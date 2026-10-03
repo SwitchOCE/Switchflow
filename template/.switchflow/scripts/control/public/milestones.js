@@ -117,7 +117,7 @@ export function nextUp(linked, allTasks = [], milestones = []) {
   };
 }
 
-// Visible labels for the grouping keys milestoneState returns.
+// Visible labels for the grouping keys milestoneState returns (the detail pill and the filters).
 const GROUPS = [
   { key: 'Active work', label: 'In progress', status: 'in progress', filter: 'active' },
   { key: 'Ordered upcoming work', label: 'Up next', status: 'ready', filter: 'upcoming' },
@@ -125,22 +125,34 @@ const GROUPS = [
   { key: 'Delivery tasks complete', label: 'Done', status: 'done', filter: 'done' },
 ];
 const FILTERS = [
+  ['open', 'Open'],
   ['active', 'In progress'],
-  ['upcoming', 'Upcoming'],
   ['done', 'Done'],
   ['all', 'All'],
 ];
+export function inMilestoneFilter(filter, groupKey) {
+  const group = GROUPS.find(g => g.key === groupKey) || GROUPS[2];
+  return filter === 'all' || (filter === 'open' ? group.filter !== 'done' : group.filter === filter);
+}
+// Per-row state, from task evidence only; the list position already shows the order.
+export function milestoneRowState(state) {
+  if (state.group === 'Delivery tasks complete') return { label: 'Done', status: 'done' };
+  if (state.group === 'Active work') return { label: 'In progress', status: 'in progress' };
+  return state.linked.length ? { label: 'Not started', status: 'ready' } : { label: 'No tasks', status: 'backlog' };
+}
 const PAGE = 25,
-  DONE_PAGE = 10,
   TASK_PAGE = 20;
 
 // Moves milestones within the execution order and returns only the records whose order changes.
 // Numbering stays contiguous from the lowest existing order (or 1), so a move writes as few records as possible.
+// An unordered target joins the end of the order first, so dropping onto it orders both milestones.
 export function planMilestoneOrder(values, movedIds, targetId = null, position = 'after') {
   const moving = [movedIds].flat();
   const ordered = sortMilestones(values.filter(m => m.executionOrder != null));
   const start = ordered.length ? Math.min(...ordered.map(m => Number(m.executionOrder))) : 1;
   const ids = ordered.map(m => m.id).filter(id => !moving.includes(id));
+  if (targetId != null && !moving.includes(targetId) && !ids.includes(targetId) && values.some(m => m.id === targetId))
+    ids.push(targetId);
   let index = targetId == null ? ids.length : ids.indexOf(targetId);
   if (index < 0) index = ids.length;
   else if (targetId != null && position === 'after') index++;
@@ -175,11 +187,13 @@ export function createMilestonePanel({
     tasks = [],
     archived = [],
     showArchived = false,
-    filter = 'all',
-    doneOpen = false,
+    filter = 'open',
     pages = {},
     listSignature = '',
     rows = [],
+    // Visible (filtered and searched) IDs per section; keyboard moves step past visible neighbours only.
+    view = { ordered: [], unordered: [] },
+    reveal = null,
     drag = null,
     refreshFailed = false,
     busy = false;
@@ -336,11 +350,15 @@ export function createMilestonePanel({
   }
 
   // List -----------------------------------------------------------------------
+  // One list in execution order: ordered milestones by number, then the unordered ones by title.
+  // Each row shows its own state, so a move is always visible where it was made.
   function listRow(milestone, state) {
     const counts = statusCounts(state.linked),
-      total = state.linked.length;
+      total = state.linked.length,
+      rowState = milestoneRowState(state);
     const row = node('div', undefined, 'ms-row');
     row.dataset.milestone = milestone.id;
+    row.dataset.state = rowState.status;
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', String(selected === milestone.id));
     row.tabIndex = -1;
@@ -349,9 +367,7 @@ export function createMilestonePanel({
     const name = node('span', undefined, 'ms-row-main');
     name.append(node('span', milestone.title, 'ms-row-title'));
     name.title = `${milestone.id} · ${milestone.title}`;
-    const bar = progressBar(counts, total, 'ms-row-bar');
-    const count = node('span', total ? `${state.done}/${total}` : '0', 'ms-row-count');
-    if (!total) count.dataset.empty = 'true';
+    const count = node('span', total ? `${state.done}/${total}` : '', 'ms-row-count');
     const blocked = node('span', undefined, 'ms-row-blocked');
     if (state.blocked) {
       const dot = node('span', undefined, 'status-dot');
@@ -359,38 +375,44 @@ export function createMilestonePanel({
       blocked.append(dot, node('span', String(state.blocked)));
       blocked.title = `${state.blocked} blocked`;
     }
-    row.append(order, name, bar, count, blocked);
+    const meta = node('span', undefined, 'ms-row-meta');
+    const stateLabel = node('span', undefined, 'ms-row-state');
+    const stateDot = node('span', undefined, 'status-dot');
+    stateDot.dataset.status = rowState.status;
+    stateLabel.append(stateDot, node('span', rowState.label));
+    meta.append(stateLabel);
+    if (total) meta.append(progressBar(counts, total, 'ms-row-bar'));
     if (milestone.executionOrder != null) row.dataset.ordered = 'true';
-    if (!showArchived) {
-      // Pointer-only drag handle; keyboard users reorder with Alt+Up/Down on the row.
+    const movable = !!api && !showArchived;
+    if (movable) {
+      // The whole row drags; the grip only signals it. Keyboard users reorder with Alt+Up/Down.
       const handle = node('span', undefined, 'ms-handle');
       handle.setAttribute('aria-hidden', 'true');
-      handle.title = 'Drag to reorder';
-      handle.addEventListener('pointerdown', () => {
-        row.draggable = reorderable();
-      });
-      row.prepend?.(handle);
+      handle.title = 'Drag to reorder, or press Alt+↑ / Alt+↓';
+      row.append(handle);
+      row.draggable = !busy && canWrite();
       row.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
       row.addEventListener('dragstart', event => {
-        if (!row.draggable) return event.preventDefault();
+        if (!reorderable()) return event.preventDefault();
         drag = { id: milestone.id, target: null };
         row.dataset.dragging = 'true';
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', milestone.id);
       });
       row.addEventListener('dragend', () => {
-        row.draggable = false;
         delete row.dataset.dragging;
         drag = null;
         clearDropMarkers();
       });
     }
+    row.append(order, name, count, blocked, meta);
     row.setAttribute(
       'aria-label',
       [
         milestone.executionOrder == null ? 'Not ordered' : `Order ${milestone.executionOrder}`,
         milestone.title,
-        total ? `${state.done} of ${total} tasks done` : 'no tasks',
+        rowState.label,
+        total ? `${state.done} of ${total} tasks done` : '',
         state.blocked ? `${state.blocked} blocked` : '',
       ]
         .filter(Boolean)
@@ -406,16 +428,36 @@ export function createMilestonePanel({
     segmented.hidden = showArchived;
     const query = String(search.value || '').toLowerCase();
     const source = sortMilestones(showArchived ? archived : milestones);
-    const matching = source.filter(m =>
-      `${m.id} ${m.title} ${m.description || ''} ${(m.labels || []).join(' ')}`.toLowerCase().includes(query),
+    const states = new Map(source.map(m => [m.id, milestoneState(m, tasks)]));
+    const matching = source.filter(
+      m =>
+        (showArchived || inMilestoneFilter(filter, states.get(m.id).group)) &&
+        `${m.id} ${m.title} ${m.description || ''} ${(m.labels || []).join(' ')}`.toLowerCase().includes(query),
     );
+    const sections = showArchived
+      ? [{ key: 'archived', label: 'Archived', items: matching }]
+      : [
+          { key: 'ordered', label: 'Delivery order', items: matching.filter(m => m.executionOrder != null) },
+          { key: 'unordered', label: 'Not yet ordered', items: matching.filter(m => m.executionOrder == null) },
+        ];
+    view = {
+      ordered: showArchived ? [] : sections[0].items.map(m => m.id),
+      unordered: showArchived ? [] : sections[1].items.map(m => m.id),
+    };
+    // A moved row stays on screen: extend its section's page to include it.
+    if (reveal) {
+      for (const section of sections) {
+        const index = section.items.findIndex(m => m.id === reveal);
+        if (index >= (pages[section.key] || PAGE)) pages[section.key] = Math.ceil((index + 1) / PAGE) * PAGE;
+      }
+      reveal = null;
+    }
     const signature = JSON.stringify([
       busy,
       canWrite(),
       filter,
       query,
       showArchived,
-      doneOpen,
       pages,
       matching.map(m => [m.id, m.title, m.executionOrder]),
       tasks.map(t => [t.id, t.status, t.milestone]),
@@ -428,11 +470,10 @@ export function createMilestonePanel({
     const scrollTop = listPane.scrollTop;
     list.replaceChildren();
     rows = [];
-    for (const el of filterButtons) {
-      const groups = GROUPS.filter(g => el.dataset.filter === 'all' || g.filter === el.dataset.filter).map(g => g.key);
-      const total = source.filter(m => groups.includes(milestoneState(m, tasks).group)).length;
-      filterCounts.get(el.dataset.filter).textContent = String(total);
-    }
+    for (const el of filterButtons)
+      filterCounts.get(el.dataset.filter).textContent = String(
+        source.filter(m => inMilestoneFilter(el.dataset.filter, states.get(m.id).group)).length,
+      );
     if (!source.length) {
       const empty = node('div', undefined, 'empty');
       if (showArchived)
@@ -449,12 +490,6 @@ export function createMilestonePanel({
       return;
     }
     layout.dataset.empty = '';
-    const sections = showArchived
-      ? [{ key: 'archived', label: 'Archived', status: 'backlog', items: matching }]
-      : GROUPS.filter(g => filter === 'all' || g.filter === filter).map(g => ({
-          ...g,
-          items: matching.filter(m => milestoneState(m, tasks).group === g.key),
-        }));
     let shownAny = false;
     for (const section of sections) {
       if (!section.items.length) continue;
@@ -463,65 +498,51 @@ export function createMilestonePanel({
       group.dataset.group = section.key;
       group.setAttribute('role', 'group');
       const head = node('div', undefined, 'ms-group-head');
-      const collapsible = section.key === 'Delivery tasks complete' && !query && filter !== 'done';
-      const open = !collapsible || doneOpen;
-      const label = node('span', section.label, 'ms-group-label');
-      const count = node('span', String(section.items.length), 'count');
-      let orderAll = null;
-      if (section.key === 'Order not established' && api) {
-        orderAll = fence(
+      head.append(node('span', section.label, 'ms-group-label'), node('span', String(section.items.length), 'count'));
+      if (section.key === 'unordered' && api) {
+        const ids = section.items.map(m => m.id);
+        const orderAll = fence(
           button(
-            'Order these',
-            () =>
+            ids.length === 1 ? 'Add to order' : `Order these ${ids.length}`,
+            () => {
+              const changes = planMilestoneOrder(milestones, ids, null);
+              const numbers = changes.filter(c => ids.includes(c.id)).map(c => c.executionOrder);
+              const range =
+                numbers.length > 1 ? `${Math.min(...numbers)}–${Math.max(...numbers)}` : String(numbers[0] ?? '');
               reorder(
-                planMilestoneOrder(
-                  milestones,
-                  section.items.map(m => m.id),
-                  null,
-                ),
-                `${section.items.length} milestone${section.items.length === 1 ? '' : 's'} added to the end of the order.`,
-              ),
+                changes,
+                ids.length === 1
+                  ? `${titleOf(ids[0])} added to the end of the order as ${range}.`
+                  : `${ids.length} milestones added to the end of the order as ${range}, in the order listed.`,
+                ids[0],
+              );
+            },
             'button quiet button-small ms-order-all',
           ),
         );
         orderAll.title = canWrite() ? 'Add these to the end of the order, as listed' : blockedText();
+        head.append(orderAll);
       }
-      if (collapsible) {
-        const toggleDone = button(
-          '',
-          () => {
-            doneOpen = !doneOpen;
-            renderList();
-          },
-          'ms-group-toggle',
-        );
-        toggleDone.setAttribute('aria-expanded', String(open));
-        toggleDone.append(node('span', open ? '▾' : '▸', 'ms-caret'), label, count);
-        head.append(toggleDone);
-      } else head.append(label, count);
-      if (orderAll) head.append(orderAll);
       group.setAttribute('aria-label', `${section.label}, ${section.items.length}`);
       group.append(head);
-      if (open) {
-        const limit = pages[section.key] || (collapsible ? DONE_PAGE : PAGE);
-        for (const milestone of section.items.slice(0, limit)) {
-          const row = listRow(milestone, milestoneState(milestone, tasks));
-          rows.push(row);
-          group.append(row);
-        }
-        if (section.items.length > limit) {
-          const remaining = section.items.length - limit;
-          group.append(
-            button(
-              `Show ${Math.min(remaining, collapsible ? DONE_PAGE : PAGE)} more`,
-              () => {
-                pages[section.key] = limit + (collapsible ? DONE_PAGE : PAGE);
-                renderList();
-              },
-              'ms-more',
-            ),
-          );
-        }
+      const limit = pages[section.key] || PAGE;
+      for (const milestone of section.items.slice(0, limit)) {
+        const row = listRow(milestone, states.get(milestone.id));
+        rows.push(row);
+        group.append(row);
+      }
+      if (section.items.length > limit) {
+        const remaining = section.items.length - limit;
+        group.append(
+          button(
+            `Show ${Math.min(remaining, PAGE)} more`,
+            () => {
+              pages[section.key] = limit + PAGE;
+              renderList();
+            },
+            'ms-more',
+          ),
+        );
       }
       list.append(group);
     }
@@ -591,7 +612,8 @@ export function createMilestonePanel({
     const target = event.target.closest?.('.ms-row');
     clearDropMarkers();
     drag.target = null;
-    if (!target || target.dataset.milestone === drag.id || target.dataset.ordered !== 'true') return;
+    // Any other row accepts a drop; an unordered target is ordered too (see planMilestoneOrder).
+    if (!target || target.dataset.milestone === drag.id) return;
     event.preventDefault();
     const box = target.getBoundingClientRect();
     const position = event.clientY < box.top + box.height / 2 ? 'before' : 'after';
@@ -608,25 +630,50 @@ export function createMilestonePanel({
       target = drag?.target;
     clearDropMarkers();
     if (!moved || !target) return;
-    const name = milestones.find(m => m.id === moved)?.title || moved;
-    reorder(planMilestoneOrder(milestones, moved, target.id, target.position), `${name} moved.`, moved);
+    const changes = planMilestoneOrder(milestones, moved, target.id, target.position);
+    reorder(changes, describeMove(changes, moved, target.id, target.position), moved);
   });
+  const titleOf = id => milestones.find(m => m.id === id)?.title || id;
+  const orderOf = id => milestones.find(m => m.id === id)?.executionOrder;
+  // Names the neighbour and the new number, from the plan, before it is applied.
+  function describeMove(changes, id, targetId, position) {
+    const after = changeId => changes.find(c => c.id === changeId)?.executionOrder ?? orderOf(changeId);
+    if (targetId == null)
+      return orderOf(id) == null
+        ? `${titleOf(id)} added to the end of the order as ${after(id)}.`
+        : `${titleOf(id)} moved to the end of the order. It is now ${after(id)}.`;
+    const place = `${position === 'before' ? 'above' : 'below'} ${titleOf(targetId)}`;
+    const text =
+      orderOf(id) == null
+        ? `${titleOf(id)} added to the order ${place} as ${after(id)}.`
+        : `${titleOf(id)} moved ${place}. It is now ${after(id)}.`;
+    return orderOf(targetId) == null ? `${text} ${titleOf(targetId)} is now ordered too, as ${after(targetId)}.` : text;
+  }
+  // Steps past the neighbour the person can see, so the row visibly moves one place.
   function moveByKeyboard(id, direction) {
     const milestone = milestones.find(m => m.id === id);
     if (!milestone || showArchived) return;
-    const ordered = sortMilestones(milestones.filter(m => m.executionOrder != null)).map(m => m.id);
-    if (milestone.executionOrder == null)
-      return reorder(planMilestoneOrder(milestones, id, null), `${milestone.title} added to the end of the order.`, id);
-    const neighbour = ordered[ordered.indexOf(id) + direction];
+    if (milestone.executionOrder == null) {
+      if (direction > 0) {
+        message.textContent = `${milestone.title} is not ordered yet. Press Alt+↑ to add it to the end of the order.`;
+        return;
+      }
+      const changes = planMilestoneOrder(milestones, id, null);
+      return reorder(changes, describeMove(changes, id, null), id);
+    }
+    const neighbour = view.ordered[view.ordered.indexOf(id) + direction];
     if (!neighbour) {
-      message.textContent = `${milestone.title} is already ${direction < 0 ? 'first' : 'last'}.`;
+      const ordered = sortMilestones(milestones.filter(m => m.executionOrder != null)).map(m => m.id);
+      const edge = direction < 0 ? 'first' : 'last';
+      message.textContent =
+        ordered.at(direction < 0 ? 0 : -1) === id
+          ? `${milestone.title} is already ${edge} in the order.`
+          : `${milestone.title} is already ${edge} in this view. Clear the filter or search to move it further.`;
       return;
     }
-    reorder(
-      planMilestoneOrder(milestones, id, neighbour, direction < 0 ? 'before' : 'after'),
-      `${milestone.title} moved ${direction < 0 ? 'up' : 'down'}.`,
-      id,
-    );
+    const position = direction < 0 ? 'before' : 'after';
+    const changes = planMilestoneOrder(milestones, id, neighbour, position);
+    reorder(changes, describeMove(changes, id, neighbour, position), id);
   }
   // Writes each changed order with that milestone's own revision. A failed write is reported and
   // rolled back locally; the others are kept.
@@ -649,8 +696,14 @@ export function createMilestonePanel({
       const milestone = milestones.find(m => m.id === change.id);
       if (milestone) milestone.executionOrder = change.executionOrder;
     }
+    reveal = focusId;
     renderList();
-    if (focusId) rows.find(row => row.dataset.milestone === focusId)?.focus?.({ preventScroll: true });
+    const moved = focusId && rows.find(row => row.dataset.milestone === focusId);
+    if (moved) {
+      for (const row of rows) row.tabIndex = row === moved ? 0 : -1;
+      moved.focus?.({ preventScroll: true });
+      moved.scrollIntoView?.({ block: 'nearest' });
+    }
     const failed = [];
     let saved = 0;
     for (const [index, change] of changes.entries()) {
@@ -1299,11 +1352,8 @@ export function createMilestonePanel({
       'Move to end',
       () => {
         orderForm.hidden = true;
-        reorder(
-          planMilestoneOrder(milestones, milestone.id, null),
-          `${milestone.title} moved to the end of the order.`,
-          milestone.id,
-        );
+        const changes = planMilestoneOrder(milestones, milestone.id, null);
+        reorder(changes, describeMove(changes, milestone.id, null), milestone.id);
       },
       'button quiet button-small',
     );
@@ -1642,8 +1692,9 @@ export function createMilestonePanel({
     tasks = [];
     archived = [];
     showArchived = false;
-    filter = 'all';
-    doneOpen = false;
+    filter = 'open';
+    reveal = null;
+    view = { ordered: [], unordered: [] };
     pages = {};
     listSignature = '';
     rows = [];
