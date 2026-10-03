@@ -469,3 +469,36 @@ details.agents-group > summary::before {
 details.agents-group[open] > summary::before {
   content: '▾ ';
 }
+.agents-fallback,
+.agents-error {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+}
+.agents-fallback {
+  color: var(--warning);
+}
+.agents-error {
+  color: var(--danger-text);
+}
+.agents-note.is-warning {
+  color: var(--warning);
+}
+.agents-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.agents-composer-foot .agents-composer-hint {
+  margin: 0;
+}
+.agents-mode > button {
+  min-height: 24px;
+  font-size: var(--text-xs);
+}
+.agents-route-fallback {
+  color: var(--warning) !important;
+}
+.agents-route-error {
+  color: var(--danger-text) !important;
+}

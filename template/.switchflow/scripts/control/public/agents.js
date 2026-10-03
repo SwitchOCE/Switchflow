@@ -199,10 +199,7 @@ export function mountAgents(
     row.style.setProperty('--depth', depth);
     if (session.id === selected) row.setAttribute('aria-current', 'true');
     const top = el('span', 'agents-row-top');
-    top.append(
-      providerBadge(session.provider),
-      el('strong', '', titleOf(session)),
-    );
+    top.append(providerBadge(session.provider), el('strong', '', titleOf(session)));
     const meta = el('span', 'agents-row-meta');
     meta.append(
       statusPill(session.status),
@@ -376,10 +373,7 @@ export function mountAgents(
     const head = el('header', 'agents-detail-head');
     const title = el('div');
     const h2 = el('h2');
-    h2.append(
-      providerBadge(session.provider),
-      document.createTextNode(titleOf(session)),
-    );
+    h2.append(providerBadge(session.provider), document.createTextNode(titleOf(session)));
     const facts = el('p', 'agents-facts');
     const parent = sessions().find(other => other.id === session.parentId);
     facts.append(
@@ -394,7 +388,11 @@ export function mountAgents(
     title.append(h2, facts);
     if (session.fallback)
       title.append(
-        el('p', 'agents-fallback', `Ran on ${providers[session.fallback.to]?.name || session.fallback.to}: ${session.fallback.reason}.`),
+        el(
+          'p',
+          'agents-fallback',
+          `Ran on ${providers[session.fallback.to]?.name || session.fallback.to}: ${session.fallback.reason}.`,
+        ),
       );
     if (session.error && !live.has(session.status)) title.append(el('p', 'agents-error', session.error));
     const actions = el('div', 'agents-detail-actions');

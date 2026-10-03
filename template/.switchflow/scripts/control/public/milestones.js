@@ -952,11 +952,11 @@ export function createMilestonePanel({
     back.setAttribute('aria-label', 'Back to milestones');
     return back;
   }
-  function closeDetail() {
+  function closeDetail(_event, navigate = true) {
     editorRequest++;
     const previous = origin?.id ?? selected;
     selected = null;
-    if (!wide()) onNavigate({ view: 'milestones' });
+    if (!wide() && navigate) onNavigate({ view: 'milestones' });
     placeholder();
     markSelected();
     setPane('list');
@@ -1388,6 +1388,10 @@ export function createMilestonePanel({
     refresh,
     reset,
     open,
+    // Browser history reached the list without a record: close the narrow detail without a new entry.
+    close() {
+      if (!wide() && selected) closeDetail(null, false);
+    },
     destroy() {
       reset();
       destroyed = true;

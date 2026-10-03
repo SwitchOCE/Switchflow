@@ -1341,7 +1341,9 @@ async function refresh(forceDetail = false) {
     const codexReady = ready(state.capabilities?.codex);
     const claudeReady = state.capabilities?.claude === undefined ? null : ready(state.capabilities.claude);
     if (!codexReady && claudeReady !== true)
-      notice('Agent runtime is unavailable. You can review project state; install and sign in to Claude or Codex to start work.');
+      notice(
+        'Agent runtime is unavailable. You can review project state; install and sign in to Claude or Codex to start work.',
+      );
     else if ($('#notice-banner').textContent.startsWith('Agent runtime')) notice('');
     showError('');
     if (!shellViews.includes(activeView)) {
@@ -1734,6 +1736,7 @@ async function followLocation() {
     await panel.refresh();
     await panel.openTask(route.task);
   } else if (route.record && panel?.open) await panel.open(route.record);
+  else if (route.view === 'milestones' && !route.record) panel?.close?.();
   const recordReturn = !route.task && recordReturnPositions.get(location.href);
   // Let the browser finish its history scroll restoration before restoring this reader.
   if (recordReturn)
@@ -1756,6 +1759,9 @@ async function followLocation() {
     }
   }
   followingRoute = false;
+  // A task closed while this route was loading was not recorded; drop its stale parameter.
+  if (workspaceLocation(location.href).task && !document.querySelector('dialog.sf-task-editor[open]'))
+    writeLocation({ view: activeView }, true);
 }
 window.addEventListener('popstate', () => {
   void followLocation()
