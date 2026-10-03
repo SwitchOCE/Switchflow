@@ -30,7 +30,7 @@ After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `
 
 Open **Skills** to inspect the selected project's installed Switchflow instructions, search role descriptions, read reference notes, and view the original Markdown. This section is read-only.
 
-The service uses the installed, signed-in local Codex CLI. Runs keep its workspace sandbox, use structured results, and stop visibly when required authority or access is missing. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
+The service runs the installed, signed-in Claude Code and Codex CLIs. Each role picks a provider: by default Claude handles Intake, Planning, phase orchestration and UAT, Codex delivers tasks, and review always uses the provider that did not write the work. The Claude orchestrator delegates tasks to Codex workers through tools Switchflow owns, and can message, interrupt or return review findings to them. You can steer any live session from **Agents**. Both providers run with approval prompts off, a workspace sandbox limited to approved folders, no user MCP servers or apps, structured results, and a visible stop when authority or access is missing. [Agents and steering](docs/browser-control.md#agents-providers-routing-and-steering) documents the routes and limits. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
 
 Approved scope, plan grants, revisions, sessions, and recovery state live outside the code checkout, shared by Git worktrees. Backlog retains delivery tasks and durable project documents. See [browser control and storage](docs/browser-control.md) for the exact boundaries, recovery procedure, and local security model.
 
@@ -59,7 +59,7 @@ In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker 
 - Durable Backlog documents and native decision records.
 - A project profile for the few values each repository must own.
 - Eleven agent skills for resumable intake, scope editing, planning, project and phase orchestration, delivery, independent review, guided UAT, human-owned exceptions, and explicit framework review.
-- A local browser control service, Codex runner, and external operations ledgers.
+- A local browser control service with Claude and Codex providers, an orchestrator-to-worker bridge, and external operations ledgers.
 - Pinned Backlog.md tooling and documentation validation under `.switchflow/`.
 
 It does not import tasks, milestones, roadmaps, product decisions, application dependencies, credentials, or deployment configuration.

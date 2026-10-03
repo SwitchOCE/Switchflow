@@ -37,7 +37,7 @@ After import:
 
 4. Review and commit the imported baseline before creating product tasks.
 
-5. Sign in to the installed local Codex CLI using its normal login flow. Double-click `Start Switchflow.cmd` or run `npm --prefix .switchflow run board`. Create an initiative and start Intake from the browser. The same launcher registers this Git project with the shared local service. Additional projects and code worktrees reuse its port; choose a project in the top navigation.
+5. Sign in to the installed Codex CLI and Claude Code CLI (`claude auth login`) using their normal login flows. Either one alone works; Switchflow routes every role to whichever is available and says so. Double-click `Start Switchflow.cmd` or run `npm --prefix .switchflow run board`. Create an initiative and start Intake from the browser. The same launcher registers this Git project with the shared local service. Additional projects and code worktrees reuse its port; choose a project in the sidebar.
 
 The CAS setup builds Backlog 1.50.1 plus the tracked revision patch from an integrity-checked official source archive using pinned Bun 1.3.14. Generated source and binaries stay in the external user cache; later projects reuse that exact build. See [fork provenance](template/.switchflow/scripts/backlog-fork/README.md). Without it, original Backlog remains readable and safe task editing fails closed.
 
