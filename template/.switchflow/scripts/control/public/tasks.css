@@ -919,3 +919,38 @@
     order: -1;
   }
 }
+
+/* Board cards: the column already states the status; actions appear on hover or focus. */
+.sf-task-board .sf-task-card {
+  position: relative;
+}
+.sf-task-board .sf-task-card-status {
+  display: none;
+}
+.sf-task-board .sf-task-card-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sf-task-more.icon-button {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+@media (hover: hover) {
+  .sf-task-board .sf-task-card-actions {
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .sf-task-board .sf-task-card:is(:hover, :focus-within) .sf-task-card-actions {
+    opacity: 1;
+  }
+}
