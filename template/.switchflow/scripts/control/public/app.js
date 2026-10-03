@@ -2202,7 +2202,7 @@ mountSearch({
       run: () => $(`#workspace-${activeView} .refresh-control-button`)?.click(),
     },
     {
-      label: 'Create task',
+      label: 'New task',
       hint: 'Tasks',
       run: async () => {
         const panel = showView('tasks');
