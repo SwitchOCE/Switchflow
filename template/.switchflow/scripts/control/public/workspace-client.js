@@ -1,22 +1,26 @@
+export const workspaceViews = [
+  'overview',
+  'initiatives',
+  'agents',
+  'tasks',
+  'milestones',
+  'documents',
+  'decisions',
+  'drafts',
+  'insights',
+  'skills',
+  'settings',
+];
+// Earlier view ids, kept so old bookmarks still open the right view.
+export const viewAliases = { board: 'overview', statistics: 'insights' };
+
 export function workspaceLocation(href) {
   const url = new URL(href);
-  const allowed = [
-    'board',
-    'initiatives',
-    'agents',
-    'tasks',
-    'milestones',
-    'documents',
-    'decisions',
-    'drafts',
-    'statistics',
-    'skills',
-    'settings',
-  ];
   const requested = url.searchParams.get('view');
+  const view = viewAliases[requested] || requested;
   return {
     project: url.searchParams.get('project'),
-    view: allowed.includes(requested) ? requested : 'board',
+    view: workspaceViews.includes(view) ? view : 'overview',
     task: url.searchParams.get('task'),
     initiative: url.searchParams.get('initiative'),
     record: url.searchParams.get('record'),

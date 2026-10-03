@@ -46,7 +46,7 @@ export function buildSearchMatches(response, localInitiatives, query, milestones
   const needle = query.toLocaleLowerCase();
   const matches = (localInitiatives || [])
     .filter(item => `${text(item.title)} ${text(item.request)}`.toLocaleLowerCase().includes(needle))
-    .map(item => ({ type: 'initiative', item, view: 'board', id: item.id }));
+    .map(item => ({ type: 'initiative', item, view: 'overview', id: item.id }));
   // The native search covers tasks and documents only; milestones match on title and ID here.
   for (const item of Array.isArray(milestones) ? milestones : [])
     if (item?.id && `${text(item.id)} ${text(item.title)}`.toLocaleLowerCase().includes(needle))

@@ -10,7 +10,7 @@ import { mountAgents } from './agents.js';
 import { mountKnowledge } from './knowledge.js';
 import { mountTasks } from './tasks.js';
 import { mountInsights } from './insights.js';
-import { createNativeClient, workspaceLocation } from './workspace-client.js';
+import { createNativeClient, workspaceLocation, workspaceViews, viewAliases } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
@@ -87,21 +87,9 @@ let selectedProjectId = null;
 let projectEpoch = 0;
 let sharedToken = '';
 let projectList = [];
-const views = [
-  'board',
-  'initiatives',
-  'agents',
-  'tasks',
-  'milestones',
-  'documents',
-  'decisions',
-  'drafts',
-  'statistics',
-  'skills',
-  'settings',
-];
+const views = workspaceViews;
 // Views rendered by app.js itself rather than by a mounted panel.
-const shellViews = ['board', 'initiatives'];
+const shellViews = ['overview', 'initiatives'];
 function setConnection(text, kind = '') {
   const node = $('#connection');
   node.className = `connection ${kind}`.trim();
@@ -1603,7 +1591,7 @@ $('#create-form').addEventListener('submit', async event => {
 });
 $('#filter').addEventListener('input', renderBoard);
 // Overview and Initiatives both show the shell state, so each header gets a control over the same load.
-const shellRefresh = ['#workspace-board', '#workspace-initiatives'].map(section => {
+const shellRefresh = ['#workspace-overview', '#workspace-initiatives'].map(section => {
   const control = createRefreshControl(() => refresh(true));
   $(`${section} .page-actions`).append(control.create());
   return control;
@@ -1777,7 +1765,7 @@ function updateTitle() {
   document.title = [initiative || record, view, state?.project?.name, 'Switchflow'].filter(Boolean).join(' · ');
 }
 function showView(view, updateLocation = true) {
-  activeView = views.includes(view) ? view : 'board';
+  activeView = views.includes(view) ? view : 'overview';
   updateTitle();
   if (matchMedia('(max-width:760px)').matches) setDrawer(false);
   $('.skip-link').href = `#workspace-${activeView}`;
@@ -1878,7 +1866,7 @@ function showView(view, updateLocation = true) {
     });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
-  else panel = mountInsights(container, { ...options, kind: viewName });
+  else panel = mountInsights(container, { ...options, kind: viewName === 'insights' ? 'statistics' : viewName });
   panels.set(viewName, panel);
   panelRefreshedAt = Date.now();
   return panel;
@@ -1939,7 +1927,17 @@ async function followLocation() {
     followingRoute = false;
   }
 }
+// Old bookmarks (view=board, view=statistics) open the renamed view, and the address bar follows.
+function canonicalizeLocation() {
+  const url = new URL(location.href);
+  const alias = viewAliases[url.searchParams.get('view')];
+  if (!alias) return;
+  url.searchParams.set('view', alias);
+  history.replaceState(history.state, '', url);
+}
+canonicalizeLocation();
 async function followRoute() {
+  canonicalizeLocation();
   const route = workspaceLocation(location.href);
   if (busy || nativeWrites) {
     writeLocation({ view: activeView }, true);
@@ -2004,7 +2002,7 @@ for (const tab of document.querySelectorAll('[data-view]'))
   });
 $('.brand').addEventListener('click', event => {
   event.preventDefault();
-  showView('board');
+  showView('overview');
 });
 $('#add-project').addEventListener('click', () => {
   showError('', $('#project-error'));
@@ -2217,8 +2215,8 @@ mountSearch({
     },
   ],
   navigate: async item => {
-    if (item.view === 'board') {
-      showView('board');
+    if (item.view === 'overview') {
+      showView('overview');
       openDetail(item.id, $('#workspace-search'));
     } else {
       const panel = showView(item.view);
