@@ -54,6 +54,54 @@ Configure it once in `.switchflow/preview.json` in the primary checkout, next to
 
 Routes: `GET /api/projects/<id>/initiatives/<initiative>/preview` returns configuration, candidates and the running state; `POST …/preview/start` takes `{ "commandHash": "…", "candidate": "<optional name>" }`; `POST …/preview/stop` takes `{}`. Both POSTs need the page token.
 
+## Capacity
+
+Parallel workers share one computer, and memory, not CPU, is what runs out first: in the 2026-10-03 parity trial ten workers on a 32 GB PC each ran Vitest with its default of about 18 threads, five hit JavaScript heap out-of-memory errors and the Claude app crashed (`analysis/environments-2026-10-03/`). The host therefore admits workers by memory, shares heavy steps and singleton resources through leases, caps test runners through the environment, and cleans up what a worker leaves running. Configure it in `.switchflow/capacity.json` in the primary checkout, next to `project.json`. Without the file the defaults below apply.
+
+```json
+{
+  "schemaVersion": 1,
+  "memory": { "workerIdleGB": 1.5, "workerGatingGB": 6, "headroomGB": 3 },
+  "leases": { "gate": 2, "e2e": { "count": 1, "maxMinutes": 60 }, "docker-stack": 1 },
+  "workerEnv": { "VITEST_MAX_WORKERS": "2", "NODE_OPTIONS": "--max-old-space-size=4096" }
+}
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `memory.admission` | `true` | `false` turns memory admission off; `limits.maxWorkers` still applies. |
+| `memory.workerIdleGB` | 1.5 | Budget of a running worker (0.1–64). |
+| `memory.workerGatingGB` | 6 | Budget while it holds a gating lease (at least `workerIdleGB`, at most 256). |
+| `memory.headroomGB` | 3 | Kept free for you and the rest of the system (0–64). |
+| `leases.<name>` | `suite` 1, `gate` 2, `e2e` 1 | A count (1–16), or `{ "count", "gating", "maxMinutes" }`. Names are lowercase letters, digits and dashes. `gating` defaults to `true` for `suite`, `gate` and `e2e` and `false` for other names; `maxMinutes` (1–480, default 120) caps a lease's time limit. Declaring a built-in name changes it. |
+| `workerEnv` | none | At most 32 variables added to every agent process the host starts (stage agents and workers), see below. |
+
+The file is validated strictly: an unknown field, a wrong type or a refused variable is an error. An invalid or unreadable file does not stop delivery: the defaults apply and the Agents view says which line was ignored and why. Like `preview.json`, agents can write the governance checkout, so the agent prompt forbids editing this file and the host re-checks `workerEnv` where it spawns processes.
+
+**Memory admission.** `delegate_task` admits a worker only when its idle budget fits:
+
+`available = min(free − budgets of workers admitted in the last 2 minutes, total − all budgets reserved) − headroom`
+
+`free` is `os.freemem()`: on Windows it equals the "Available MBytes" counter (free plus standby memory, checked on this PC), on Linux `MemAvailable`; on macOS it counts free pages only and so errs low. The first term holds back the budget of workers that have started but not yet grown into it, so a burst of delegations cannot all pass on the same free figure. The second keeps the sum of promised budgets within the machine. Budgets are reserved machine-wide, across every project the service runs. Holding a gating lease reserves the difference between the gating and idle budgets. When the budget does not fit, or `limits.maxWorkers` workers are starting or in a turn, the worker is **queued** instead of refused: `delegate_task` returns `status: "queued"` with `queue: { position, reason, since }`, for example `needs 1.5 GB, 0.8 GB available (3.8 GB free, 1.5 GB held for workers still starting, 3 GB headroom)`. The queue is strictly first in, first out per project; a later worker never overtakes an earlier one, and the others say `waiting behind N earlier workers`. Queued workers start by themselves when a worker finishes, goes idle or releases a lease, and on a 5-second recheck while anything waits, because memory can free without an event. When no other worker holds a reservation anywhere, one worker starts even if its budget does not fit, with a `capacityNote`, so a small machine still makes progress. `interrupt_worker` cancels a queued worker; `send_to_worker` refuses one until it starts.
+
+**Leases.** A lease is a time-limited claim on a named resource: `gate` (full test, lint or build gate), `e2e` (end-to-end tests), or any resource the project declares, such as one Docker stack or a fixed port range. Workers and the orchestrator use `acquire_lease`, `release_lease` and `list_leases` (see [Orchestrator and workers](#orchestrator-and-workers)). `count` leases of a name can be held at once. Waiting is first in, first out, bounded per call (1–50 seconds, call again), and returns a reason when it times out, such as `e2e: 1 of 1 held by DEMO-2 deliver worker, 12 min left`. A gating lease also waits until the machine has its extra memory, except that the first gating lease on the machine is always granted. A lease is held by a session and ends when the holder releases it, when its time limit passes (default 30 minutes; acquiring again renews it), or when its session closes for any reason, including a crash or cancel. Its holder gets a `notice` event when it expires. The orchestrator may release any lease of its run, for example one a stuck worker holds. Leases persist in `<stateDir>/leases.json`, so a restart does not forget them: on the first use after a restart, leases of sessions that are gone are released, except those of a run the restart fence still holds, whose processes may still use the resource; they go when the fence is cleared. `acquire_suite_lock` and `release_suite_lock` remain as aliases for the lease `suite` with a 30-minute limit.
+
+**Worker environment caps.** `workerEnv` sets resource caps in every agent process, so test runners use fewer threads without each agent remembering a brief. Examples: `VITEST_MAX_WORKERS` and `JEST_WORKERS` are read only if your test configuration reads them (for example `maxWorkers: process.env.VITEST_MAX_WORKERS`); `NODE_OPTIONS` sizes every Node process's heap. Variables are added to the service's own environment; the host's own values (`TMP`, `TEMP`, `TMPDIR`, `NO_COLOR`, `CLAUDE_CODE_ENTRYPOINT`) always win. Codex also receives them as `shell_environment_policy.set` so its shell commands see them whatever `config.toml` says. A profile can only add plain caps:
+
+- Names must be plain (`[A-Za-z_][A-Za-z0-9_]*`), values single-line and at most 1,024 characters.
+- Refused names (case-insensitive): `PATH`, `PATHEXT`, `HOME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, `PROGRAMDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PSMODULEPATH`, `SHELL`, `TMP`, `TEMP`, `TMPDIR`, `NO_COLOR`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`, Python, Perl, Ruby and Java start-up variables, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `PS4`, proxy and CA-bundle variables, `DOCKER_HOST`, `DOCKER_CONFIG`, `KUBECONFIG`, `EDITOR`, `VISUAL`, `PAGER`, `BROWSER`.
+- Refused prefixes: `CLAUDE`, `ANTHROPIC`, `OPENAI`, `CODEX`, `SWITCHFLOW`, `GIT_`, `SSH_`, `GPG`, `GNUPG`, `NPM_CONFIG`, `YARN_`, `PNPM_`, `BUN_`, `LD_`, `DYLD_`, `AWS_`, `AZURE_`, `GOOGLE_`, `GCLOUD`, `GH_`, `GITHUB_`.
+- Refused as secrets: any name with a `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PWD`, `CREDENTIAL(S)`, `AUTH`, `KEY(S)`, `APIKEY`, `COOKIE` or `SESSION` part.
+- `NODE_OPTIONS` may contain only `--max-old-space-size=<MB>` and `--max-semi-space-size=<MB>`; `--require`, `--import` and loaders would run code in every Node process.
+
+The policy lives in `scripts/control/worker-env.mjs`.
+
+**Process cleanup.** A provider's close ends the agent process it started, but programs that agent launched (dev servers, browsers, test runners) can outlive it; on Windows an orphan keeps running with nothing left to find it by. The host therefore snapshots each session's descendants while its agent runs (every 30 seconds, and just before close), with their operating-system start times, and after the session closes, for any reason, stops each recorded process that is still the same process (`taskkill /T /F` on Windows, `SIGKILL` elsewhere). It never stops the service or its ancestors, another session's agent or recorded descendants, a process whose start time no longer matches (a reused PID), or anything under a PID that existed before the session started. A child counts as a descendant only if it started after its parent, so a stale parent PID cannot adopt unrelated processes. What was stopped is recorded on the session as a `notice` with `processes: [{ pid, name }]`, for example `Stopped 2 processes this session left running: node.exe 4812, WebKitNetworkProcess 5120.` A snapshot costs one PowerShell `Win32_Process` query (about 0.4 s) or one `ps`, and is skipped while a session has no live agent process and nothing recorded.
+
+**In the browser.** The Agents view shows a capacity strip above the sessions: memory free of total, running and queued workers, and each lease's held count; below it, every queued worker with its reason and every held lease with its holder and minutes left. `GET /agents` carries the same data as `capacity` (see [Agents API](#agents-api)).
+
+**Not yet.** Shared dependency installs (a pnpm store or hard-linked `node_modules` per lockfile, so a worktree costs megabytes instead of 565 MB) are a follow-up; so are per-worktree compose projects and ports, which would remove the need for an `e2e` lease altogether.
+
 ## Scope, concurrency and interruptions
 
 The service admits one agent run per Git project at a time. Other initiatives can queue. Each human action carries the initiative revision actually displayed; stale actions fail and the browser retains typed drafts. Updates enter the next checkpoint. A scope change stops the current run, retains the old approvals for audit, revokes the current grant, and returns to Intake. New work waits for the stopped process to settle.
@@ -105,9 +153,20 @@ All routes are project-scoped: prefix `/api/projects/<projectId>`. Writes need t
     "review": { "provider": null, "fallback": null, "error": "Independent review needs claude, but ..." }
   },
   "activeRun": { "id": "<uuid>", "initiativeId": "<uuid>", "stage": "execution", "status": "running" },
+  "capacity": {
+    "profile": { "source": ".switchflow/capacity.json", "error": null },
+    "memory": { "admission": true, "freeGB": 3.8, "totalGB": 31.9, "reservedGB": 12, "startingGB": 1.5, "headroomGB": 3, "availableGB": 0.8, "workerIdleGB": 1.5, "workerGatingGB": 6 },
+    "workers": { "admitted": 3, "queued": 1, "maxWorkers": 4 },
+    "queue": [{ "workerId": "<uuid>", "runId": "<uuid>", "task": "DEMO-5", "kind": "deliver", "position": 1, "reason": "needs 1.5 GB, 0.8 GB available (...)", "since": "<ISO time>" }],
+    "leases": [{ "id": "<uuid>", "name": "gate", "holder": "<session uuid>", "runId": "<uuid>", "task": "DEMO-2", "kind": "deliver", "acquiredAt": "<ISO time>", "expiresAt": "<ISO time>", "minutesLeft": 24 }],
+    "resources": [{ "name": "gate", "count": 2, "gating": true, "maxMinutes": 120, "held": 1, "waiting": 0 }],
+    "workerEnv": ["VITEST_MAX_WORKERS", "NODE_OPTIONS"]
+  },
   "sessions": ["<Session>"]
 }
 ```
+
+`capacity` is described under [Capacity](#capacity); `profile.source` is `defaults` when the file is absent or invalid, with the reason in `error`. `workerEnv` lists names only. Queued workers have no session yet, so they appear only in `capacity.queue`.
 
 `routing` has one entry per role (`intake`, `planning`, `execution`, `delivery`, `review`, `uat`), each `{ provider, fallback }` or `{ provider: null, fallback: null, error }`; `review` is computed against the routed delivery provider. A provider is `{ "available": false, "diagnostic": "..." }` when its CLI is missing. `activeRun` is `null` when idle. `sessions` lists live and recent sessions (up to 200), newest first.
 
@@ -165,7 +224,7 @@ Poll with `after=nextAfter`. Every event has `seq`, `at` and `kind`:
 | `turn.completed` | `turnId`, `status` (`completed` or `interrupted`), `usage` |
 | `turn.failed` | `turnId`, `error` |
 | `stderr` | `text`, ANSI stripped |
-| `notice` | `level` (`warning` or `error`), `text`: fallbacks, declined requests, denied tools |
+| `notice` | `level` (`info`, `warning` or `error`), `text`: fallbacks, declined requests, denied tools, expired leases, resumed workers; `processes: [{ pid, name }]` when the host stopped processes the session left running |
 | `session.closed` | none |
 
 Text fields are capped at 20,000 characters. Shell output and hidden reasoning are not included.
@@ -195,18 +254,21 @@ During Execution, the orchestrator session (either provider) gets a `switchflow`
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status`, `approval`, `writable`, `note` (only while an approach awaits confirmation), `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback` |
+| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status` (`queued`, `starting`, `working`, `idle`, `completed`, `failed`, `cancelled`), `queue` (`{ position, reason, since }`, only while queued), `approval`, `writable`, `note` (only while an approach awaits confirmation), `resumedFrom` (a resumed worker's previous ID), `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback`, `capacityNote` (started below its memory budget) |
 | `worker_status` | optional `workerId` | `{ workers: [summary] }` |
-| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`), optional `confirm` (boolean) | `{ ok, sessionId, mode, turnId }` as for owner steering; for a delivery worker also `confirmed` and `writable` |
-| `interrupt_worker` | `workerId` | `{ workerId, interrupted }` |
-| `wait_for_workers` | optional `workerIds`, `timeoutSeconds` (1–50, default 30) | `{ timedOut, workers: [summary] }`; returns when a listed worker finishes a turn the orchestrator has not seen, or none is running |
-| `acquire_suite_lock` | optional `timeoutSeconds` (1–50) | `{ acquired: true, expiresAt }` or `{ acquired: false, heldBy }` |
+| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`), optional `confirm` (boolean) | `{ ok, sessionId, mode, turnId }` as for owner steering; for a delivery worker also `confirmed` and `writable`. 409 while the worker is queued or starting |
+| `interrupt_worker` | `workerId` | `{ workerId, interrupted }`; a queued worker is cancelled: `{ workerId, interrupted: true, cancelled: true }` |
+| `wait_for_workers` | optional `workerIds`, `timeoutSeconds` (1–50, default 30) | `{ timedOut, workers: [summary] }`; returns when a listed worker finishes a turn the orchestrator has not seen, or none is queued, starting or running |
+| `acquire_lease` | `name`, optional `ttlMinutes` (1 to the lease's `maxMinutes`, default 30), optional `timeoutSeconds` (1–50) | `{ acquired: true, id, name, holder, runId, task, kind, acquiredAt, expiresAt, minutesLeft }` (`renewed: true` when the caller already held it) or `{ acquired: false, name, reason }`; 404 for a name the project does not declare |
+| `release_lease` | `id` | `{ released: true, id, name }`, or `{ released: false, reason }` when it is already gone; 403 unless the caller holds it or is its run's orchestrator |
+| `list_leases` | none | `{ leases: [lease], resources: [{ name, count, gating, maxMinutes, held, waiting }] }` |
+| `acquire_suite_lock` | optional `timeoutSeconds` (1–50) | Alias for the lease `suite`: `{ acquired: true, expiresAt }` or `{ acquired: false, heldBy, reason }` |
 | `release_suite_lock` | none | `{ released }` |
 
 The host enforces:
 
 - The worktree must be a candidate the Git helper registered for this initiative's plan grant, and the task must exist in Backlog.
-- At most `limits.maxWorkers` workers run at once.
+- At most `limits.maxWorkers` workers are starting or in a turn at once, and a worker starts only when its memory budget fits; otherwise it queues and starts by itself later (see [Capacity](#capacity)).
 - Delivery workers get `workspace-write` with the candidate, governance root, operations, scratch and Git request inbox as writable roots, but only after their approach is confirmed (the approach gate below).
 - Reviewers are `read-only`, use a different provider from the task's latest author (the orchestrator's provider when it delivered directly), and return their verdict comment for the orchestrator to record. A blocked review is not retried on the author's provider.
 - At most `limits.maxReviewRounds` reviews per task in a run; the next is refused with "Escalate to the owner."
@@ -226,7 +288,7 @@ A message without `confirm` to an unconfirmed worker runs another read-only turn
 - `codex exec`: the approach run uses `--sandbox read-only` with no writable roots; the confirmed turn is `codex exec resume <thread>` with `workspace-write`.
 - Claude CLI: tools and permission rules are fixed per process, so the approach runs in a process with the reviewer's set (Read, Grep, Glob and read-only Bash rules, `dontAsk`, no `--add-dir`) and session persistence on. Confirmation ends that process (stdin closed, its PID cleared from the restart fence) and starts one with `--resume <session>` and the write set; its PID is recorded before it receives input. The saved conversation (`~/.claude/projects/<folder>/<session>.jsonl`, or under `CLAUDE_CONFIG_DIR`) is deleted when the session closes.
 
-The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
+Each worker gets its own MCP server with only the lease tools (`acquire_lease`, `release_lease`, `list_leases` and the two suite-lock aliases) and its own token, valid while its session is open. The orchestrator gets the same lease tools besides delegation. Leases are described under [Capacity](#capacity).
 
 `GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `failed` (under Needs you) with an error naming their process, and their events stay readable. Their processes are fenced as described in [Recovery](#recovery).
 
@@ -241,6 +303,7 @@ The suite lock is one project-wide lock so parallel workers do not run the full 
 | Browser scope/plan approvals, revision history, sessions and run receipts | External project state, `control.json` and `runs/<id>/` |
 | Agent routing settings and the agent session index | External `agent-settings.json` and `agent-sessions.json`; per-session events in `runs/<id>/sessions/` |
 | UAT preview command / running preview record | Primary checkout's `.switchflow/preview.json` (owner-edited) / external `preview.json` (process ID and start time only) |
+| Capacity profile / held leases / delegation ledger | Primary checkout's `.switchflow/capacity.json` (owner-edited) / external `leases.json` / external `worker-ledger.json` (task, kind, candidate, provider and instructions of recent delegations, for resuming after a restart) |
 | Friction/issues, check evidence, worktree registrations | Separate external JSON ledgers in `operations/` |
 | Investigation output | Managed external scratch; agents read only explicitly referenced material |
 | Selected durable scratch output | Explicit promotion into the governance collection; never automatic ingestion |
@@ -269,6 +332,8 @@ The hold lists each process (provider, stage or worker kind, task, PID) in `acti
 - `stop-processes` ends the tree (`taskkill /T /F` on Windows, the process group elsewhere) of each process whose identity is verified again at that moment. Unverified and unknown entries are never stopped by the service. The hold is released when nothing remains.
 - `recover-run` with `confirmedStopped: true` releases a hold whose remaining entries are unverified or unknown. It is refused while a verified process is still running.
 - Any other action is refused while the hold remains; once every recorded process has stopped, the next action releases it.
+
+**Resume held workers.** Every delegation is recorded in the external `worker-ledger.json` before its worker starts (task, kind, candidate name, provider, the orchestrator's instructions, approach state) and marked finished when the worker ends. On restart, the delegations of the interrupted run that were still queued or open are listed on the initiative as `heldWorkers`. Once the hold is released, a delivery initiative offers **Resume N held workers** next to Retry: the `resume-workers` action (`{ "action": "resume-workers", "expectedRevision" }`, no other fields) retries delivery, and the new execution run delegates those workers again before the orchestrator's first turn, deliveries before reviews and under the usual capacity limits. Each gets a new session with its original instructions after a note that the previous session stopped with the service and that it must inspect the worktree (committed work, uncommitted edits, a half-finished rebase) before continuing; a delivery worker starts again at the approach gate. The orchestrator's state lists them as `resumedWorkers` so it follows them instead of delegating the same tasks again, and its session records a `notice` naming what was resumed and what could not be. Provider-level resume is not used yet: Claude workers run without saved conversations and Codex app-server thread resume is unverified, so every held worker is re-delegated. A plain Retry, or any new run, drops the list. A graceful service stop or an owner cancel ends workers normally, so nothing is held.
 
 The service does not stop these processes on its own at startup. Recovery runs whenever a project attaches, possibly without the owner present, and acts on state written by a previous service; stopping is irreversible and the owner may want to inspect the worker's work first. When the service dies its agents' stdin closes. In live checks on Windows (2026-10-03), Codex app-server and Claude CLI exited within about 1.5 s of that even mid-turn, and Codex took its running shell command with it, so a hold on a live worker is the exception: a hung process, or one whose identity cannot be confirmed. Start-time verification makes a stop request safe against PID reuse; it costs one PowerShell `Get-Process` call (about 0.3 s) per live PID, only during recovery.
 

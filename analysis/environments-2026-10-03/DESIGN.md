@@ -1,6 +1,6 @@
 # Agent environments: design
 
-Status: proposed, 2026-10-03. Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
+Status: proposed, 2026-10-03. Phase 1 built 2026-10-04 (see Phases). Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
 
 ## The problem, from the Cockatrice parity run
 
@@ -43,7 +43,14 @@ Adapter contract: `health()`, `capabilities`, `prepare(workspace)`, `start(task)
 
 ## Phases
 
-1. **Local capacity management** (above). No decisions needed; removes the crash class seen in the trial.
+1. **Local capacity management** (above). No decisions needed; removes the crash class seen in the trial. **Status: built 2026-10-04** except shared dependency installs, which remain a follow-up (with per-worktree compose projects and ports). What shipped, documented in `docs/browser-control.md` "Capacity":
+   - `.switchflow/capacity.json` profile, strictly validated; defaults (1.5 GB idle, 6 GB gating, 3 GB headroom; leases `gate` 2, `e2e` 1, `suite` 1) apply when it is absent or invalid.
+   - Memory admission: `delegate_task` queues first in first out with a reason ("needs 1.5 GB, 0.8 GB available") instead of overcommitting, and queued workers start by themselves.
+   - Leases `acquire_lease` / `release_lease` / `list_leases` with counts, time limits, gating memory, release on any session end, and persistence across restarts (kept while the restart fence holds their run). The suite lock is the lease `suite`.
+   - `workerEnv` caps injected into every agent process, under a deny policy for paths, homes, agent and Git configuration, loaders and secrets.
+   - Process cleanup of each closed session's leftover processes, guarded by start times.
+   - "Resume N held workers" after a restart: the next execution run re-delegates the interrupted run's queued and open workers with their original instructions. Provider-level session resume is not used yet.
+   - A capacity strip in the Agents view.
 2. **Environment abstraction + SSH box.** Move process spawning behind a local environment adapter with no behaviour change, then add SSH. Full capabilities; code stays on hardware the owner controls; no GitHub requirement (the box can host the git remote).
 3. **Claude subscription cloud.** Probe `--cloud`, attach, teleport and self-hosted `--environment` on a throwaway private repo, then build the adapter for whatever is controllable.
 4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling).
