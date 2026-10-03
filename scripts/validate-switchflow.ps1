@@ -13,7 +13,16 @@ $importerPath = Join-Path $switchflowRoot 'scripts\import-switchflow.ps1'
 $allowedFrontmatterKeys = @('name', 'description', 'license', 'allowed-tools', 'metadata')
 
 try {
-    $tests = @(Get-ChildItem -LiteralPath (Join-Path $switchflowRoot 'scripts') -Filter '*.test.mjs' | Sort-Object Name | ForEach-Object FullName)
+    $prettierPath = Join-Path $switchflowRoot 'node_modules\prettier\bin\prettier.cjs'
+    if (-not (Test-Path -LiteralPath $prettierPath -PathType Leaf)) {
+        throw "Prettier is not installed. Run 'npm ci' in $switchflowRoot."
+    }
+    & npm --prefix $switchflowRoot run --silent format:check
+    if ($LASTEXITCODE -ne 0) {
+        throw "Source formatting check failed. Run 'npm run format' in $switchflowRoot."
+    }
+
+    $tests =@(Get-ChildItem -LiteralPath (Join-Path $switchflowRoot 'scripts') -Filter '*.test.mjs' | Sort-Object Name | ForEach-Object FullName)
     & node --test @tests
     if ($LASTEXITCODE -ne 0) {
         throw 'Switchflow regression checks failed.'

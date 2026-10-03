@@ -21,8 +21,11 @@ export function formatProjectDate(value, format = 'yyyy-mm-dd', fallback = 'Date
   const date = parts(value);
   if (!date) return String(value);
   switch (normalizeDateFormat(format)) {
-    case 'dd/mm/yyyy': return `${date.day}/${date.month}/${date.year}`;
-    case 'mm/dd/yyyy': return `${date.month}/${date.day}/${date.year}`;
-    default: return `${date.year}-${date.month}-${date.day}`;
+    case 'dd/mm/yyyy':
+      return `${date.day}/${date.month}/${date.year}`;
+    case 'mm/dd/yyyy':
+      return `${date.month}/${date.day}/${date.year}`;
+    default:
+      return `${date.year}-${date.month}-${date.day}`;
   }
 }

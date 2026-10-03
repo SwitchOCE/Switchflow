@@ -33,19 +33,23 @@ When only one delivery task is ready within the planned group, use `deliver-task
 
 When at least two independent tasks in a planned parallel group are ready, coordinate delivery workers. A serial task may also use a worker for a stated capability or isolation benefit; record the reason. Give each worker one task and a non-overlapping surface using `deliver-task`. Choose the lowest capability adequate for the assigned risk and work, including the whole serial segment for a direct runner. Respect host model settings; do not assume moving work to a more capable parent saves cost.
 
-Include a compact environment note in each dispatch: accepted base and worktree, verified command forms, pinned dependency state and known access route. These are facts, not transferred permissions. Refresh changed facts at checkpoints; do not repeat discovery merely because the role changed.
+Include a compact environment note in each dispatch: accepted base and worktree, verified command forms, pinned dependency state and known access route. Paste the environment receipt the preflight prints rather than composing it. These are facts, not transferred permissions. When a worker reports rediscovering setup, access or command facts, add them to the Environment requirements in `doc-02`. Refresh changed facts at checkpoints; do not repeat discovery merely because the role changed.
 
 Keep the board running during ordinary orchestration. Application dependencies and `.switchflow/node_modules` are separate installations. Before `npm ci --ignore-scripts`, stop only application or test processes using the target checkout's application dependencies. Stop the board only before replacing the `.switchflow` installation it actually uses; a worktree may be using the primary checkout's installation. Reuse a matching pinned Backlog installation instead of reinstalling it for each worker. If board maintenance is necessary, record its checkout and launch options, restart it after the attempt (including recovery after failure), and verify its HTTP endpoint before reporting it available. Never stop unrelated Node processes.
 
 Prepare only the next ready group by default. Prewarm a gated worktree only when likely dispatch and saved setup time justify it; record the prerequisite revision that must be refreshed before preflight. Do not install speculative future groups. Reuse verified pinned tooling and dependency facts when still valid.
 
-Resolve shared setup once, and run the preflight from the accepted dispatch checkout against each worktree before dispatching into it. It checks governance metadata against that checkout, then confirms the pinned Backlog CLI resolves and the task is readable. Matching metadata is not proof of identical files: create worktrees from the accepted project commit.
+Resolve shared setup once, and run the preflight from the accepted dispatch checkout against each worktree before dispatching into it. It checks governance metadata against that checkout, confirms the pinned Backlog CLI resolves and the task is readable, then checks the Environment requirements in `doc-02` and prints the environment receipt. `-ProvisionFiles` copies declared ignored files from the primary checkout. Matching metadata is not proof of identical files: create worktrees from the accepted project commit.
 
 ```powershell
 .\.switchflow\scripts\check-worktree-tools.ps1 -Worktree ..\wt-{{TASK_PREFIX}}-14 -TaskId {{TASK_PREFIX}}-14
 ```
 
 **One task, one delivery boundary.** Keep criteria, commits, evidence and review separate for every task. A delegated worker stops at its handoff; corrections stay with it. The phase agent may retain context for the next authorized serial task after acceptance. Context reuse does not merge task scope or allow self-review.
+
+## Delegate through Switchflow tools
+
+When the `switchflow` MCP tools are present, use them for workers and reviewers instead of host subagents. `delegate_task` starts one worker for one task in a candidate worktree the Git helper created. Wait with `wait_for_workers`; read results with `worker_status`. A delivery worker first returns its approach: confirm or correct it with `send_to_worker`. Send blocking findings back to the author the same way, then delegate a fresh review. Reviewers are read-only, so record each returned verdict comment verbatim through the Backlog wrapper. The host refuses a reviewer on the author's provider and stops at the review-round limit: escalate then. Without these tools, delegate as described above.
 
 ## Checkpoint before implementation
 

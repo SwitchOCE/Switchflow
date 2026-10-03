@@ -3,17 +3,11 @@
   "properties": {
     "stage": {
       "type": "string",
-      "enum": [
-        "uat"
-      ]
+      "enum": ["uat"]
     },
     "status": {
       "type": "string",
-      "enum": [
-        "ready",
-        "rework",
-        "blocked"
-      ]
+      "enum": ["ready", "rework", "blocked"]
     },
     "summary": {
       "type": "string",
@@ -37,10 +31,7 @@
             "minLength": 1
           }
         },
-        "required": [
-          "id",
-          "prompt"
-        ],
+        "required": ["id", "prompt"],
         "additionalProperties": false
       }
     },
@@ -70,12 +61,7 @@
             "minLength": 1
           }
         },
-        "required": [
-          "phase",
-          "task",
-          "outcome",
-          "evidence"
-        ],
+        "required": ["phase", "task", "outcome", "evidence"],
         "additionalProperties": false
       }
     },
@@ -101,17 +87,6 @@
       }
     }
   },
-  "required": [
-    "stage",
-    "status",
-    "summary",
-    "nextAction",
-    "questions",
-    "scope",
-    "plan",
-    "evidence",
-    "blockers",
-    "uat"
-  ],
+  "required": ["stage", "status", "summary", "nextAction", "questions", "scope", "plan", "evidence", "blockers", "uat"],
   "additionalProperties": false
 }

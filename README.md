@@ -26,11 +26,11 @@ Phase starts and technical milestone acceptance belong to the agents. Scope chan
 
 ## Start from the browser
 
-After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. The workspace uses Switchflow's top navigation and design, with task boards/lists, full editors, milestones, documents, decisions, drafts, insights and settings. Open **Initiatives** for **New initiative → Start intake**, scope and plan approval, live agent activity, guided UAT and framework health. The top bar switches projects on one local service; linked code worktrees always resolve to their primary governance checkout. `.switchflow/scripts/backlog.ps1 control` and `backlog.ps1 browser` open the same workspace. `browser-native` retains the standalone Backlog server for diagnostics. See the [functionality review](docs/backlog-ui-review.md) for the corrected omissions and retained boundaries.
+After [project setup](SETUP.md), double-click **Start Switchflow.cmd**, or run `npm --prefix .switchflow run board`. One sidebar holds the project switcher, search (Ctrl K, which also runs commands), **New initiative** and every view: Overview, Initiatives, Agents, Tasks, Milestones, Documents, Decisions, Drafts, Insights, Skills, Settings and Framework health. It collapses to an icon rail, and becomes a drawer on narrow screens. **Initiatives** holds intake, scope and plan approval, and guided UAT. **Agents** shows every Claude and Codex session, lets you steer or stop one mid-turn, and sets which provider runs each role. One local service serves every project; linked code worktrees always resolve to their primary governance checkout. `.switchflow/scripts/backlog.ps1 control` and `backlog.ps1 browser` open the same workspace. `browser-native` retains the standalone Backlog server for diagnostics. See the [functionality review](docs/backlog-ui-review.md) for the corrected omissions and retained boundaries.
 
 Open **Skills** to inspect the selected project's installed Switchflow instructions, search role descriptions, read reference notes, and view the original Markdown. This section is read-only.
 
-The service uses the installed, signed-in local Codex CLI. Runs keep its workspace sandbox, use structured results, and stop visibly when required authority or access is missing. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
+The service runs the installed, signed-in Claude Code and Codex CLIs. Each role picks a provider: by default Claude handles Intake, Planning, phase orchestration and UAT, Codex delivers tasks, and review always uses the provider that did not write the work. The Claude orchestrator delegates tasks to Codex workers through tools Switchflow owns, and can message, interrupt or return review findings to them. You can steer any live session from **Agents**. Both providers run with approval prompts off, a workspace sandbox limited to approved folders, no user MCP servers or apps, structured results, and a visible stop when authority or access is missing. [Agents and steering](docs/browser-control.md#agents-providers-routing-and-steering) documents the routes and limits. Optional review mode adds independent critique during Intake and Planning without adding human gates. Dictation is a browser capability enhancement; text entry always works.
 
 Approved scope, plan grants, revisions, sessions, and recovery state live outside the code checkout, shared by Git worktrees. Backlog retains delivery tasks and durable project documents. See [browser control and storage](docs/browser-control.md) for the exact boundaries, recovery procedure, and local security model.
 
@@ -52,14 +52,14 @@ Finally, the orchestrator records what the next phase needs. `orchestrate-projec
 
 ## What it imports
 
-In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker queues, separate coordination parents, blocker notes, and recently updated records. Add `--json` for structured output. Backlog needs definition; Blocked is prepared work waiting on a named prerequisite; Ready passes the full readiness gate. The fork reconciles dependency readiness after task writes: Ready tasks with unfinished dependencies become Blocked with reason `dependent`; once those dependencies are Done, they become Ready. Other block reasons and unexplained legacy blocks remain until explicitly resolved. Backlog, active, review and completed tasks are never automatically promoted or regressed. Readiness does not grant execution authority.
+In an imported project, run `.\.switchflow\scripts\backlog.ps1 flow` for worker queues, separate coordination parents, blocker notes, and recently updated records. Add `--json` for structured output. Run `backlog.ps1 reviews` for how often independent review accepts a task first time, and how many review rounds tasks take; `--since YYYY-MM-DD` limits it to work reviewed after a change. Backlog needs definition; Blocked is prepared work waiting on a named prerequisite; Ready passes the full readiness gate. The fork reconciles dependency readiness after task writes: Ready tasks with unfinished dependencies become Blocked with reason `dependent`; once those dependencies are Done, they become Ready. Other block reasons and unexplained legacy blocks remain until explicitly resolved. Backlog, active, review and completed tasks are never automatically promoted or regressed. Readiness does not grant execution authority.
 
 - `AGENTS.md` repository instructions.
 - An empty Backlog.md board with a fixed status lifecycle.
 - Durable Backlog documents and native decision records.
 - A project profile for the few values each repository must own.
 - Eleven agent skills for resumable intake, scope editing, planning, project and phase orchestration, delivery, independent review, guided UAT, human-owned exceptions, and explicit framework review.
-- A local browser control service, Codex runner, and external operations ledgers.
+- A local browser control service with Claude and Codex providers, an orchestrator-to-worker bridge, and external operations ledgers.
 - Pinned Backlog.md tooling and documentation validation under `.switchflow/`.
 
 It does not import tasks, milestones, roadmaps, product decisions, application dependencies, credentials, or deployment configuration.
@@ -74,6 +74,6 @@ Known defects and outstanding work are tracked in [BACKLOG.md](BACKLOG.md).
 
 ## Status
 
-Switchflow is at version `0.5.1`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
+Switchflow is at version `0.6.0`. The browser-driven model is a local release candidate. Mechanism tests, local Codex execution, and rendered checks are distinct from owner acceptance or measured delivery performance over multiple projects. [The implementation record](docs/three-step-delivery.md) maps the proposed improvements to their implementation and evidence.
 
 Test template changes with a fresh import, review the rendered files, and only then update an active project deliberately using the [manual update procedure](SETUP.md#update-an-existing-project). Automatic upgrades remain out of scope.

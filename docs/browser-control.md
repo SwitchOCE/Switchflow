@@ -16,7 +16,7 @@ Walkthrough file references can open a committed-text preview in the board. The 
 
 ## Scope, concurrency and interruptions
 
-The service admits one Codex process per Git project at a time. Other initiatives can queue. Each human action carries the initiative revision actually displayed; stale actions fail and the browser retains typed drafts. Updates enter the next checkpoint. A scope change stops the current run, retains the old approvals for audit, revokes the current grant, and returns to Intake. New work waits for the stopped process to settle.
+The service admits one agent run per Git project at a time. Other initiatives can queue. Each human action carries the initiative revision actually displayed; stale actions fail and the browser retains typed drafts. Updates enter the next checkpoint. A scope change stops the current run, retains the old approvals for audit, revokes the current grant, and returns to Intake. New work waits for the stopped process to settle.
 
 Plan approval covers its listed phases, local candidate delivery, and independent technical review. It does not grant remote pushes, deployment, live-data changes, credentials, or shared-history changes. Those unavailable actions become named exceptions; the local runner never bypasses its sandbox or approval controls. Framework friction is recorded without automatically dispatching unrelated work.
 
@@ -28,6 +28,153 @@ Task edits use Backlog's partial-update path and the CAS fork's expected revisio
 
 An ordinary conflict between managed candidates stays with the agents. The helper records both frozen heads and the exact conflicted paths. After correcting and reviewing those files in the sandbox, the agent resubmits the same merge with those paths. The helper rejects changed heads, additional edits, mismatched paths or altered unrelated index entries, then commits and verifies the two merge parents. Conflicts that cannot meet those constraints remain named exceptions. Windows Git calls enable long paths for that command only. New candidate roots use a compact hash of the full initiative and grant; existing registrations retain their recorded layout. Git's separate Windows root-length limit is checked before creating a branch. If an unusually long state-home still exceeds it, use a shorter host state-home for a new project or a shorter candidate name; never move a registered candidate or rewrite its records to bypass the check.
 
+## Agents: providers, routing and steering
+
+Each stage runs one agent session through a provider adapter in `scripts/control/providers/`: `codex-app-server.mjs` (`codex app-server`, JSON-RPC over stdio) or `claude-cli.mjs` (the installed `claude` CLI in stream-json mode). If app-server fails its initialize handshake, Codex falls back to `codex exec` (`codex-runner.mjs`), which cannot be steered. Both adapters keep the exec guardrails: approval `never` with no approval prompts, only the `workspace-write` or `read-only` sandbox, the host's explicit writable roots, a private temp folder, no sandbox network, and no bypass mode.
+
+- **Codex** gets the policy twice: as `-c` process overrides (including `notify=[]`) and as explicit per-thread and per-turn settings (`approvalPolicy: never`, `approvalsReviewer: user`, `sandboxPolicy`), so `~/.codex/config.toml` cannot loosen it. The user's own MCP servers, ChatGPT apps (the `codex_apps` connector, which can reach live services and deploy) and bundled plugins such as computer use are disabled for runs (`features.apps`, `features.plugins`, `features.computer_use` set to false); runs see only servers Switchflow supplies. The `codex exec` fallback gets the same feature overrides and switches off each server `codex mcp list` reports; if that list cannot be read, the fallback refuses to run.
+- **Claude** runs with `--restricted --strict-mcp-config --permission-prompts none`: user, project and local settings are ignored, file tools are confined to the working directory and `--add-dir` roots, and anything not pre-approved is denied. Writing roles use `acceptEdits` with `Read, Grep, Glob, Edit, Write, NotebookEdit, Bash`; read-only roles get no edit tools. Bash is limited to read-only Git and the Switchflow wrappers (`.switchflow/scripts/*`, plus the Git helper during delivery). Each session has `--max-turns`, a `--json-schema` result and an `is_error` check.
+
+### Role routing
+
+Settings live in `<stateDir>/agent-settings.json`. Defaults: Claude for `intake`, `planning`, `execution` (the phase orchestrator) and `uat`; Codex for `delivery` (task workers); `review: auto` (the provider that did not author the work). If the routed provider is unavailable (not installed, or Claude not signed in), the other one runs and the session records a `notice` and a `fallback`. Review never falls back to the author's provider; it fails with 409 instead.
+
+### Agents API
+
+All routes are project-scoped: prefix `/api/projects/<projectId>`. Writes need the page's `X-Switchflow-Token`, a loopback Host and a same-origin (or absent) Origin, like every other write. Errors are `{ "error": "<message>" }` with 400 (invalid input), 403 (token or origin), 404 (unknown session), 409 (state conflict) or 503.
+
+**`GET /agents`** returns:
+
+```json
+{
+  "providers": {
+    "codex": { "available": true, "version": "codex-cli 0.153.4", "transport": "app-server", "diagnostic": "" },
+    "claude": { "available": true, "version": "2.1.288", "transport": "cli", "loggedIn": true, "authMethod": "claude.ai" }
+  },
+  "settings": {
+    "schemaVersion": 1,
+    "revision": 0,
+    "roles": { "intake": "claude", "planning": "claude", "execution": "claude", "delivery": "codex", "review": "auto", "uat": "claude" },
+    "models": { "claude": null, "codex": null },
+    "efforts": { "claude": null, "codex": null },
+    "limits": { "timeoutMinutes": 60, "maxWorkers": 2, "maxReviewRounds": 2, "maxTurns": 200 }
+  },
+  "routing": {
+    "intake": { "provider": "claude", "fallback": null },
+    "execution": { "provider": "codex", "fallback": { "from": "claude", "to": "codex", "reason": "claude is not signed in" } },
+    "review": { "provider": null, "fallback": null, "error": "Independent review needs claude, but ..." }
+  },
+  "activeRun": { "id": "<uuid>", "initiativeId": "<uuid>", "stage": "execution", "status": "running" },
+  "sessions": ["<Session>"]
+}
+```
+
+`routing` has one entry per role (`intake`, `planning`, `execution`, `delivery`, `review`, `uat`), each `{ provider, fallback }` or `{ provider: null, fallback: null, error }`; `review` is computed against the routed delivery provider. A provider is `{ "available": false, "diagnostic": "..." }` when its CLI is missing. `activeRun` is `null` when idle. `sessions` lists live and recent sessions (up to 200), newest first.
+
+A **Session** object:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | uuid | Session ID used in the routes below. |
+| `parentId` | uuid or null | Orchestrator session for a worker; `null` for stage sessions. |
+| `runId`, `initiativeId` | uuid | The run and initiative it belongs to. |
+| `role` | `intake`, `planning`, `execution`, `delivery`, `review`, `uat` | Routed role. |
+| `kind` | `stage`, `deliver`, `review` | Stage agent, or a delegated worker. |
+| `provider` | `claude`, `codex` | |
+| `transport` | `app-server`, `exec`, `cli` or null | `exec` cannot be steered. |
+| `model`, `threadId` | string or null | Provider model and thread or session ID. |
+| `task`, `worktree`, `reviewRound` | string, string, number, or null | Worker task ID, candidate path and review round (workers only). |
+| `sandbox` | `workspace-write`, `read-only` | |
+| `status` | `starting`, `working`, `idle`, `completed`, `failed`, `cancelled` | `working`: a turn is running. `idle`: open and waiting for a follow-up (workers). |
+| `lastTurn` | `{ id, status, at }` or absent | Most recent finished turn; `status` is `completed`, `interrupted` or `failed`. |
+| `startedAt`, `updatedAt`, `endedAt` | ISO time or null | |
+| `usage` | `{ inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens, costUsd }` or null | Cumulative for the session; `costUsd` is Claude only. |
+| `lastMessage` | string or null | Latest agent text, at most 4,000 characters. |
+| `result` | object or null | Structured result once completed. |
+| `error` | string or null | Failure or stop reason. |
+| `fallback` | `{ from, to, reason }` or null | Provider substitution. |
+| `eventCount` | number | Highest event `seq`. |
+| `live` | boolean | The service holds the process. Only live sessions can be steered. |
+| `canSteer`, `canInterrupt` | boolean | Whether the two write routes will currently be accepted. |
+
+**`GET /agents/<sessionId>/events?after=<seq>&limit=<n>`** (`after` defaults to 0; `limit` is 1–500, default 200) returns events with `seq > after`, oldest first:
+
+```json
+{
+  "sessionId": "<uuid>",
+  "status": "working",
+  "live": true,
+  "events": [{ "seq": 1, "at": "2026-10-03T12:00:00.000Z", "kind": "session.started", "provider": "codex", "transport": "app-server", "threadId": "...", "pid": 1234, "model": "gpt-5.6-luna" }],
+  "nextAfter": 1,
+  "more": false
+}
+```
+
+Poll with `after=nextAfter`. Every event has `seq`, `at` and `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `session.started` | `provider`, `transport`, `threadId`, `pid`, `model`. Exec may send it twice: pid first, then threadId. |
+| `turn.started` | `turnId` (null on exec) |
+| `message` | `text`, `final` (true for the turn's answer), `phase` (Codex only) |
+| `tool` | `name`, `summary` (one line) |
+| `command` | `command`, `status` (`started`, `completed`, `failed`, ...), `exitCode` |
+| `file_change` | `paths[]`, `status` |
+| `steer` | `text`, `by` (`owner` or `orchestrator`), `mode` (`steer`, `queue` or `followup`), `turnId` |
+| `interrupt` | `by`, `turnId` |
+| `turn.completed` | `turnId`, `status` (`completed` or `interrupted`), `usage` |
+| `turn.failed` | `turnId`, `error` |
+| `stderr` | `text`, ANSI stripped |
+| `notice` | `level` (`warning` or `error`), `text`: fallbacks, declined requests, denied tools |
+| `session.closed` | none |
+
+Text fields are capped at 20,000 characters. Shell output and hidden reasoning are not included.
+
+**`POST /agents/<sessionId>/steer`** takes `{ "message": "<1–20000 characters>", "mode": "steer" | "queue" }`; `mode` is optional and defaults to `steer`. No other fields.
+
+- `steer` reaches a running turn mid-turn: Codex through `turn/steer` with the active turn ID, Claude as a user message with `priority: "next"`, read at its next tool boundary.
+- `queue` holds the message until the current turn ends. A worker then runs it as its next turn (several queued messages are joined in order). A stage agent has no next turn in this run, so a queued message becomes an ordinary owner update for the next checkpoint.
+- An idle worker receives the message as a follow-up turn in either mode.
+
+Returns 202:
+
+```json
+{ "ok": true, "sessionId": "<uuid>", "mode": "steer", "turnId": "<id or null>" }
+```
+
+`mode` is the effective mode: `steer`, `queue` or `followup`. The session's `steer` event carries the same `mode`. Returns 400 for an unknown mode, and 409 when the session is not live, has no running turn, or uses `exec` with `mode: "steer"`. Owner messages are appended to the initiative's message history as `{ "type": "steer", "message", "sessionId", "runId", "role", "provider", "mode", "at" }` (type `update` for a message queued to a stage agent) with a `steer` activity event, so they survive restarts. A steer delivered to a run is not repeated as new input to the next run.
+
+**`POST /agents/<sessionId>/interrupt`** takes `{}` or no body and returns 202 `{ "sessionId": "<uuid>", "interrupted": true }`, or 409 when no turn is running. Interrupting a stage agent ends that run as failed with "The owner interrupted this agent. Add an update or retry." Interrupting a worker leaves it `idle` for its orchestrator.
+
+**`PUT /agents/settings`** takes any subset of `{ "roles", "models", "efforts", "limits", "expectedRevision" }`. Roles take `claude` or `codex`, and `review` also takes `auto`. Models and efforts take `null` or a plain name. Limits are integers: `timeoutMinutes` 1–1440, `maxWorkers` 1–8, `maxReviewRounds` 1–5, `maxTurns` 1–1000. Unknown keys return 400, a stale `expectedRevision` returns 409, and so does any change while a run holds admission (`activeRun` is set). Returns 200 `{ "settings", "routing" }`.
+
+### Orchestrator and workers
+
+During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status`, `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback` |
+| `worker_status` | optional `workerId` | `{ workers: [summary] }` |
+| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`) | `{ ok, sessionId, mode, turnId }` as for owner steering |
+| `interrupt_worker` | `workerId` | `{ workerId, interrupted }` |
+| `wait_for_workers` | optional `workerIds`, `timeoutSeconds` (1–50, default 30) | `{ timedOut, workers: [summary] }`; returns when a listed worker finishes a turn the orchestrator has not seen, or none is running |
+| `acquire_suite_lock` | optional `timeoutSeconds` (1–50) | `{ acquired: true, expiresAt }` or `{ acquired: false, heldBy }` |
+| `release_suite_lock` | none | `{ released }` |
+
+The host enforces:
+
+- The worktree must be a candidate the Git helper registered for this initiative's plan grant, and the task must exist in Backlog.
+- At most `limits.maxWorkers` workers run at once.
+- Delivery workers get `workspace-write` with the candidate, governance root, operations, scratch and Git request inbox as writable roots. Their first turn returns the three-line approach; the orchestrator confirms it with `send_to_worker`.
+- Reviewers are `read-only`, use a different provider from the task's latest author (the orchestrator's provider when it delivered directly), and return their verdict comment for the orchestrator to record. A blocked review is not retried on the author's provider.
+- At most `limits.maxReviewRounds` reviews per task in a run; the next is refused with "Escalate to the owner."
+- The run's cancel or scope change aborts every worker. Workers appear in `GET /agents` with `parentId` set to the orchestrator and `kind` `deliver` or `review`. Owner steering and interrupts work on them too.
+
+The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
+
+`GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `cancelled` with an error, and their events stay readable.
+
 ## Where data lives
 
 | Data | Owner/location |
@@ -37,6 +184,7 @@ An ordinary conflict between managed candidates stays with the agents. The helpe
 | Shared browser service and project registry | External `control-service/`; one port per state-home |
 | Delivery tasks, milestones, accepted product documents | Primary checkout's Backlog; worker worktrees use the same governance root |
 | Browser scope/plan approvals, revision history, sessions and run receipts | External project state, `control.json` and `runs/<id>/` |
+| Agent routing settings and the agent session index | External `agent-settings.json` and `agent-sessions.json`; per-session events in `runs/<id>/sessions/` |
 | Friction/issues, check evidence, worktree registrations | Separate external JSON ledgers in `operations/` |
 | Investigation output | Managed external scratch; agents read only explicitly referenced material |
 | Selected durable scratch output | Explicit promotion into the governance collection; never automatic ingestion |
@@ -63,7 +211,7 @@ Malformed state and unexplained stale data locks fail closed. Stop the service, 
 
 The server accepts only its loopback Host and same-origin browser requests. Every mutation requires a per-service token; JSON payloads and native decision-editor UTF-8 text are bounded. It launches fixed local executables with argument arrays and stdin, never browser-supplied shell commands. Native Backlog request handlers run through a private process pipe per canonical project, with no additional HTTP listeners. All writes share the agent-admission fence. Repository attachment responses are sandboxed and cannot execute scripts with workspace authority. The native web bundle is hashed alongside the executable in the fork receipt. Only local users and processes that can access this host should use this service; it is not a remotely authenticated multi-user server.
 
-Codex results, stdout and completion receipts are bounded and persisted. A malformed final result, missing durable session, failed turn, timeout or process error cannot advance to UAT. The process runs under the existing local Codex account with workspace sandboxing and no approval bypass. Success in adapter tests is not real Codex proof; successful Codex execution is not human UAT.
+Agent results, events and completion receipts are bounded and persisted. A malformed final result, missing durable session, failed turn, timeout or process error cannot advance to UAT. Each agent runs under the owner's existing local Codex or Claude login with sandboxing and no approval bypass. Success in adapter tests is not real agent proof; a successful agent run is not human UAT.
 
 `operations.mjs check` reuses only the latest successful matching attempt, with identical tracked/untracked source content, Git HEAD, command/arguments, working directory, declared scope and environment digest. Include digests for ignored dependencies, fixtures, external services and container images in `inputs`, or disable reuse when those inputs are not known. Container availability alone is not a container test result. Workers and reviewers reuse applicable evidence; the integrated changed candidate still gets its required gate.
 

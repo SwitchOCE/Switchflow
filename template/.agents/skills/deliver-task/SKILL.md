@@ -21,7 +21,7 @@ Account for every open {{OWNER_NAME}} comment as `doc-07` requires before relyin
 
 ## State the approach first
 
-Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
+Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker; when the Switchflow host dispatched you, return the approach as your result and stop until the orchestrator replies. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
 
 ## Implement
 
@@ -36,6 +36,22 @@ Run the changed-outcome tests the context map identifies, plus whatever the risk
 Use focused task evidence. Apply the phase gate from `doc-04` and the project profile on the integrated candidate: documentation and board checks for affected Documentation-only surfaces, or the full suite and required boundaries for runtime or operational changes. Honor any explicit task gate. Do not duplicate phase checks on every task branch.
 
 Do not re-run a suite that has not been invalidated by a change since its last run.
+
+When the `acquire_suite_lock` tool is present, hold it while running the full test or build suite and release it as soon as the run ends; focused tests do not need it.
+
+## Check what review usually blocks
+
+In earlier Switchflow projects, about half of reviewed tasks failed their first independent review, mostly on the classes below. Before handoff, ask each question that applies to this change, and fix or test what you find:
+
+1. **In-flight and failed work.** What happens if a request is slow, fails, is retried, or its response is lost? Check edits made while loading or saving, late responses overwriting newer state, retries keeping their idempotency key, error feedback where the user is, and cleanup that cannot hang.
+2. **Contract edges.** Test every limit, range, unit, version and identity the contract states at its exact boundary, including existing data near a limit that this change adds to. Keep IDs and display labels separate.
+3. **Checks that fail closed.** A validator or boundary check rejects what it cannot classify; it never skips it.
+4. **Raw input.** Do not write normalized or display values back into what the user is typing or into stored raw fields.
+5. **Focus and access.** After dialogs close or lists rerender, focus lands on a defined control, and visible text matches accessible text.
+6. **The shipped artifact.** When packaging or build output changes, inspect the real output, not the source tree.
+7. **Tests that can fail.** At least one test per criterion drives the real path from the user's starting state and fails without the change. Seeding state through a back door or a separate root can hide the defect.
+
+Record in the handoff which questions applied and their evidence. This is author diligence, not a substitute for independent review.
 
 ## Hand off and stop
 

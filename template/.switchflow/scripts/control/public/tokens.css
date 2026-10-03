@@ -1,0 +1,111 @@
+/* Switchflow design tokens. Every colour in the interface comes from here; both themes
+   share one set of names so components never need theme-specific overrides. */
+:root {
+  color-scheme: light;
+  --bg: #f2f4f7;
+  --bg-sidebar: #f8f9fb;
+  --surface: #ffffff;
+  --surface-2: #f6f7f9;
+  --surface-3: #eceff3;
+  --border: #e1e5eb;
+  --border-strong: #c9d0da;
+  --text-1: #111827;
+  --text-2: #4b5563;
+  --text-3: #6b7280;
+  --accent: #2f5fc4;
+  --accent-hover: #264fa6;
+  --accent-soft: #e8eefb;
+  --accent-text: #2753b3;
+  --on-accent: #ffffff;
+  --success: #1d8556;
+  --success-soft: #e3f3ea;
+  --warning: #a86b0c;
+  --warning-soft: #fbf0dc;
+  --danger: #c0392b;
+  --danger-soft: #fbe9e6;
+  --danger-text: #a3291d;
+  --violet: #7353c4;
+  --violet-soft: #efeafb;
+  --focus: #3b7be0;
+  --overlay: rgb(15 23 42 / 0.32);
+  --shadow-1: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.07);
+  --shadow-2: 0 4px 12px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-3: 0 16px 48px rgb(16 24 40 / 0.18);
+
+  --claude: #c26a3d;
+  --codex: #3a4252;
+  --status-backlog: #8a94a6;
+  --status-ready: var(--accent);
+  --status-progress: #d08a14;
+  --status-review: var(--violet);
+  --status-blocked: var(--danger);
+  --status-done: var(--success);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  /* One reading measure for prose in documents, tasks and milestones. */
+  --measure: 76ch;
+  --font: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  /* Legacy names kept so older selectors resolve to the system. */
+  --ink: var(--text-1);
+  --muted: var(--text-2);
+  --line: var(--border);
+  --teal: var(--accent-text);
+  --teal-dark: var(--accent-hover);
+  --soft: var(--accent-soft);
+  --canvas: var(--bg);
+  --panel: var(--surface);
+  --nav-hover: var(--surface-3);
+}
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d1219;
+  --bg-sidebar: #10161f;
+  --surface: #161d28;
+  --surface-2: #121821;
+  --surface-3: #1e2734;
+  --border: #253041;
+  --border-strong: #354257;
+  --text-1: #e7ecf3;
+  --text-2: #a7b2c3;
+  --text-3: #7f8b9e;
+  --accent: #3c6ddd;
+  --accent-hover: #4a7aec;
+  --accent-soft: #1a2741;
+  --accent-text: #8fb1ff;
+  --on-accent: #ffffff;
+  --success: #43b47f;
+  --success-soft: #11271d;
+  --warning: #dba445;
+  --warning-soft: #2a2110;
+  --danger: #e2604e;
+  --danger-soft: #311815;
+  --danger-text: #ffa496;
+  --violet: #a68af0;
+  --violet-soft: #231c3a;
+  --focus: #6b9bff;
+  --overlay: rgb(2 6 12 / 0.6);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-2: 0 4px 14px rgb(0 0 0 / 0.4);
+  --shadow-3: 0 18px 56px rgb(0 0 0 / 0.55);
+  --claude: #d98a5f;
+  --codex: #a7b4c9;
+  --status-backlog: #7d889b;
+  --status-progress: #e0a23a;
+}

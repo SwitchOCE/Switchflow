@@ -118,6 +118,8 @@ Give coordination parents the `coordination` label and exclude them from executa
 
 Use `backlog.ps1 flow` for worker queues, separate coordination parents, and recently updated records. This is a read-only snapshot of recorded state, not a readiness verdict or a complete transition log. Update statuses at actual handoffs; do not hold Ready or Review artificially to make them visible.
 
+Use `backlog.ps1 reviews` for the share of worker tasks accepted on first independent review, review rounds, and results by task type. Add `--since YYYY-MM-DD` to compare work reviewed after a process change, and `--json` for structured output. It counts only the `Verdict:` line defined in `doc-08`; Review and Done tasks without it are reported separately, not guessed.
+
 ## Deterministic checks
 
 Run the project check after task mutations:

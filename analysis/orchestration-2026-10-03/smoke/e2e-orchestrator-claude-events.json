@@ -1,0 +1,122 @@
+[
+ {
+  "seq": 1,
+  "at": "2026-10-03T05:17:44.078Z",
+  "kind": "turn.started",
+  "turnId": "5f37bc80-23a8-45bc-9528-4b55c69f478c"
+ },
+ {
+  "seq": 2,
+  "at": "2026-10-03T05:17:45.921Z",
+  "kind": "session.started",
+  "provider": "claude",
+  "transport": "cli",
+  "threadId": "94de14d9-c063-4b7e-8ddc-aea76a9dd0e2",
+  "pid": 25024,
+  "model": "claude-haiku-4-5-20251001"
+ },
+ {
+  "seq": 3,
+  "at": "2026-10-03T05:17:49.147Z",
+  "kind": "message",
+  "text": "I'll smoke-test the Switchflow orchestration by delegating a task, waiting for responses, and confirming the worker's approach.",
+  "final": false
+ },
+ {
+  "seq": 4,
+  "at": "2026-10-03T05:17:49.147Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__delegate_task",
+  "summary": "{\"task\":\"SMOKE-1\",\"kind\":\"deliver\",\"worktree\":\"cand\",\"instructions\":\"Create hello.txt containing the single line hello in your worktree. Do not commit. Keep replies minimal.\"}"
+ },
+ {
+  "seq": 5,
+  "at": "2026-10-03T05:17:54.231Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__wait_for_workers",
+  "summary": "{\"workerIds\":[\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"],\"timeoutSeconds\":40}"
+ },
+ {
+  "seq": 6,
+  "at": "2026-10-03T05:18:04.253Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__send_to_worker",
+  "summary": "{\"workerId\":\"d74288ec-89f2-4d18-a2c3-e101417f1aab\",\"message\":\"Confirmed. Implement it now and hand off.\"}"
+ },
+ {
+  "seq": 7,
+  "at": "2026-10-03T05:18:06.043Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__wait_for_workers",
+  "summary": "{\"workerIds\":[\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"],\"timeoutSeconds\":40}"
+ },
+ {
+  "seq": 8,
+  "at": "2026-10-03T05:18:47.996Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__wait_for_workers",
+  "summary": "{\"workerIds\":[\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"],\"timeoutSeconds\":40}"
+ },
+ {
+  "seq": 9,
+  "at": "2026-10-03T05:19:29.797Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__wait_for_workers",
+  "summary": "{\"workerIds\":[\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"],\"timeoutSeconds\":40}"
+ },
+ {
+  "seq": 10,
+  "at": "2026-10-03T05:20:11.493Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__worker_status",
+  "summary": "{\"workerId\":\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"}"
+ },
+ {
+  "seq": 11,
+  "at": "2026-10-03T05:20:13.421Z",
+  "kind": "tool",
+  "name": "mcp__switchflow__wait_for_workers",
+  "summary": "{\"workerIds\":[\"d74288ec-89f2-4d18-a2c3-e101417f1aab\"],\"timeoutSeconds\":40}"
+ },
+ {
+  "seq": 12,
+  "at": "2026-10-03T05:20:16.541Z",
+  "kind": "message",
+  "text": "Worker completed successfully. The task created hello.txt with the line \"hello\" and handed off without committing.",
+  "final": false
+ },
+ {
+  "seq": 13,
+  "at": "2026-10-03T05:20:16.541Z",
+  "kind": "tool",
+  "name": "StructuredOutput",
+  "summary": "{\"workerId\":\"d74288ec-89f2-4d18-a2c3-e101417f1aab\",\"finalOutcome\":\"handoff\",\"fileCreated\":true}"
+ },
+ {
+  "seq": 14,
+  "at": "2026-10-03T05:20:16.566Z",
+  "kind": "message",
+  "text": "{\"workerId\":\"d74288ec-89f2-4d18-a2c3-e101417f1aab\",\"finalOutcome\":\"handoff\",\"fileCreated\":true}",
+  "final": true
+ },
+ {
+  "seq": 15,
+  "at": "2026-10-03T05:20:16.566Z",
+  "kind": "turn.completed",
+  "turnId": "5f37bc80-23a8-45bc-9528-4b55c69f478c",
+  "status": "completed",
+  "usage": {
+   "inputTokens": 129735,
+   "cachedInputTokens": 112943,
+   "outputTokens": 1683,
+   "reasoningOutputTokens": 0,
+   "totalTokens": 131418,
+   "costUsd": 0.053219300000000004
+  }
+ },
+ {
+  "seq": 16,
+  "at": "2026-10-03T05:20:17.000Z",
+  "kind": "session.closed"
+ }
+]

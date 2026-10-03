@@ -14,7 +14,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: template/.switchflow/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            template/.switchflow/package-lock.json
+      - run: npm ci --ignore-scripts
       - run: npm --prefix template/.switchflow ci --ignore-scripts
       - name: Build the pinned Backlog fork
         run: node template/.switchflow/scripts/backlog-fork/setup.mjs

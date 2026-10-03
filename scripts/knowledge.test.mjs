@@ -1,37 +1,113 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {draftFrom, knowledgePayload, recordFingerprint, decisionSeed} from '../template/.switchflow/scripts/control/public/knowledge-model.js';
+import {
+  draftFrom,
+  knowledgePayload,
+  recordFingerprint,
+  decisionSeed,
+  matchesSearch,
+  decisionTone,
+  statusLabel,
+  tocEntries,
+  draftChanged,
+} from '../template/.switchflow/scripts/control/public/knowledge-model.js';
 
 test('document edit preserves body, tags, type and nested folder in native payload', () => {
-  const record = {id:'doc-12', title:'Existing title',type:'specification',tags:['UI','API'],path:'Guides/Authoring/doc-12 - Existing title.md',rawContent:'## Original\n\n```html\n<script>alert(1)</script>\n```'};
-  const draft = draftFrom(record,'documents');
+  const record = {
+    id: 'doc-12',
+    title: 'Existing title',
+    type: 'specification',
+    tags: ['UI', 'API'],
+    path: 'Guides/Authoring/doc-12 - Existing title.md',
+    rawContent: '## Original\n\n```html\n<script>alert(1)</script>\n```',
+  };
+  const draft = draftFrom(record, 'documents');
   draft.title = 'Renamed';
-  assert.deepEqual(knowledgePayload(draft,'documents'),{title:'Renamed',content:record.rawContent,type:'specification',tags:['UI','API'],path:'Guides/Authoring'});
+  assert.deepEqual(knowledgePayload(draft, 'documents'), {
+    title: 'Renamed',
+    content: record.rawContent,
+    type: 'specification',
+    tags: ['UI', 'API'],
+    path: 'Guides/Authoring',
+  });
 });
 test('document root move is explicit null and folder cannot escape the project', () => {
-  const draft = {...draftFrom(null,'documents'),title:'New',tags:' a, b, a '};
-  assert.deepEqual(knowledgePayload(draft,'documents').tags,['a','b']);
-  assert.equal(knowledgePayload(draft,'documents').path,'');
-  assert.equal(knowledgePayload({...draft,id:'doc-1'},'documents').path,null);
-  for (const folder of ['../outside','/absolute','C:/outside','guide/../outside']) assert.throws(() => knowledgePayload({...draft,folder},'documents'));
+  const draft = { ...draftFrom(null, 'documents'), title: 'New', tags: ' a, b, a ' };
+  assert.deepEqual(knowledgePayload(draft, 'documents').tags, ['a', 'b']);
+  assert.equal(knowledgePayload(draft, 'documents').path, '');
+  assert.equal(knowledgePayload({ ...draft, id: 'doc-1' }, 'documents').path, null);
+  for (const folder of ['../outside', '/absolute', 'C:/outside', 'guide/../outside'])
+    assert.throws(() => knowledgePayload({ ...draft, folder }, 'documents'));
 });
 test('decision edit retains raw body including optional and additional sections', () => {
   const content = decisionSeed + '\n### Evidence\n\nPreserve this section.\n';
-  const draft = draftFrom({id:'decision-1',title:'Decision',rawContent:content,status:'accepted',date:'2026-01-01'},'decisions');
-  assert.deepEqual(knowledgePayload(draft,'decisions'),{title:'Decision',content});
-  assert.throws(() => knowledgePayload({...draft,content:'## Decision\nMissing context'},'decisions'),/Context/);
-  assert.throws(() => knowledgePayload({...draft,content:content+'\n## Unsupported\ntext'},'decisions'),/additional headings/);
-  assert.equal(knowledgePayload({...draft,content:content+'\n```md\n## Code example\n```'},'decisions').content, content+'\n```md\n## Code example\n```');
+  const draft = draftFrom(
+    { id: 'decision-1', title: 'Decision', rawContent: content, status: 'accepted', date: '2026-01-01' },
+    'decisions',
+  );
+  assert.deepEqual(knowledgePayload(draft, 'decisions'), { title: 'Decision', content });
+  assert.throws(() => knowledgePayload({ ...draft, content: '## Decision\nMissing context' }, 'decisions'), /Context/);
+  assert.throws(
+    () => knowledgePayload({ ...draft, content: content + '\n## Unsupported\ntext' }, 'decisions'),
+    /additional headings/,
+  );
+  assert.equal(
+    knowledgePayload({ ...draft, content: content + '\n```md\n## Code example\n```' }, 'decisions').content,
+    content + '\n```md\n## Code example\n```',
+  );
 });
 test('comparison catches metadata and body changes without claiming CAS revision', () => {
-  const record = {id:'doc-1', title:'Title',rawContent:'Body',type:'guide',tags:['old']};
-  for (const patch of [{rawContent:'changed'},{title:'changed'},{tags:['new']},{path:'new/file.md'}]) assert.notEqual(recordFingerprint(record),recordFingerprint({...record,...patch}));
-  assert.equal(recordFingerprint(record),recordFingerprint({...record,unrelated:'ignored'}));
+  const record = { id: 'doc-1', title: 'Title', rawContent: 'Body', type: 'guide', tags: ['old'] };
+  for (const patch of [{ rawContent: 'changed' }, { title: 'changed' }, { tags: ['new'] }, { path: 'new/file.md' }])
+    assert.notEqual(recordFingerprint(record), recordFingerprint({ ...record, ...patch }));
+  assert.equal(recordFingerprint(record), recordFingerprint({ ...record, unrelated: 'ignored' }));
 });
 
 test('decision examples retain nested shorter fences and fence-like text', () => {
-  for (const example of ['````md\n```md\n## Example heading\n```\n````', '```md\n```not-a-closing-fence\n## Example heading\n```']) {
+  for (const example of [
+    '````md\n```md\n## Example heading\n```\n````',
+    '```md\n```not-a-closing-fence\n## Example heading\n```',
+  ]) {
     const content = `## Context\n\n${example}\n\n## Decision\n\nChosen\n\n## Consequences\n\nImpact`;
-    assert.equal(knowledgePayload({title:'Example',content}, 'decisions').content, content);
+    assert.equal(knowledgePayload({ title: 'Example', content }, 'decisions').content, content);
   }
+});
+
+test('knowledge search, decision tone and contents entries', () => {
+  const record = { title: 'Release guide', rawContent: 'Ship carefully', tags: ['Ops'] };
+  assert.equal(matchesSearch(record, ' release  ops '), true);
+  assert.equal(matchesSearch(record, 'release missing'), false);
+  assert.equal(matchesSearch(record, ''), true);
+  assert.deepEqual(['accepted', 'Proposed', 'rejected', 'superseded', undefined].map(decisionTone), [
+    'done',
+    'review',
+    'blocked',
+    'backlog',
+    'backlog',
+  ]);
+  assert.equal(statusLabel('accepted'), 'Accepted');
+  const headings = [
+    { level: 1, id: 'title', text: 'Title' },
+    { level: 2, id: 'a', text: 'A' },
+    { level: 3, id: 'b', text: 'B' },
+    { level: 4, id: 'c', text: 'C' },
+  ];
+  assert.deepEqual(
+    tocEntries(headings, 'title').map(h => [h.id, h.depth]),
+    [
+      ['a', 0],
+      ['b', 1],
+    ],
+  );
+});
+
+test('an untouched editor is not an unsaved draft', () => {
+  const record = { id: 'doc-1', title: 'Guide', rawContent: 'Body', type: 'guide', tags: ['a'], path: 'g/doc.md' };
+  const start = draftFrom(record, 'documents');
+  assert.equal(draftChanged({ ...start }, start), false);
+  assert.equal(draftChanged({ ...start, content: 'Body!' }, start), true);
+  assert.equal(draftChanged({ ...start, tags: 'a, b' }, start), true);
+  assert.equal(draftChanged(draftFrom(null, 'decisions'), draftFrom(null, 'decisions')), false);
+  assert.equal(draftChanged(start, null), true, 'unknown starting point counts as changed');
+  assert.equal(draftChanged(null, start), false);
 });

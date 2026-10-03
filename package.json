@@ -1,0 +1,12 @@
+{
+  "name": "switchflow-maintainer",
+  "private": true,
+  "description": "Maintainer tooling for the Switchflow repository. Not imported into projects.",
+  "scripts": {
+    "format": "prettier --write scripts skills template package.json .prettierrc.json",
+    "format:check": "prettier --check scripts skills template package.json .prettierrc.json"
+  },
+  "devDependencies": {
+    "prettier": "3.9.9"
+  }
+}
