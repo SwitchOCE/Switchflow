@@ -8,8 +8,8 @@
   margin-top: 1rem;
 }
 .milestone-card {
-  border: 1px solid var(--line, var(--border, #ccd3d9));
-  background: var(--panel, var(--surface, #fff));
+  border: 1px solid var(--line, var(--border, var(--border)));
+  background: var(--panel, var(--surface, var(--surface)));
   border-radius: 0.75rem;
   padding: 1rem;
   min-width: 0;
@@ -31,7 +31,7 @@
   width: 100%;
   height: 0.5rem;
   margin: 0.75rem 0 1rem;
-  accent-color: var(--teal, #087f78);
+  accent-color: var(--teal, var(--accent));
 }
 .milestone-editor:empty {
   display: none;
@@ -39,7 +39,7 @@
 .milestone-editor {
   margin-top: 1rem;
   padding: 1.25rem;
-  border: 1px solid var(--line, var(--border, #ccd3d9));
+  border: 1px solid var(--line, var(--border, var(--border)));
   border-radius: 0.75rem;
   min-width: 0;
 }
@@ -60,9 +60,9 @@
   box-sizing: border-box;
   font: inherit;
   padding: 0.65rem;
-  border: 1px solid var(--line, #87949d);
+  border: 1px solid var(--line, var(--border-strong));
   border-radius: 0.4rem;
-  background: var(--panel, var(--surface, #fff));
+  background: var(--panel, var(--surface, var(--surface)));
   color: inherit;
 }
 .milestone-panel pre {
@@ -86,7 +86,7 @@
 .milestone-removal {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--line, var(--border, #ccd3d9));
+  border-top: 1px solid var(--line, var(--border, var(--border)));
 }
 .milestone-tasks > input,
 .milestone-tasks > select,
@@ -102,7 +102,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0;
-  border-top: 1px solid var(--line, var(--border, #ccd3d9));
+  border-top: 1px solid var(--line, var(--border, var(--border)));
   overflow-wrap: anywhere;
 }
 .milestone-task-row > :first-child {

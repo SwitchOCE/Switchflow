@@ -25,7 +25,9 @@ const staticFiles = Object.fromEntries(
   [
     'index.html',
     'app.js',
+    'tokens.css',
     'styles.css',
+    'system.css',
     'documents.js',
     'documents.css',
     'milestones.js',

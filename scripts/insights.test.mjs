@@ -146,6 +146,7 @@ test('insights assets avoid inline styles and raw JSON product controls', async 
   ]);
   assert.doesNotMatch(source, /\.style\.|style\s*=/);
   assert.match(source, /node\('progress'\)/);
-  assert.match(css, /html\[data-theme=['"]?dark['"]?\]/);
+  // Theming comes from tokens.css; view styles must not hard-code colours.
+  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b/i);
   assert.doesNotMatch(css, /(?:^|})\s*(?:body|:root|html)\s*\{/);
 });

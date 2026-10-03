@@ -118,4 +118,5 @@ const server=http.createServer(async(req,res)=>{try {
  if(route==='/search'){const q=url.searchParams.get('query').toLowerCase();return json(res,[...tasks.filter(t=>(t.title+' '+t.description+' '+t.id).toLowerCase().includes(q)).map(task=>({type:'task',task})),...docs.filter(d=>d.rawContent.toLowerCase().includes(q)).map(document=>({type:'document',document}))].slice(0,Number(url.searchParams.get('limit')||40)));}
  return json(res,{error:`Fixture route unavailable: ${p}`},404);
 }catch(error){return json(res,{error:error.message},500);}});
-server.listen(65440,'127.0.0.1',()=>console.log('Disposable UI verification: http://127.0.0.1:65440/?project=ui-fixture&view=board'));
+const port=Number(process.env.UI_PORT)||65440;
+server.listen(port,'127.0.0.1',()=>console.log(`Disposable UI verification: http://127.0.0.1:${port}/?project=ui-fixture&view=board`));

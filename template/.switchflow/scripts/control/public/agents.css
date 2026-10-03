@@ -1,16 +1,10 @@
 /* Agents view: live sessions, steering and provider routing. */
 #workspace-agents {
-  --claude: #c26a3d;
-  --codex: #3a4252;
   display: flex;
   flex-direction: column;
   gap: 16px;
   height: calc(100dvh - 56px);
   min-height: 520px;
-}
-html[data-theme='dark'] #workspace-agents {
-  --claude: #d98a5f;
-  --codex: #a7b4c9;
 }
 .agents-header {
   display: flex;
@@ -49,7 +43,7 @@ html[data-theme='dark'] #workspace-agents {
   opacity: 0.7;
 }
 .agents-provider-chip.unavailable small {
-  color: #b5562f;
+  color: var(--danger-text);
 }
 .agent-provider {
   display: inline-grid;
@@ -60,7 +54,7 @@ html[data-theme='dark'] #workspace-agents {
   border-radius: 6px;
   font-size: 11px;
   font-weight: 800;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--muted);
 }
 .agent-provider.provider-claude {
@@ -68,9 +62,6 @@ html[data-theme='dark'] #workspace-agents {
 }
 .agent-provider.provider-codex {
   background: var(--codex);
-}
-html[data-theme='dark'] .agent-provider.provider-codex {
-  color: #141b27;
 }
 .agents-message:empty {
   display: none;
@@ -264,14 +255,14 @@ html[data-theme='dark'] .agent-provider.provider-codex {
   background: var(--muted);
 }
 .agent-status:is(.status-running, .status-starting)::before {
-  background: #2f9d6a;
+  background: var(--success);
   animation: nav-pulse 1.6s ease-in-out infinite;
 }
 .agent-status:is(.status-waiting, .status-queued)::before {
-  background: #c9952b;
+  background: var(--warning);
 }
 .agent-status.status-failed::before {
-  background: #c2482f;
+  background: var(--danger);
 }
 .agent-status:is(.status-completed, .status-complete)::before {
   background: var(--teal);
@@ -392,7 +383,7 @@ html[data-theme='dark'] .agent-provider.provider-codex {
   text-align: center;
 }
 .agents-op-fail {
-  color: #c2482f;
+  color: var(--danger-text);
   font-weight: 600;
 }
 .agents-note {
@@ -409,7 +400,7 @@ html[data-theme='dark'] .agent-provider.provider-codex {
   border-top: 1px solid var(--line);
 }
 .agents-note.is-error {
-  color: #c2482f;
+  color: var(--danger-text);
 }
 .agents-composer {
   padding: 12px 18px 14px;

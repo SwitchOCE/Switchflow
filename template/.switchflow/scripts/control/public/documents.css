@@ -1,9 +1,9 @@
 .docs-reader {
-  --docs-border: #dce1e9;
-  --docs-muted: #536174;
-  --docs-accent: #244fad;
-  color: #18263a;
-  background: #fff;
+  --docs-border: var(--border);
+  --docs-muted: var(--text-2);
+  --docs-accent: var(--accent-text);
+  color: var(--text-1);
+  background: var(--surface);
   border: 1px solid var(--docs-border);
   border-radius: 12px;
   overflow: hidden;
@@ -13,7 +13,7 @@
   align-items: end;
   gap: 1rem;
   padding: 1rem 1.25rem;
-  background: #f5f7fb;
+  background: var(--surface-2);
   border-bottom: 1px solid var(--docs-border);
 }
 .docs-toolbar label {
@@ -27,18 +27,18 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0.65rem 0.8rem;
-  border: 1px solid #aeb8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font: inherit;
-  background: white;
-  color: #18263a;
+  background: var(--surface);
+  color: var(--text-1);
 }
 .docs-toolbar button,
 .docs-code button {
   padding: 0.55rem 0.75rem;
-  background: white;
-  color: #244fad;
-  border: 1px solid #8c9bb3;
+  background: var(--surface);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -51,7 +51,7 @@
   display: none;
 }
 .docs-status[role='alert'] {
-  color: #a32525;
+  color: var(--danger-text);
 }
 .docs-layout {
   display: grid;
@@ -88,7 +88,7 @@
   text-align: left;
   border: 0;
   background: transparent;
-  color: #34445c;
+  color: var(--text-1);
   padding: 0.6rem;
   border-radius: 5px;
   font: inherit;
@@ -97,11 +97,11 @@
   overflow-wrap: anywhere;
 }
 .docs-nav button:hover {
-  background: #f0f4fb;
+  background: var(--surface-2);
 }
 .docs-nav button[aria-current='page'] {
-  background: #e8efff;
-  color: #163c94;
+  background: var(--accent-soft);
+  color: var(--accent-text);
   font-weight: 650;
 }
 .docs-excerpt {
@@ -139,7 +139,7 @@
   line-height: 1.35;
   margin: 1.7em 0 0.65em;
   scroll-margin-top: 1rem;
-  color: #152843;
+  color: var(--text-1);
 }
 .docs-prose h1 {
   font-size: 1.8rem;
@@ -177,11 +177,11 @@
   opacity: 0.7;
 }
 .docs-prose blockquote {
-  border-left: 4px solid #819bd2;
-  background: #f3f6fc;
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
   margin: 1.25rem 0;
   padding: 0.5rem 1rem;
-  color: #34445c;
+  color: var(--text-1);
 }
 .docs-prose code {
   font:
@@ -189,7 +189,7 @@
     SFMono-Regular,
     Consolas,
     monospace;
-  background: #edf1f7;
+  background: var(--surface-3);
   border-radius: 3px;
   padding: 0.12em 0.3em;
   white-space: break-spaces;
@@ -205,9 +205,9 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.35rem 0.7rem;
-  background: #edf1f7;
+  background: var(--surface-3);
   font-size: 0.8rem;
-  color: #44536a;
+  color: var(--text-2);
 }
 .docs-code button {
   font-size: 0.8rem;
@@ -217,7 +217,7 @@
   margin: 0;
   padding: 1rem;
   overflow: auto;
-  background: #f7f9fc;
+  background: var(--surface-2);
   line-height: 1.6;
 }
 .docs-code code {
@@ -242,10 +242,10 @@
   text-align: left;
 }
 .docs-table th {
-  background: #edf1f7;
+  background: var(--surface-3);
 }
 .docs-table tr:nth-child(even) {
-  background: #f8faff;
+  background: var(--accent-soft);
 }
 .docs-image-note,
 .docs-unavailable-link {
@@ -269,7 +269,7 @@
 }
 .docs-toc a {
   display: block;
-  color: #44536a;
+  color: var(--text-2);
   text-decoration: none;
   padding: 0.25rem 0;
   overflow-wrap: anywhere;
@@ -285,7 +285,7 @@
   padding-left: 0.75rem;
 }
 .docs-reader :focus-visible {
-  outline: 3px solid #3869c6;
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 .docs-prose > .docs-page-title:first-child {
@@ -294,30 +294,6 @@
 .docs-table th,
 .docs-table td {
   overflow-wrap: normal;
-}
-/* Shared Markdown surfaces also appear outside the document reader. */
-html[data-theme='dark'] .docs-prose {
-  --docs-border: var(--line);
-  --docs-muted: var(--muted);
-  --docs-accent: var(--teal);
-  color: var(--ink);
-}
-html[data-theme='dark'] .docs-prose :is(h1, h2, h3, h4, h5, h6) {
-  color: var(--ink);
-}
-html[data-theme='dark']
-  .docs-prose
-  :is(blockquote, code, .docs-code-bar, .docs-code pre, .docs-table th, .docs-table tr:nth-child(even)) {
-  background: var(--soft);
-  color: var(--ink);
-}
-html[data-theme='dark'] .docs-prose blockquote {
-  border-color: var(--teal);
-}
-html[data-theme='dark'] .docs-code button {
-  background: var(--surface);
-  color: var(--ink);
-  border-color: var(--line);
 }
 @media (max-width: 1100px) {
   .docs-layout {

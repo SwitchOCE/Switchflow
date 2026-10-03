@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>Switchflow · Project control</title>
+    <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/system.css" />
     <link rel="stylesheet" href="/documents.css" />
     <link rel="stylesheet" href="/milestones.css" />
     <link rel="stylesheet" href="/tasks.css" />
@@ -322,7 +324,7 @@
         </div>
       </form>
     </dialog>
-    <dialog id="detail-dialog" class="detail-dialog" aria-labelledby="detail-title">
+    <dialog id="detail-dialog" class="detail-dialog sheet" aria-labelledby="detail-title">
       <div id="detail-content"></div>
     </dialog>
     <dialog id="search-dialog" class="create-dialog" aria-labelledby="search-title">
@@ -340,7 +342,7 @@
       <p id="search-status" class="muted" role="status"></p>
       <div id="search-results" class="workspace-search-results"></div>
     </dialog>
-    <dialog id="operations-dialog" class="detail-dialog" aria-labelledby="operations-title">
+    <dialog id="operations-dialog" class="detail-dialog sheet" aria-labelledby="operations-title">
       <div class="detail-header dialog-heading">
         <div>
           <p class="eyebrow">PROJECT OPERATIONS</p>

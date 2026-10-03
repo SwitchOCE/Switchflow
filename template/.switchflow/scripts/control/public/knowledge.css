@@ -1,22 +1,22 @@
 .knowledge-reader {
-  --docs-border: var(--line, #dce1e9);
-  --docs-muted: var(--muted, #536174);
-  --docs-accent: var(--teal, #244fad);
-  background: var(--surface, #fff);
-  color: var(--ink, #18263a);
+  --docs-border: var(--line, var(--border));
+  --docs-muted: var(--muted, var(--text-2));
+  --docs-accent: var(--teal, var(--accent-text));
+  background: var(--surface, var(--surface));
+  color: var(--ink, var(--text-1));
 }
 .knowledge-reader .docs-toolbar,
 .knowledge-reader .docs-code-bar {
-  background: var(--soft, #f5f7fb);
+  background: var(--soft, var(--surface-2));
 }
 .knowledge-reader button,
 .knowledge-reader input,
 .knowledge-reader select,
 .knowledge-reader textarea {
   font: inherit;
-  color: var(--ink, #18263a);
-  background: var(--surface, #fff);
-  border: 1px solid var(--line, #aeb8c8);
+  color: var(--ink, var(--text-1));
+  background: var(--surface, var(--surface));
+  border: 1px solid var(--line, var(--border-strong));
   border-radius: 6px;
   padding: 0.55rem 0.7rem;
   box-sizing: border-box;
@@ -32,18 +32,18 @@
   display: block;
   margin-top: 0.25rem;
   font-size: 0.75rem;
-  color: var(--muted, #536174);
+  color: var(--muted, var(--text-2));
 }
 .knowledge-reader .docs-nav summary {
   overflow-wrap: anywhere;
 }
 .knowledge-reader .docs-nav button {
   background: transparent;
-  color: var(--ink, #18263a);
+  color: var(--ink, var(--text-1));
 }
 .knowledge-reader .docs-nav button[aria-current='page'] {
-  background: var(--soft, #e8efff);
-  color: var(--teal, #163c94);
+  background: var(--soft, var(--accent-soft));
+  color: var(--teal, var(--accent-text));
 }
 .knowledge-editor {
   display: grid;
@@ -95,7 +95,7 @@
 }
 .knowledge-note {
   font-size: 0.8rem;
-  color: var(--muted, #536174);
+  color: var(--muted, var(--text-2));
 }
 .knowledge-preview {
   padding: 1rem 0;
@@ -111,10 +111,10 @@
   display: none;
 }
 .knowledge-conflict > div {
-  border: 1px solid #c58e41;
+  border: 1px solid var(--warning);
   border-radius: 6px;
   padding: 1rem;
-  background: var(--soft, #fff8e8);
+  background: var(--soft, var(--warning-soft));
 }
 .knowledge-conflict pre {
   white-space: pre-wrap;
@@ -122,7 +122,7 @@
 }
 .knowledge-resume p {
   padding: 0.7rem 1.25rem;
-  background: var(--soft, #edf1f7);
+  background: var(--soft, var(--surface-3));
   margin: 0;
 }
 .knowledge-resume button {
@@ -132,15 +132,15 @@
 .knowledge-reader .docs-prose h2,
 .knowledge-reader .docs-prose h3,
 .knowledge-reader .docs-prose h4 {
-  color: var(--ink, #152843);
+  color: var(--ink, var(--text-1));
 }
 .knowledge-reader .docs-prose code,
 .knowledge-reader .docs-code pre,
 .knowledge-reader .docs-prose blockquote,
 .knowledge-reader .docs-table th,
 .knowledge-reader .docs-table tr:nth-child(even) {
-  background: var(--soft, #edf1f7);
-  color: var(--ink, #18263a);
+  background: var(--soft, var(--surface-3));
+  color: var(--ink, var(--text-1));
 }
 @media (max-width: 650px) {
   .knowledge-fields {
@@ -194,7 +194,7 @@
   order: -1;
   padding: 0.75rem;
   border: 1px solid var(--docs-border);
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   align-items: center;
 }
 .knowledge-save-state {

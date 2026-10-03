@@ -20,7 +20,7 @@
   margin: 0;
 }
 .insights-card {
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   border: 1px solid var(--line);
   border-radius: var(--radius, 12px);
   padding: 22px;
@@ -173,7 +173,7 @@
   margin-top: 8px;
 }
 .insights-state-error strong {
-  color: #9a3f32;
+  color: var(--danger-text);
 }
 .insights-readonly {
   margin: 0 0 18px;
@@ -214,7 +214,7 @@
   margin: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   color: var(--ink);
   padding: 9px 11px;
 }
@@ -224,16 +224,16 @@
   border-color: var(--teal);
 }
 .insights-field :is(input, select)[aria-invalid='true'] {
-  border-color: #ae493a;
+  border-color: var(--danger);
 }
 .insights-field :is(input, select):disabled,
 .insights-list-row input:disabled {
-  background: var(--canvas, #f3f5f4);
+  background: var(--canvas, var(--surface-2));
   color: var(--muted);
   cursor: not-allowed;
 }
 .insights-field-error {
-  color: #a73d30;
+  color: var(--danger-text);
   font-size: 12px;
   line-height: 1.4;
   margin-top: 6px;
@@ -289,7 +289,7 @@
   gap: 10px;
   position: sticky;
   bottom: 12px;
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   border: 1px solid var(--line);
   border-radius: 11px;
   padding: 12px;
@@ -302,10 +302,10 @@
   margin: 0 auto 0 2px;
 }
 .insights-form-status.is-dirty {
-  color: #87620f;
+  color: var(--warning);
 }
 .insights-form-status.is-error {
-  color: #a73d30;
+  color: var(--danger-text);
 }
 .insights-form-actions .button:disabled {
   opacity: 0.48;
@@ -355,18 +355,6 @@
 .insights-task-link:focus {
   outline: 2px solid var(--teal);
   outline-offset: 3px;
-}
-html[data-theme='dark'] .insights-card,
-html[data-theme='dark'] .insights-form-actions {
-  box-shadow: none;
-}
-html[data-theme='dark'] .insights-state-error strong,
-html[data-theme='dark'] .insights-field-error,
-html[data-theme='dark'] .insights-form-status.is-error {
-  color: #ff9f91;
-}
-html[data-theme='dark'] .insights-form-status.is-dirty {
-  color: #f1ca69;
 }
 @media (max-width: 960px) {
   .insights-metrics {

@@ -27,7 +27,7 @@
   align-items: end;
   flex-wrap: wrap;
   padding: 19px;
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   border: 1px solid var(--line);
   border-radius: 12px;
 }
@@ -108,7 +108,7 @@
   min-height: 140px;
 }
 .sf-task-card {
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
@@ -182,7 +182,7 @@
 .sf-task-editor {
   width: 820px;
   max-width: calc(100vw - 24px);
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   color: var(--ink);
 }
 .sf-task-editor fieldset {
@@ -212,7 +212,7 @@
 .sf-task-editor .dialog-footer {
   position: sticky;
   bottom: -28px;
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   padding-bottom: 14px;
 }
 .sf-editor-message,
@@ -262,7 +262,7 @@
 .sf-task-review {
   width: 650px;
   max-width: calc(100vw - 24px);
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   color: var(--ink);
 }
 .sf-review-content {
@@ -279,7 +279,7 @@
 .sf-task-editor :is(input, textarea, select),
 .sf-tasks :is(input, select),
 .sf-task-review input {
-  background: var(--surface, #fff);
+  background: var(--surface, var(--surface));
   color: var(--ink);
 }
 @media (max-width: 760px) {
@@ -836,16 +836,16 @@
   background: var(--teal);
 }
 .sf-status-dot[data-status='in progress'] {
-  background: #c9952b;
+  background: var(--warning);
 }
 .sf-status-dot[data-status='review'] {
-  background: #8a63c7;
+  background: var(--violet);
 }
 .sf-status-dot[data-status='blocked'] {
-  background: #c2482f;
+  background: var(--danger);
 }
 .sf-status-dot[data-status='done'] {
-  background: #2f9d6a;
+  background: var(--success);
 }
 .sf-chip {
   display: inline-block;
@@ -906,7 +906,7 @@
 }
 .sf-read-blocker {
   padding: 8px 12px;
-  border-left: 3px solid #c2482f;
+  border-left: 3px solid var(--danger);
   background: var(--canvas);
 }
 @media (max-width: 900px) {
