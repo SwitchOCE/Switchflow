@@ -82,6 +82,8 @@ export class AgentSessionRegistry {
       worktree: fields.worktree ?? null,
       sandbox: fields.sandbox ?? null,
       reviewRound: fields.reviewRound ?? null,
+      // Delivery workers only: drafting, awaiting-confirmation or confirmed (see orchestration.mjs).
+      approval: fields.approval ?? null,
       status: 'starting',
       startedAt: at,
       updatedAt: at,

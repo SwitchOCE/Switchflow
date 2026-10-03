@@ -49,7 +49,7 @@ Resolve shared setup once, and run the preflight from the accepted dispatch chec
 
 ## Delegate through Switchflow tools
 
-When the `switchflow` MCP tools are present, use them for workers and reviewers instead of host subagents. `delegate_task` starts one worker for one task in a candidate worktree the Git helper created. Wait with `wait_for_workers`; read results with `worker_status`. A delivery worker first returns its approach: confirm or correct it with `send_to_worker`. Send blocking findings back to the author the same way, then delegate a fresh review. Reviewers are read-only, so record each returned verdict comment verbatim through the Backlog wrapper. The host refuses a reviewer on the author's provider and stops at the review-round limit: escalate then. Without these tools, delegate as described above.
+When the `switchflow` MCP tools are present, use them for workers and reviewers instead of host subagents. `delegate_task` starts one worker for one task in a candidate worktree the Git helper created. Wait with `wait_for_workers`; read results with `worker_status`. A delivery worker first returns its approach (`approval: "awaiting-confirmation"`) and stays read-only: confirm it with `send_to_worker` and `confirm: true`, which unlocks its writes, or correct it with `send_to_worker` without `confirm`. Send blocking findings back to the author the same way, then delegate a fresh review. Reviewers are read-only, so record each returned verdict comment verbatim through the Backlog wrapper. The host refuses a reviewer on the author's provider and stops at the review-round limit: escalate then. Without these tools, delegate as described above.
 
 ## Checkpoint before implementation
 

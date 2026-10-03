@@ -5,8 +5,9 @@ import { ControlError, event, now } from './lifecycle.mjs';
 import { startCodexRun } from './codex-runner.mjs';
 import { openCodexSession } from './providers/codex-app-server.mjs';
 import { openClaudeSession } from './providers/claude-cli.mjs';
-import { oneLine } from './providers/process.mjs';
+import { oneLine, turnSandbox } from './providers/process.mjs';
 import { AgentSessionRegistry } from './agent-sessions.mjs';
+import { confirmRefusal } from './orchestration.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -105,8 +106,10 @@ function openExecSession({
     get closed() {
       return closed;
     },
-    async startTurn(text, { schemaPath }) {
+    /** Each turn is its own process, so a read-only approach turn is just a read-only run. */
+    async startTurn(text, { schemaPath, sandbox: requested }) {
       if (active) throw new Error('A turn is already running in this session');
+      const mode = turnSandbox(sandbox, requested);
       const controller = new AbortController();
       const stop = () => controller.abort();
       signal?.addEventListener('abort', stop, { once: true });
@@ -123,8 +126,8 @@ function openExecSession({
           schemaPath,
           signal: controller.signal,
           resumeThreadId: threadId ?? undefined,
-          sandboxMode: sandbox,
-          additionalWritableRoots: sandbox === 'read-only' ? [] : writableRoots,
+          sandboxMode: mode,
+          additionalWritableRoots: mode === 'read-only' ? [] : writableRoots,
           temporaryRoot,
           timeoutMs: limits.timeoutMs,
           ...(executable ? { executable } : {}),
@@ -230,6 +233,7 @@ export class AgentHost {
     mcpServers,
     mcpConfigPath,
     gitHelperPath,
+    approval = null,
     forward = async () => {},
   }) {
     const settings = await this.settings();
@@ -250,6 +254,7 @@ export class AgentHost {
       sandbox,
       reviewRound,
       fallback,
+      approval,
     });
     const onEvent = async entry => {
       await this.registry.record(meta.id, entry);
@@ -460,33 +465,51 @@ export class AgentHost {
    * Delivers a message to a live session. mode "steer" reaches a running turn mid-turn; "queue"
    * holds it until that turn ends and sends it as the next turn's input. An idle worker gets a
    * follow-up turn either way. Returns the effective mode: steer, queue or followup.
+   *
+   * confirm: true approves a delivery worker's returned approach and starts its first writable
+   * turn; it needs an idle worker whose approach is waiting. A delivery worker's reply also says
+   * whether this message confirmed (confirmed) and whether the worker may now write (writable).
    */
-  async deliver(sessionId, message, by, mode = 'steer') {
+  async deliver(sessionId, message, by, mode = 'steer', { confirm = false } = {}) {
     if (typeof message !== 'string' || !message.trim() || message.length > MAX_STEER)
       throw new ControlError(`message must contain 1–${MAX_STEER} characters.`);
     if (!['steer', 'queue'].includes(mode)) throw new ControlError('mode must be steer or queue.');
+    if (typeof confirm !== 'boolean') throw new ControlError('confirm must be true or false.');
     const text = message.trim();
     const entry = await this.liveEntry(sessionId);
     const { handle, meta } = entry;
+    const gate = () => (handle.approval ? { confirmed: confirm, writable: handle.approval === 'confirmed' } : {});
+    if (confirm) {
+      // Writes unlock only on an explicit confirmation of a finished approach turn.
+      const refusal = confirmRefusal(handle.approval, Boolean(handle.activeTurnId) || meta.status !== 'idle');
+      if (refusal) throw new ControlError(refusal, 409);
+      await this.registry.record(sessionId, { kind: 'steer', text, by, mode: 'followup', turnId: null, confirm: true });
+      await handle.followUp(text, { by, confirm: true });
+      return { ok: true, sessionId, mode: 'followup', turnId: null, ...gate() };
+    }
     // A turn that has just started may not have its provider turn ID yet.
     for (let waited = 0; !handle.activeTurnId && meta.status === 'working' && !handle.closed && waited < 10000;) {
       await new Promise(resolve => setTimeout(resolve, 50));
       waited += 50;
     }
     const turnId = handle.activeTurnId;
+    const locked =
+      handle.approval && handle.approval !== 'confirmed'
+        ? { note: 'Writes stay locked until you confirm the approach (confirm: true).' }
+        : {};
     if (turnId && mode === 'queue') {
       // Workers run the queue as their next turn; a stage agent's next turn is the next checkpoint.
       if (typeof handle.enqueue === 'function') handle.enqueue(text);
       else if (meta.kind !== 'stage') throw new ControlError('This session cannot queue messages.', 409);
       await this.registry.record(sessionId, { kind: 'steer', text, by, mode: 'queue', turnId });
-      return { ok: true, sessionId, mode: 'queue', turnId };
+      return { ok: true, sessionId, mode: 'queue', turnId, ...gate(), ...locked };
     }
     if (turnId) {
       if (handle.canSteer === false)
         throw new ControlError('This session cannot be steered. Queue the message or interrupt it.', 409);
       try {
         const steered = await handle.steer(text, { expectedTurnId: turnId, by });
-        return { ok: true, sessionId, mode: 'steer', turnId: steered?.turnId ?? turnId };
+        return { ok: true, sessionId, mode: 'steer', turnId: steered?.turnId ?? turnId, ...gate(), ...locked };
       } catch (error) {
         if (error instanceof ControlError) throw error;
         throw new ControlError(`The agent did not accept the message: ${error.message}`, 409);
@@ -495,16 +518,22 @@ export class AgentHost {
     if (meta.status === 'idle' && typeof handle.followUp === 'function') {
       await this.registry.record(sessionId, { kind: 'steer', text, by, mode: 'followup', turnId: null });
       await handle.followUp(text, { by });
-      return { ok: true, sessionId, mode: 'followup', turnId: null };
+      return { ok: true, sessionId, mode: 'followup', turnId: null, ...gate(), ...locked };
     }
     throw new ControlError('This agent has no running turn to steer.', 409);
   }
 
   /** Owner steering from the browser. The text is kept in the initiative's owner history. */
   async steer(sessionId, input) {
-    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['message', 'mode'].includes(key)))
-      throw new ControlError('Only message and mode can be supplied.');
-    const delivered = await this.deliver(sessionId, input.message, 'owner', input.mode ?? 'steer');
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Object.keys(input).some(key => !['message', 'mode', 'confirm'].includes(key))
+    )
+      throw new ControlError('Only message, mode and confirm can be supplied.');
+    const delivered = await this.deliver(sessionId, input.message, 'owner', input.mode ?? 'steer', {
+      confirm: input.confirm ?? false,
+    });
     const meta = this.registry.get(sessionId)?.meta ?? (await this.registry.find(sessionId));
     if (this.engine && meta?.initiativeId)
       await this.engine.mutate(state => {
@@ -520,6 +549,7 @@ export class AgentHost {
           role: meta.role,
           provider: meta.provider,
           mode: delivered.mode,
+          ...(delivered.confirmed ? { confirm: true } : {}),
           at: now(),
         });
         event(
@@ -527,7 +557,9 @@ export class AgentHost {
           'steer',
           forNextRun
             ? `Human queued a message for the next ${meta.role} checkpoint.`
-            : `Human steered the ${meta.role} agent (${meta.provider}).`,
+            : delivered.confirmed
+              ? `Human confirmed the ${meta.role} agent's approach (${meta.provider}); it may now write.`
+              : `Human steered the ${meta.role} agent (${meta.provider}).`,
         );
         item.revision++;
         item.updatedAt = now();

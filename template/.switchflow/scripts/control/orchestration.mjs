@@ -54,7 +54,7 @@ export function workerPrompt({ kind, task, worktree, candidate, governanceRoot, 
   ];
   if (kind === 'deliver')
     lines.push(
-      `Follow .agents/skills/deliver-task/SKILL.md. Your first reply is the three-line approach with outcome "approach"; implement only after the orchestrator confirms it. Then stop at Review and reply with outcome "handoff" (or "blocked") and the five-line envelope.`,
+      `Follow .agents/skills/deliver-task/SKILL.md. Your first turn is read-only (the host enforces it): read what you need and reply with the three-line approach and outcome "approach". The host unlocks writes when the orchestrator confirms the approach; then implement, stop at Review and reply with outcome "handoff" (or "blocked") and the five-line envelope.`,
       `Commit only through the Git helper: node ${gitBridge.helperPath} ${gitBridge.channelPath} with one JSON request, using candidate name "${candidate}".`,
     );
   else
@@ -71,6 +71,27 @@ export function workerPrompt({ kind, task, worktree, candidate, governanceRoot, 
 }
 
 const FINISHED = new Set(['completed', 'failed', 'cancelled']);
+/**
+ * A delivery worker's approach gate. Its turns run read-only until the orchestrator or the owner
+ * confirms a returned approach (send_to_worker with confirm: true); only then can it write.
+ */
+export const APPROVAL = Object.freeze({
+  drafting: 'drafting',
+  awaiting: 'awaiting-confirmation',
+  confirmed: 'confirmed',
+});
+const AWAITING_NOTE =
+  'Approach ready. Writes stay locked: confirm it with send_to_worker confirm:true, or reply without confirm to correct it.';
+
+/** Why a confirmation cannot start the delivery turn now, or null when it can. */
+export function confirmRefusal(approval, busy) {
+  if (!approval) return 'Only a delegated delivery worker has an approach to confirm.';
+  if (approval === APPROVAL.confirmed) return 'This approach is already confirmed. Send the message without confirm.';
+  if (approval !== APPROVAL.awaiting)
+    return 'This worker has not returned an approach yet. Wait for its approach turn, then confirm.';
+  if (busy) return 'Wait for the current turn to finish, then confirm the approach.';
+  return null;
+}
 
 /** Host-side worker management for one execution run. Tools arrive through the MCP helper over HTTP. */
 export class Orchestration {
@@ -281,6 +302,7 @@ export class Orchestration {
         gitHelperPath: write ? this.gitBridge.helperPath : undefined,
         mcpServers: { switchflow: suiteServer },
         mcpConfigPath: suiteConfigPath,
+        approval: write ? APPROVAL.drafting : null,
         forward: async () => {},
       });
       const worker = {
@@ -299,9 +321,13 @@ export class Orchestration {
         queue: [],
         token: workerToken,
         schemaPath: path.join(this.directory, `${kind}-schema.json`),
+        approval: write ? APPROVAL.drafting : null,
       };
-      opened.handle.followUp = message => this.startTurn(worker, message);
+      opened.handle.followUp = (message, { confirm = false, by = 'orchestrator' } = {}) =>
+        this.startTurn(worker, message, { confirm, by });
       opened.handle.enqueue = message => worker.queue.push(message);
+      // The host reads the gate when a message asks to confirm.
+      Object.defineProperty(opened.handle, 'approval', { get: () => worker.approval, configurable: true });
       this.workers.delete(key);
       this.workers.set(worker.id, worker);
       if (write) this.authors.set(task, routed.provider);
@@ -326,19 +352,40 @@ export class Orchestration {
     }
   }
 
-  /** Starts a turn without waiting for it; its outcome lands on the worker record. */
-  async startTurn(worker, message) {
+  /**
+   * Starts a turn without waiting for it; its outcome lands on the worker record. An unconfirmed
+   * delivery worker's turn is read-only; confirm unlocks writes from this turn on.
+   */
+  async startTurn(worker, message, { confirm = false, by = 'orchestrator' } = {}) {
     if (FINISHED.has(worker.status)) throw new ControlError('This worker has finished.', 409);
+    if (confirm) {
+      const refusal = confirmRefusal(worker.approval, worker.status === 'working');
+      if (refusal) throw new ControlError(refusal, 409);
+      worker.approval = APPROVAL.confirmed;
+      await this.host.registry.update(worker.id, { approval: worker.approval });
+      await this.host.registry.record(worker.id, {
+        kind: 'notice',
+        level: 'info',
+        text: `Approach confirmed by ${by}. Writes are unlocked for this worker.`,
+      });
+    }
     worker.status = 'working';
     worker.reported = false;
+    const gated = worker.kind === 'deliver' && worker.approval !== APPROVAL.confirmed;
     const turn = worker.handle.startTurn(message, {
       outputSchema: WORKER_SCHEMAS[worker.kind],
       schemaPath: worker.schemaPath,
+      ...(gated ? { sandbox: 'read-only' } : {}),
     });
     worker.turn = turn
       .then(async outcome => {
         worker.result = outcome.result;
         worker.error = null;
+        // An unconfirmed turn that returns an approach waits for confirmation; anything else keeps drafting.
+        if (gated) {
+          worker.approval = outcome.result?.outcome === 'approach' ? APPROVAL.awaiting : APPROVAL.drafting;
+          await this.host.registry.update(worker.id, { approval: worker.approval });
+        }
         if (await this.flushQueue(worker)) return;
         // A reviewer goes straight from working to completed, so a waiter never sees it idle.
         if (worker.kind === 'review') {
@@ -393,6 +440,9 @@ export class Orchestration {
       worktree: worker.worktree,
       reviewRound: worker.reviewRound,
       status: worker.status,
+      approval: worker.approval,
+      writable: worker.kind === 'deliver' && worker.approval === APPROVAL.confirmed,
+      ...(worker.approval === APPROVAL.awaiting && worker.status === 'idle' ? { note: AWAITING_NOTE } : {}),
       lastTurn: meta.lastTurn ?? null,
       lastMessage: meta.lastMessage ?? null,
       usage: meta.usage ?? null,
@@ -411,10 +461,12 @@ export class Orchestration {
     return { workers: workers.map(worker => this.summary(worker)) };
   }
   async send_to_worker(args) {
-    this.fields(args, ['workerId', 'message'], ['mode']);
+    this.fields(args, ['workerId', 'message'], ['mode', 'confirm']);
     const worker = this.worker(args.workerId);
     if (FINISHED.has(worker.status)) throw new ControlError('This worker has finished. Delegate again.', 409);
-    return this.host.deliver(worker.id, args.message, 'orchestrator', args.mode ?? 'steer');
+    return this.host.deliver(worker.id, args.message, 'orchestrator', args.mode ?? 'steer', {
+      confirm: args.confirm,
+    });
   }
   async acquire_suite_lock(args, principal) {
     this.fields(args, [], ['timeoutSeconds']);

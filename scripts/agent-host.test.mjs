@@ -161,6 +161,43 @@ test('exec events are normalized and the host falls back to exec when app-server
     assert.equal(session.status, 'completed');
     assert.equal(session.threadId, 'exec-thread');
     assert.equal(session.fallback.from, 'claude');
+
+    // A delivery worker on exec: the approach run is read-only, the confirmed run resumes writable.
+    const worker = await host.openSession({
+      provider: 'codex',
+      role: 'delivery',
+      kind: 'deliver',
+      runId,
+      task: 'DEMO-1',
+      cwd: context.sourceRoot,
+      sandbox: 'workspace-write',
+      writableRoots: [context.governanceRoot],
+      runDirectory: path.join(runDirectory, 'worker'),
+    });
+    await worker.handle.startTurn('Approach first', { schemaPath, sandbox: 'read-only' });
+    await worker.handle.startTurn('Confirmed', { schemaPath });
+    await assert.rejects(
+      (
+        await host.openSession({
+          provider: 'codex',
+          role: 'review',
+          kind: 'review',
+          runId,
+          cwd: context.sourceRoot,
+          sandbox: 'read-only',
+          runDirectory: path.join(runDirectory, 'reviewer'),
+        })
+      ).handle.startTurn('Write anyway', { schemaPath, sandbox: 'workspace-write' }),
+      /cannot widen/,
+    );
+    assert.deepEqual(
+      execCalls.slice(1).map(call => [call.sandboxMode, call.additionalWritableRoots, call.resumeThreadId]),
+      [
+        ['read-only', [], undefined],
+        ['workspace-write', [context.governanceRoot], 'exec-thread'],
+      ],
+    );
+    await host.closeSession(worker.meta, worker.handle, { status: 'completed' });
   }));
 
 test('agents API lists sessions, pages events, steers durably, interrupts, and fences settings', () =>

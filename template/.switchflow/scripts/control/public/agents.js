@@ -66,7 +66,13 @@ function providerBadge(id) {
   badge.setAttribute('aria-label', provider.name);
   return badge;
 }
-function statusPill(status) {
+// The detail pane redraws when the session's status or approach gate changes.
+const renderKey = session => (session ? `${session.id}:${session.status}:${session.approval ?? ''}` : null);
+// A delivery worker whose approach waits for confirmation is idle but cannot write yet.
+const awaitingApproach = session => session?.approval === 'awaiting-confirmation' && session.status === 'idle';
+function statusPill(status, session) {
+  if (awaitingApproach(session))
+    return el('span', 'agent-status status-approach', 'Approach ready · waiting for confirmation');
   const pill = el('span', `agent-status status-${status}`, statusLabel[status] || status);
   return pill;
 }
@@ -211,7 +217,7 @@ export function mountAgents(
     top.append(providerBadge(session.provider), el('strong', '', titleOf(session)));
     const meta = el('span', 'agents-row-meta');
     meta.append(
-      statusPill(session.status),
+      statusPill(session.status, session),
       el('span', '', [roleLabel[session.role] || session.role, taskOf(session)].filter(Boolean).join(' · ')),
       el(
         'span',
@@ -302,7 +308,13 @@ export function mountAgents(
       const head = el('header');
       head.append(el('strong', '', by), el('time', '', relative(event.at)));
       if (kind === 'steer')
-        head.append(el('span', 'agents-tag', { followup: 'Follow-up', queue: 'Queued' }[event.mode] || 'Steer'));
+        head.append(
+          el(
+            'span',
+            'agents-tag',
+            event.confirm ? 'Confirmed approach' : { followup: 'Follow-up', queue: 'Queued' }[event.mode] || 'Steer',
+          ),
+        );
       const body = el('div', 'docs-prose');
       body.innerHTML = renderMarkdown(String(event.text || '')).html;
       bubble.append(head, body);
@@ -350,7 +362,7 @@ export function mountAgents(
     const session = current();
     detail.replaceChildren();
     feedNode = headNode = null;
-    renderedFor = session ? `${session.id}:${session.status}` : null;
+    renderedFor = renderKey(session);
     if (!session) {
       const empty = el('div', 'agents-empty agents-detail-empty');
       empty.append(
@@ -398,7 +410,7 @@ export function mountAgents(
     const facts = el('p', 'agents-facts');
     const parent = sessions().find(other => other.id === session.parentId);
     facts.append(
-      statusPill(session.status),
+      statusPill(session.status, session),
       el('span', '', roleLabel[session.role] || session.role || ''),
       ...(session.model ? [el('span', '', session.model)] : []),
       ...(session.startedAt
@@ -529,6 +541,14 @@ export function mountAgents(
     });
     const submit = el('button', 'button primary', 'Send');
     submit.type = 'submit';
+    // The owner can approve a delivery worker's approach, which unlocks its edits.
+    let confirmBox = null;
+    const confirmLabel = el('label', 'checkbox-label agents-confirm');
+    if (awaitingApproach(session)) {
+      confirmBox = el('input');
+      confirmBox.type = 'checkbox';
+      confirmLabel.append(confirmBox, el('span', '', 'Confirm approach and allow edits'));
+    }
     const hint = el('p', 'agents-composer-hint');
     hint.textContent = unavailable;
     // Above the field so a reason or a failure is read before the next attempt.
@@ -542,6 +562,7 @@ export function mountAgents(
     form.append(blockedNote, errorNote, row);
     const foot = el('div', 'agents-composer-foot');
     if (modes.childElementCount) foot.append(modes);
+    if (confirmBox) foot.append(confirmLabel);
     foot.append(hint);
     form.append(foot);
     composerControls = { form, submit, modes, blockedNote, unavailable };
@@ -560,16 +581,19 @@ export function mountAgents(
         const result = await send(`/agents/${encodeURIComponent(session.id)}/steer`, 'POST', {
           message: text,
           ...(working ? { mode } : {}),
+          ...(confirmBox?.checked ? { confirm: true } : {}),
         });
         field.value = '';
         try {
           sessionStorage.removeItem(draftKey);
         } catch {}
-        hint.textContent = {
-          followup: 'Sent as a follow-up turn.',
-          queue: 'Queued for when this turn finishes.',
-          steer: 'Sent. The agent reads it at its next step.',
-        }[result?.mode || 'steer'];
+        hint.textContent = result?.confirmed
+          ? 'Approach confirmed. The worker may now edit.'
+          : {
+              followup: 'Sent as a follow-up turn.',
+              queue: 'Queued for when this turn finishes.',
+              steer: 'Sent. The agent reads it at its next step.',
+            }[result?.mode || 'steer'];
         pinnedToBottom = true;
         await loadEvents(true);
       } catch (error) {
@@ -781,7 +805,7 @@ export function mountAgents(
       renderProviders();
       renderList();
       if (showRouting && !routing.contains(document.activeElement)) renderRouting();
-      const key = current() ? `${current().id}:${current().status}` : null;
+      const key = renderKey(current());
       if (key !== renderedFor) {
         renderDetail();
         void loadEvents();

@@ -1,0 +1,96 @@
+{
+  "seconds": 55,
+  "delegated": {
+    "approval": "drafting",
+    "writable": false
+  },
+  "approach": {
+    "status": "idle",
+    "approval": "awaiting-confirmation",
+    "writable": false,
+    "note": "Approach ready. Writes stay locked: confirm it with send_to_worker confirm:true, or reply without confirm to correct it.",
+    "result": {
+      "task": "DEMO-1",
+      "outcome": "approach",
+      "approach": "Read the candidate worktree and required task instructions.\nAttempt the mandated notes.txt smoke append before reporting.\nAfter orchestrator unlock, implement the scoped task and stop at Review.",
+      "head": "Read-only first turn completed; .agents/skills/deliver-task/SKILL.md is absent as instructed.",
+      "envelope": "",
+      "summary": "Smoke append attempted once but failed with Access denied because the host enforced read-only mode. No files were changed and no commit or Git helper was used.",
+      "blockers": []
+    }
+  },
+  "notesAfterApproach": "first line\r\n",
+  "confirm": {
+    "ok": true,
+    "sessionId": "ef5e7853-b5e7-49c5-aa16-0c947b2ac016",
+    "mode": "followup",
+    "turnId": null,
+    "confirmed": true,
+    "writable": true
+  },
+  "handoff": {
+    "status": "idle",
+    "approval": "confirmed",
+    "writable": true,
+    "result": {
+      "task": "DEMO-1",
+      "outcome": "handoff",
+      "approach": "Append the required worker note, verify the exact diff, and stop at Review.",
+      "head": "Implementation complete in notes.txt.",
+      "envelope": "Changed: appended exactly one line, \"text added by worker\".\nVerified: notes.txt contains the original line plus the required appended line.\nEvidence: git diff shows only the requested notes.txt change.\nCommit: not created, per orchestrator instruction.\nStatus: ready for Review.",
+      "summary": "The scoped implementation is complete and isolated to notes.txt.",
+      "blockers": []
+    },
+    "usage": {
+      "inputTokens": 123283,
+      "cachedInputTokens": 97024,
+      "outputTokens": 1255,
+      "reasoningOutputTokens": 321,
+      "totalTokens": 124538,
+      "costUsd": null
+    }
+  },
+  "notesAfterConfirm": "first line\ntext added by worker\n",
+  "processes": [
+    {
+      "at": "2026-10-03T13:17:11.494Z",
+      "pid": 9532,
+      "args": [
+        "app-server",
+        "-c",
+        "notify=[]",
+        "-c",
+        "approval_policy=\"never\"",
+        "-c",
+        "sandbox_mode=\"workspace-write\"",
+        "-c",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "-c",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+        "-c",
+        "sandbox_workspace_write.network_access=false",
+        "-c",
+        "sandbox_workspace_write.writable_roots=[\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\candidates\\\\9bc1d9563e10c0b2\\\\cand\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\repo\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\operations\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\scratch\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\governance\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\runs\\\\11fb97e2-26f9-4c35-b2ab-cb770c203337\\\\git-channel\\\\requests\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\runs\\\\11fb97e2-26f9-4c35-b2ab-cb770c203337\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033431450\\\\tmp\"]",
+        "-c",
+        "features.apps=false",
+        "-c",
+        "features.plugins=false",
+        "-c",
+        "features.computer_use=false",
+        "-c",
+        "shell_environment_policy.set.TMP=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\runs\\\\11fb97e2-26f9-4c35-b2ab-cb770c203337\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033431450\\\\tmp\"",
+        "-c",
+        "shell_environment_policy.set.TEMP=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\runs\\\\11fb97e2-26f9-4c35-b2ab-cb770c203337\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033431450\\\\tmp\"",
+        "-c",
+        "shell_environment_policy.set.TMPDIR=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-attempt-1791033429522\\\\state\\\\projects\\\\976f2b50de5ba94e3d8cb86e2506977fbf97244434b9d6bea021e6733dce3311\\\\runs\\\\11fb97e2-26f9-4c35-b2ab-cb770c203337\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033431450\\\\tmp\""
+      ]
+    }
+  ],
+  "fence": [
+    {
+      "at": "2026-10-03T13:17:11.547Z",
+      "pid": 9532
+    }
+  ],
+  "workersLeftAfterClose": []
+}
