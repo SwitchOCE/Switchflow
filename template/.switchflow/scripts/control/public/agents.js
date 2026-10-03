@@ -160,6 +160,11 @@ export function mountAgents(
   routing.hidden = true;
   routing.setAttribute('aria-label', 'Provider routing');
 
+  // Machine capacity: memory, admitted and queued workers, and leases on shared resources.
+  const capacityStrip = el('section', 'agents-capacity');
+  capacityStrip.hidden = true;
+  capacityStrip.setAttribute('aria-label', 'Capacity');
+
   const message = el('p', 'agents-message');
   message.setAttribute('role', 'status');
 
@@ -169,7 +174,7 @@ export function mountAgents(
   const detail = el('section', 'agents-detail');
   detail.setAttribute('aria-live', 'off');
   layout.append(list, detail);
-  container.append(header, routing, message, layout);
+  container.append(header, capacityStrip, routing, message, layout);
   // Phones show one pane at a time; the page header compacts while a session is open.
   const setPane = pane => {
     layout.dataset.pane = pane;
@@ -205,6 +210,84 @@ export function mountAgents(
       chip.title = `${provider.name}: ${detailText}`;
       providerChips.append(chip);
     }
+  }
+
+  const kindLabel = kind => ({ deliver: 'delivery', review: 'review', orchestrator: 'orchestrator' })[kind] || kind;
+  const gb = value => `${Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} GB`;
+  function renderCapacity() {
+    const capacity = data?.capacity;
+    capacityStrip.hidden = !capacity?.memory;
+    if (capacityStrip.hidden) return;
+    capacityStrip.replaceChildren();
+    const { memory, workers = {}, queue = [], leases = [], resources = [] } = capacity;
+    const row = el('div', 'capacity-row');
+
+    const used = memory.totalGB ? Math.min(1, Math.max(0, 1 - memory.freeGB / memory.totalGB)) : 0;
+    const memoryItem = el('div', 'capacity-item');
+    const bar = el('span', `capacity-bar${used > 0.85 ? ' is-high' : ''}`);
+    const fill = el('span', 'capacity-bar-fill');
+    // CSSOM, not a style attribute, so the page's CSP holds.
+    fill.style.setProperty('--used', used.toFixed(3));
+    bar.append(fill);
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', `${Math.round(used * 100)}% of memory in use`);
+    memoryItem.append(
+      el('span', 'capacity-label', 'Memory'),
+      bar,
+      el('span', '', `${gb(memory.freeGB)} free of ${gb(memory.totalGB)}`),
+    );
+    memoryItem.title = memory.admission
+      ? `New workers need ${gb(memory.workerIdleGB)} (${gb(memory.workerGatingGB)} while gating). Available after ${gb(memory.headroomGB)} headroom${memory.reservedGB ? ` and ${gb(memory.reservedGB)} reserved` : ''}: ${gb(Math.max(0, memory.availableGB))}.`
+      : 'Memory admission is off in this project’s capacity profile.';
+
+    const workerItem = el('div', 'capacity-item');
+    workerItem.append(
+      el('span', 'capacity-label', 'Workers'),
+      el('span', '', `${workers.admitted ?? 0} running`),
+      ...(workers.queued ? [el('span', 'capacity-queued', `${workers.queued} queued`)] : []),
+    );
+    if (workers.maxWorkers)
+      workerItem.title = `At most ${workers.maxWorkers} work at once (Routing → Parallel workers).`;
+
+    const leaseItem = el('div', 'capacity-item');
+    leaseItem.append(el('span', 'capacity-label', 'Leases'));
+    for (const resource of resources) {
+      if (resource.name === 'suite' && !resource.held) continue;
+      const chip = el(
+        'span',
+        `capacity-chip${resource.held >= resource.count ? ' is-full' : resource.held ? ' is-held' : ''}`,
+        `${resource.name} ${resource.held}/${resource.count}`,
+      );
+      chip.title = `${resource.name}: ${resource.held} of ${resource.count} held${resource.waiting ? `, ${resource.waiting} waiting` : ''}${resource.gating ? '. Gating: holding it reserves gate memory.' : '.'}`;
+      leaseItem.append(chip);
+    }
+    row.append(memoryItem, workerItem, leaseItem);
+    capacityStrip.append(row);
+
+    if (queue.length || leases.length) {
+      const details = el('ul', 'capacity-list');
+      for (const entry of queue) {
+        const item = el('li');
+        item.append(
+          el('span', 'agent-status status-queued', `Queued #${entry.position}`),
+          el('strong', '', `${entry.task} ${kindLabel(entry.kind)}`),
+          el('span', 'muted', entry.reason || 'Waiting for capacity'),
+        );
+        details.append(item);
+      }
+      for (const lease of leases) {
+        const item = el('li');
+        item.append(
+          el('span', 'capacity-chip is-held', lease.name),
+          el('strong', '', lease.kind === 'orchestrator' ? 'Orchestrator' : `${lease.task} ${kindLabel(lease.kind)}`),
+          el('span', 'muted', `${lease.minutesLeft} min left`),
+        );
+        details.append(item);
+      }
+      capacityStrip.append(details);
+    }
+    if (capacity.profile?.error)
+      capacityStrip.append(el('p', 'capacity-error', `Using default capacity settings: ${capacity.profile.error}`));
   }
 
   function sessionRow(session, depth) {
@@ -803,6 +886,7 @@ export function mountAgents(
         eventsFor = null;
       }
       renderProviders();
+      renderCapacity();
       renderList();
       if (showRouting && !routing.contains(document.activeElement)) renderRouting();
       const key = renderKey(current());

@@ -63,9 +63,23 @@ pushEvent('plan-x',{kind:'turn.failed',error:'The owner interrupted this agent.'
 const liveLines=['Running the dependency check tests.','Two tests fail on block-list labels; fixing the parser.','Tests pass. Writing the handoff envelope.'];
 let liveIndex=0;
 setInterval(()=>{const w=agentSessions.find(s=>s.id==='work-2');if(w.status!=='working')return;pushEvent('work-2',liveIndex%2?{kind:'command',command:'node --test scripts/flow.test.mjs',status:'completed',exitCode:0}:{kind:'message',text:liveLines[Math.min(liveIndex/2|0,2)]});w.usage.totalTokens+=3000;liveIndex++;},4000).unref();
+// Disposable capacity strip: busy (queue and leases), calm, invalid profile, or none (older service).
+let capacityMode=process.env.UI_CAPACITY||'busy';
+function capacity(){
+ if(capacityMode==='none')return undefined;
+ const busy=capacityMode!=='calm';
+ const lease=(id,name,holder,task,kind,ago,left)=>({id,name,holder,runId:'fixture-run',task,kind,acquiredAt:iso(-ago),expiresAt:iso(left*60000),minutesLeft:left});
+ return {profile:{source:'.switchflow/capacity.json',error:capacityMode==='invalid'?'.switchflow/capacity.json: workerEnv.PATH is reserved for the host and agents.':null},
+  memory:{admission:true,freeGB:busy?3.8:14.2,totalGB:31.9,reservedGB:busy?12:3,startingGB:busy?1.5:0,headroomGB:3,availableGB:busy?0.8:11.2,workerIdleGB:1.5,workerGatingGB:6},
+  workers:{admitted:busy?3:2,queued:busy?2:0,maxWorkers:agentSettings.limits.maxWorkers},
+  queue:busy?[{workerId:'q-5',runId:'fixture-run',task:'DEMO-5',kind:'deliver',position:1,reason:'needs 1.5 GB, 0.8 GB available (3.8 GB free, 1.5 GB held for workers still starting, 3 GB headroom)',since:iso(-60000)},{workerId:'q-6',runId:'fixture-run',task:'DEMO-6',kind:'review',position:2,reason:'waiting behind 1 earlier worker',since:iso(-30000)}]:[],
+  leases:busy?[lease('l-1','gate','work-2','DEMO-2','deliver',360000,24),lease('l-2','e2e','orch-1',null,'orchestrator',60000,9)]:[],
+  resources:[{name:'suite',count:1,gating:true,maxMinutes:120,held:0,waiting:0},{name:'gate',count:2,gating:true,maxMinutes:120,held:busy?1:0,waiting:0},{name:'e2e',count:1,gating:true,maxMinutes:120,held:busy?1:0,waiting:busy?1:0},{name:'docker-stack',count:1,gating:false,maxMinutes:120,held:0,waiting:0}],
+  workerEnv:['VITEST_MAX_WORKERS','NODE_OPTIONS']};
+}
 function agentRoute(req,res,p,body){
  const rest=p.slice('/api/projects/ui-fixture/agents'.length);
- if(rest===''&&req.method==='GET')return json(res,{providers:{claude:{available:true,version:'2.1.288',transport:'cli',loggedIn:true,authMethod:'claude.ai'},codex:{available:true,version:'codex-cli 0.153.4',transport:'app-server',diagnostic:''}},settings:agentSettings,routing:routing(),activeRun:activeRun,sessions:agentSessions});
+ if(rest===''&&req.method==='GET')return json(res,{providers:{claude:{available:true,version:'2.1.288',transport:'cli',loggedIn:true,authMethod:'claude.ai'},codex:{available:true,version:'codex-cli 0.153.4',transport:'app-server',diagnostic:''}},settings:agentSettings,routing:routing(),activeRun:activeRun,sessions:agentSessions,capacity:capacity()});
  if(rest==='/settings'&&req.method==='PUT'){if(activeRun)return json(res,{error:'Routing is locked while an agent run is active.'},409);if(body.expectedRevision!==undefined&&body.expectedRevision!==agentSettings.revision)return json(res,{error:'Settings changed. Reload and try again.'},409);const {expectedRevision,...patch}=body;agentSettings={...agentSettings,...patch,roles:{...agentSettings.roles,...(patch.roles||{})},limits:{...agentSettings.limits,...(patch.limits||{})},revision:agentSettings.revision+1};return json(res,{settings:agentSettings,routing:routing()});}
  const m=rest.match(/^\/([^/]+)\/(events|steer|interrupt)$/);const s=m&&agentSessions.find(x=>x.id===decodeURIComponent(m[1]));
  if(!s)return json(res,{error:'Unknown agent session.'},404);
@@ -115,6 +129,8 @@ const server=http.createServer(async(req,res)=>{try {
  if(p==='/__fixture/state')return json(res,{scenario,tasks,milestones,initiatives,writes});
  if(p==='/__fixture/scenario'){seed(url.searchParams.get('name')||'scale');return json(res,{scenario});}
  if(p==='/__fixture/preview'){seedPreview(url.searchParams.get('mode')||'idle');return json(res,{preview});}
+ if(p==='/__fixture/capacity'){capacityMode=url.searchParams.get('mode')||'busy';return json(res,{capacity:capacity()??null});}
+ if(p==='/__fixture/held'){initiatives=initiatives.filter(i=>i.id!=='fixture-held');const held=createInitiative({title:'Close the parity gaps',request:'Deliver the parity plan.',start:false});Object.assign(held,{id:'fixture-held',stage:'delivery',status:'failed',approvedScope:{hash:'scope',by:'Human'},approvedPlan:{hash:'plan',scopeHash:'scope',tasks:[{phase:'one',task:'DEMO-5',outcome:'Parity',evidence:'Gate'}]},nextAction:'Recovery released. Review the checkpoint and retry.',heldWorkers:{runId:'fixture-run',recordedAt:date,workers:[{workerId:'w-5',task:'DEMO-5',kind:'deliver',worktree:'cand-5',provider:'codex',status:'open',approval:'confirmed'},{workerId:'w-6',task:'DEMO-6',kind:'deliver',worktree:'cand-6',provider:'codex',status:'queued',approval:'drafting'},{workerId:'w-7',task:'DEMO-4',kind:'review',worktree:'cand-4',provider:'claude',status:'open',approval:null}]}});initiatives.push(held);return json(res,{initiative:held});}
  if(p==='/__fixture/offline'){offline=url.searchParams.get('value')==='true';return json(res,{offline});}
  if(p==='/__fixture/fail-save'){failSave=true;return json(res,{failSave});}
  if(p==='/__fixture/lose-response'){loseResponse=true;return json(res,{loseResponse});}
@@ -133,7 +149,7 @@ const server=http.createServer(async(req,res)=>{try {
  if(p===base+'/operations')return json(res,{issues:[],metrics:{},worktrees:[],retention:[]});
  const previewMatch=p.match(/^\/api\/projects\/ui-fixture\/initiatives\/([^/]+)\/preview(?:\/(start|stop))?$/);
  if(previewMatch)return previewRoute(req,res,previewMatch[1],previewMatch[2],body);
- if(p.startsWith(base+'/initiatives/')){const id=p.split('/')[5];if(['accept-uat','request-rework','scope-change'].includes(body.action)&&preview.runtime.initiativeId===id&&['starting','running'].includes(preview.runtime.state))preview.runtime={...preview.runtime,state:'stopped',reason:body.action==='accept-uat'?'Stopped because you accepted the delivery.':'Stopped because you requested rework.'};const item=initiatives.find(i=>i.id===id);writes.push({path:p,body});applyAction(item,body);item.pending=false;return json(res,{initiatives});}
+ if(p.startsWith(base+'/initiatives/')){const id=p.split('/')[5];if(['accept-uat','request-rework','scope-change'].includes(body.action)&&preview.runtime.initiativeId===id&&['starting','running'].includes(preview.runtime.state))preview.runtime={...preview.runtime,state:'stopped',reason:body.action==='accept-uat'?'Stopped because you accepted the delivery.':'Stopped because you requested rework.'};const item=initiatives.find(i=>i.id===id);writes.push({path:p,body});if(body.action==='resume-workers'){if(body.expectedRevision!==item.revision)return json(res,{error:'This initiative changed. Refresh and review it before applying your action.'},409);Object.assign(item,{status:'idle',heldWorkers:null,nextAction:`Delivery is queued. ${item.heldWorkers.workers.length} held workers restart first, within the capacity limits.`});item.revision++;return json(res,{initiative:item});}applyAction(item,body);item.pending=false;return json(res,{initiatives});}
  const route=p.slice((base+'/native').length);
  if(req.method!=='GET'){
   writes.push({path:route,method:req.method,body});

@@ -116,6 +116,9 @@ export async function createControlServer({
   capabilities: suppliedCapabilities,
   persistProjects = false,
   lockProjects = false,
+  // Test seams: memory probe/pool and clock for admission and leases, process listing for cleanup.
+  capacity = {},
+  processes = {},
 } = {}) {
   const context = suppliedContext || (await canonicalProject(projectRoot));
   const sharedContext = sharedServiceContext(context);
@@ -147,6 +150,9 @@ export async function createControlServer({
         capabilities,
         ...(providers ? { providers } : {}),
         executables: agentExecutables,
+        // Every project shares one machine-wide memory pool (capacity.mjs sharedMemoryPool by default).
+        capacity,
+        processes,
         orchestrationFactory: orchestrationFactory?.({ serviceUrl: () => baseUrl, projectId: candidate.id, adapter }),
       });
       await agents.init();

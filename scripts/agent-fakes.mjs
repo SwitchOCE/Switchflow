@@ -5,6 +5,34 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolveProject } from '../template/.switchflow/scripts/operations/storage.mjs';
+import { MemoryPool } from '../template/.switchflow/scripts/control/capacity.mjs';
+
+export const GB = 1024 ** 3;
+
+/**
+ * A machine whose memory and clock the test sets. machine.free/total are in GB; advance(ms)
+ * moves the clock (lease time limits, the admission ramp) without waiting.
+ */
+export function fakeMachine({ free = 64, total = 128, at = Date.parse('2026-10-03T10:00:00.000Z') } = {}) {
+  const machine = {
+    free,
+    total,
+    now: at,
+    advance(ms) {
+      machine.now += ms;
+    },
+  };
+  machine.pool = new MemoryPool({
+    memory: () => ({ free: machine.free * GB, total: machine.total * GB }),
+    clock: () => machine.now,
+  });
+  return machine;
+}
+
+/** A memory pool with plenty of room, isolated from the machine running the tests. */
+export function roomyPool() {
+  return fakeMachine().pool;
+}
 
 export function intakeResult(stage = 'intake') {
   return {

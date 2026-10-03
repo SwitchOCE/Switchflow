@@ -214,6 +214,7 @@ export async function openClaudeSession({
   spawnProcess = spawn,
   settleMs = 3000,
   transcriptRoot = claudeTranscriptRoot(),
+  env: workerEnv = {},
 }) {
   const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
   const maxTurns = limits.maxTurns ?? 200;
@@ -412,7 +413,7 @@ export async function openClaudeSession({
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }),
+      env: childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }, workerEnv),
     });
     const current = { child, profile, persist, resumed: resume, exited: false, retiring: false };
     // A process this session ends on purpose (to change permissions) is not a failure.

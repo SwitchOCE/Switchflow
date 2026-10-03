@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { safeWorkerEnv, withWorkerEnv } from '../worker-env.mjs';
 export { stopTree } from '../codex-runner.mjs';
 
 export const MAX_LINE = 2 * 1024 * 1024;
@@ -48,10 +49,22 @@ export function validatePrompt(text) {
     throw new Error('Invalid or oversized prompt');
 }
 
-export function childEnvironment(temporaryRoot, extra = {}) {
-  const env = { ...process.env, NO_COLOR: '1', ...extra };
+/**
+ * The agent's environment: the service's own, plus the capacity profile's worker caps, plus the
+ * host's fixed values, which always win. workerEnv passes the worker-env policy again here.
+ */
+export function childEnvironment(temporaryRoot, extra = {}, workerEnv = {}) {
+  const env = { ...withWorkerEnv(process.env, workerEnv), NO_COLOR: '1', ...extra };
   if (temporaryRoot) Object.assign(env, { TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot });
   return env;
+}
+
+/** Codex shell commands get the caps through its environment policy too, whatever config.toml says. */
+export function codexEnvironmentOverrides(workerEnv = {}) {
+  return Object.entries(safeWorkerEnv(workerEnv)).flatMap(([name, value]) => [
+    '-c',
+    `shell_environment_policy.set.${name}=${JSON.stringify(value)}`,
+  ]);
 }
 
 /** Reads newline-delimited text with a bounded line length. */
