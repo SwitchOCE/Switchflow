@@ -1,0 +1,96 @@
+{
+  "seconds": 51,
+  "delegated": {
+    "approval": "drafting",
+    "writable": false
+  },
+  "approach": {
+    "status": "idle",
+    "approval": "awaiting-confirmation",
+    "writable": false,
+    "note": "Approach ready. Writes stay locked: confirm it with send_to_worker confirm:true, or reply without confirm to correct it.",
+    "result": {
+      "task": "DEMO-1",
+      "outcome": "approach",
+      "approach": "Inspected the candidate worktree read-only. Once write access is unlocked, append exactly one worker-text line to notes.txt; do not commit or use the Git helper.",
+      "head": "Candidate contains notes.txt with existing content: \"first line\".",
+      "envelope": "No files changed; awaiting orchestrator write unlock.",
+      "summary": "Read-only first turn complete.",
+      "blockers": []
+    }
+  },
+  "notesAfterApproach": "first line\r\n",
+  "confirm": {
+    "ok": true,
+    "sessionId": "6545b36a-ee4f-4f60-aa39-061d8bf15b43",
+    "mode": "followup",
+    "turnId": null,
+    "confirmed": true,
+    "writable": true
+  },
+  "handoff": {
+    "status": "idle",
+    "approval": "confirmed",
+    "writable": true,
+    "result": {
+      "task": "DEMO-1",
+      "outcome": "handoff",
+      "approach": "Appended the required line to notes.txt in the candidate worktree.",
+      "head": "notes.txt now contains the original line and `text added by worker`.",
+      "envelope": "No commit was created and the Git helper was not used.",
+      "summary": "Implementation complete and verified; stopped at Review.",
+      "blockers": []
+    },
+    "usage": {
+      "inputTokens": 102315,
+      "cachedInputTokens": 55552,
+      "outputTokens": 1042,
+      "reasoningOutputTokens": 223,
+      "totalTokens": 103357,
+      "costUsd": null
+    }
+  },
+  "notesAfterConfirm": "first line\ntext added by worker\n",
+  "processes": [
+    {
+      "at": "2026-10-03T13:15:48.636Z",
+      "pid": 50372,
+      "args": [
+        "app-server",
+        "-c",
+        "notify=[]",
+        "-c",
+        "approval_policy=\"never\"",
+        "-c",
+        "sandbox_mode=\"workspace-write\"",
+        "-c",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "-c",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+        "-c",
+        "sandbox_workspace_write.network_access=false",
+        "-c",
+        "sandbox_workspace_write.writable_roots=[\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\candidates\\\\d04da79b20a44864\\\\cand\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\repo\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\operations\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\scratch\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\governance\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\runs\\\\ab6fbc12-5810-4fae-8066-4cd25991f4d5\\\\git-channel\\\\requests\",\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\runs\\\\ab6fbc12-5810-4fae-8066-4cd25991f4d5\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033348592\\\\tmp\"]",
+        "-c",
+        "features.apps=false",
+        "-c",
+        "features.plugins=false",
+        "-c",
+        "features.computer_use=false",
+        "-c",
+        "shell_environment_policy.set.TMP=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\runs\\\\ab6fbc12-5810-4fae-8066-4cd25991f4d5\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033348592\\\\tmp\"",
+        "-c",
+        "shell_environment_policy.set.TEMP=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\runs\\\\ab6fbc12-5810-4fae-8066-4cd25991f4d5\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033348592\\\\tmp\"",
+        "-c",
+        "shell_environment_policy.set.TMPDIR=\"C:\\\\Users\\\\keech\\\\AppData\\\\Local\\\\Temp\\\\sfgate-codex-1791033346645\\\\state\\\\projects\\\\981c9097198c952a00ff3523e24f9d179478d58e4edebacb5a8be178ad76302a\\\\runs\\\\ab6fbc12-5810-4fae-8066-4cd25991f4d5\\\\orchestration\\\\workers\\\\DEMO-1-deliver-1791033348592\\\\tmp\""
+      ]
+    }
+  ],
+  "fence": [
+    {
+      "at": "2026-10-03T13:15:48.693Z",
+      "pid": 50372
+    }
+  ],
+  "workersLeftAfterClose": []
+}

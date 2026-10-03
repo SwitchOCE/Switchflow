@@ -11,6 +11,7 @@ import {
   readLines,
   stopTree,
   stripAnsi,
+  turnSandbox,
   validatePolicy,
   validatePrompt,
 } from './process.mjs';
@@ -407,6 +408,8 @@ export async function openCodexSession({
     failAll(new Error('Agent session timed out'));
     void close();
   }, timeoutMs);
+  // A live process keeps the service running; the deadline alone must not (tests, shutdown).
+  timer.unref?.();
   signal?.addEventListener('abort', abort, { once: true });
 
   try {
@@ -490,8 +493,14 @@ export async function openCodexSession({
     get closed() {
       return closed || Boolean(closing);
     },
-    async startTurn(text, { outputSchema } = {}) {
+    /**
+     * sandbox narrows this one turn to read-only (a delivery worker's approach turn). The policy
+     * is sent on every turn because app-server applies it "for this turn and subsequent turns".
+     */
+    async startTurn(text, { outputSchema, sandbox: requested } = {}) {
       validatePrompt(text);
+      const mode = turnSandbox(sandbox, requested);
+      const turnPolicy = mode === sandbox ? policy : sandboxPolicy({ sandbox: mode, writableRoots, temporaryRoot });
       if (exitError) throw exitError;
       if (active) throw new Error('A turn is already running in this session');
       const waiter = { finals: [], messages: [] };
@@ -505,7 +514,7 @@ export async function openCodexSession({
           input: textInput(text),
           approvalPolicy: 'never',
           approvalsReviewer: 'user',
-          sandboxPolicy: policy,
+          sandboxPolicy: turnPolicy,
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
           ...(outputSchema ? { outputSchema } : {}),

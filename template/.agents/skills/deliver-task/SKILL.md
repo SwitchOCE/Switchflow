@@ -21,7 +21,7 @@ Account for every open {{OWNER_NAME}} comment as `doc-07` requires before relyin
 
 ## State the approach first
 
-Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker; when the Switchflow host dispatched you, return the approach as your result and stop until the orchestrator replies. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
+Before implementing, state in three lines: the files you will change, the approach, and the stop condition. Wait for confirmation when you are a delegated worker; when the Switchflow host dispatched you, return the approach as your result and stop until the orchestrator replies. The host keeps you read-only until it confirms; do not try to edit before then. A phase agent delivering directly checks its plan against accepted scope and proceeds under its existing grant.
 
 ## Implement
 

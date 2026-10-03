@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -11,6 +13,7 @@ import {
   readLines,
   stopTree,
   stripAnsi,
+  turnSandbox,
   validatePolicy,
   validatePrompt,
 } from './process.mjs';
@@ -45,6 +48,38 @@ export function claudeExecutable({ platform = process.platform, env = process.en
   return 'claude';
 }
 
+/** Where Claude Code saves conversations: <config>/projects/<sanitized cwd>/<session ID>.jsonl. */
+export function claudeTranscriptRoot(env = process.env) {
+  return path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+}
+
+/**
+ * Removes the saved conversation of one session this host started, found by its random session
+ * ID (the folder name is the CLI's own encoding of the working directory). Its folder goes too
+ * when nothing else is in it. Returns the removed file, or null.
+ */
+export async function removeClaudeTranscript(sessionId, root = claudeTranscriptRoot()) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) return null;
+  let folders = [];
+  try {
+    folders = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const folder of folders) {
+    if (!folder.isDirectory()) continue;
+    const file = path.join(root, folder.name, `${sessionId}.jsonl`);
+    try {
+      await fs.rm(file);
+    } catch {
+      continue;
+    }
+    await fs.rmdir(path.join(root, folder.name)).catch(() => {});
+    return file;
+  }
+  return null;
+}
+
 /** Bash patterns a role may run without a prompt. Everything else is denied (no prompt host). */
 export function bashAllowlist({ write, gitHelperPath }) {
   const rules = [];
@@ -73,6 +108,8 @@ export function claudeArguments({
   instructions,
   mcpConfigPath,
   gitHelperPath,
+  resume = false,
+  persist = false,
 }) {
   const roots = validatePolicy({ sandbox, writableRoots, temporaryRoot });
   const write = sandbox === 'workspace-write';
@@ -108,9 +145,10 @@ export function claudeArguments({
     '--disallowedTools',
     'WebFetch',
     'WebSearch',
-    '--session-id',
+    // A resumed process continues the same conversation under its own permission set.
+    resume ? '--resume' : '--session-id',
     sessionId,
-    '--no-session-persistence',
+    ...(persist ? [] : ['--no-session-persistence']),
     '--max-turns',
     String(maxTurns),
   ];
@@ -150,6 +188,11 @@ function toolEvent(block) {
 /**
  * Drives the installed Claude Code CLI in stream-json mode. The process starts with the first
  * turn because --json-schema is fixed per process; later turns must use the same schema.
+ *
+ * Tools and Bash rules are also fixed per process. A turn that asks for a narrower sandbox than
+ * the session (a delivery worker's read-only approach turn) runs in a read-only process whose
+ * conversation is saved; the first wider turn ends that process and resumes the same conversation
+ * (`--resume`) in a process with the session's write tools. The new PID goes through onProcess.
  */
 export async function openClaudeSession({
   id = randomUUID(),
@@ -170,6 +213,7 @@ export async function openClaudeSession({
   executable = claudeExecutable(),
   spawnProcess = spawn,
   settleMs = 3000,
+  transcriptRoot = claudeTranscriptRoot(),
 }) {
   const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
   const maxTurns = limits.maxTurns ?? 200;
@@ -181,7 +225,9 @@ export async function openClaudeSession({
   validatePolicy({ sandbox, writableRoots, temporaryRoot });
   const sessionId = randomUUID();
   const raw = await openRawLog(rawLogPath);
-  let child = null;
+  let proc = null; // { child, profile, persist, resumed, exited, retiring, closedPromise, readers }
+  let switching = false;
+  let saved = false; // a process of this session saved its conversation
   let schemaKey;
   let closed = false;
   let failure = null;
@@ -189,8 +235,6 @@ export async function openClaudeSession({
   let usage = emptyUsage();
   let heldMessage = null;
   let events = Promise.resolve();
-  let closedPromise = Promise.resolve();
-  let readers = [];
   let timer;
   const emit = event => {
     // A host that cannot record events must not keep an unobserved agent running.
@@ -209,7 +253,8 @@ export async function openClaudeSession({
     void emit({ kind: 'message', text, final });
   };
   const write = message => {
-    if (!child || closed || !child.stdin.writable) throw new Error('Claude session is closed');
+    const child = proc?.child;
+    if (!child || closed || proc.retiring || !child.stdin.writable) throw new Error('Claude session is closed');
     void raw.write('>', message);
     child.stdin.write(`${JSON.stringify(message)}\n`);
   };
@@ -285,8 +330,9 @@ export async function openClaudeSession({
             provider: 'claude',
             transport: 'cli',
             threadId: message.session_id ?? sessionId,
-            pid: child?.pid ?? null,
+            pid: proc?.child.pid ?? null,
             model: message.model ?? model ?? null,
+            ...(proc?.resumed ? { resumed: true } : {}),
           });
         return;
       case 'assistant': {
@@ -340,11 +386,14 @@ export async function openClaudeSession({
       default:
     }
   };
-  const start = outputSchema => {
+  const start = (outputSchema, profile, { resume = false } = {}) => {
     schemaKey = JSON.stringify(outputSchema ?? null);
+    // Only a process narrower than the session saves its conversation, so a wider one can resume it.
+    const persist = profile !== sandbox;
+    saved ||= persist;
     const args = claudeArguments({
       sessionId,
-      sandbox,
+      sandbox: profile,
       writableRoots,
       temporaryRoot,
       model,
@@ -354,8 +403,10 @@ export async function openClaudeSession({
       instructions,
       mcpConfigPath,
       gitHelperPath,
+      resume,
+      persist,
     });
-    child = spawnProcess(executable, args, {
+    const child = spawnProcess(executable, args, {
       cwd: path.resolve(cwd),
       shell: false,
       windowsHide: true,
@@ -363,18 +414,26 @@ export async function openClaudeSession({
       stdio: ['pipe', 'pipe', 'pipe'],
       env: childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }),
     });
-    closedPromise = new Promise(resolve => {
-      child.once('error', error => fail(error));
+    const current = { child, profile, persist, resumed: resume, exited: false, retiring: false };
+    // A process this session ends on purpose (to change permissions) is not a failure.
+    const lost = error => {
+      if (!current.retiring) fail(error);
+    };
+    current.closedPromise = new Promise(resolve => {
+      child.once('error', lost);
       child.once('close', code => {
-        closed = true;
-        fail(new Error(`Claude exited with code ${code}`));
+        current.exited = true;
+        if (!current.retiring) {
+          closed = true;
+          fail(new Error(`Claude exited with code ${code}`));
+        }
         resolve(code);
       });
     });
-    child.stdin.on('error', error => fail(error));
-    readers = [
+    child.stdin.on('error', lost);
+    current.readers = [
       readLines(child.stdout, onLine).catch(error => {
-        fail(error);
+        lost(error);
         void stopTree(child);
       }),
       readLines(child.stderr, text => {
@@ -382,6 +441,27 @@ export async function openClaudeSession({
         if (clean) void emit({ kind: 'stderr', text: oneLine(clean, 2000) });
       }).catch(() => {}),
     ];
+    proc = current;
+  };
+  const stop = async (current, graceMs) => {
+    if (!current) return;
+    if (!current.exited) {
+      try {
+        current.child.stdin.end();
+      } catch {}
+      await Promise.race([current.closedPromise, new Promise(resolve => setTimeout(resolve, graceMs))]);
+      if (!current.exited) await stopTree(current.child);
+    }
+    await current.closedPromise;
+    await Promise.allSettled(current.readers);
+  };
+  /** Ends the idle process so the next turn can resume the conversation with other permissions. */
+  const retire = async () => {
+    const current = proc;
+    current.retiring = true;
+    // Closing stdin lets the CLI finish saving the conversation before it exits.
+    await stop(current, 5000);
+    await onProcess(null);
   };
   let closing;
   const close = async () => {
@@ -389,15 +469,13 @@ export async function openClaudeSession({
     closing = (async () => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
-      if (child && !closed) {
-        try {
-          child.stdin.end();
-        } catch {}
-        await Promise.race([closedPromise, new Promise(resolve => setTimeout(resolve, 1500))]);
-        if (!closed) await stopTree(child);
+      await stop(proc, 1500);
+      // A saved approach conversation was only needed to resume it; it does not outlive the session.
+      if (saved) {
+        const removed = await removeClaudeTranscript(sessionId, transcriptRoot).catch(() => null);
+        if (!removed)
+          await emit({ kind: 'notice', level: 'warning', text: 'Could not remove the saved Claude conversation.' });
       }
-      await closedPromise;
-      await Promise.allSettled(readers);
       fail(new Error('Agent session closed'));
       await emit({ kind: 'session.closed' });
       await events;
@@ -413,6 +491,8 @@ export async function openClaudeSession({
     fail(new Error('Agent session timed out'));
     void close();
   }, timeoutMs);
+  // A live process keeps the service running; the deadline alone must not (tests, shutdown).
+  timer.unref?.();
   signal?.addEventListener('abort', abort, { once: true });
 
   return {
@@ -420,7 +500,7 @@ export async function openClaudeSession({
     provider: 'claude',
     transport: 'cli',
     get pid() {
-      return child?.pid ?? null;
+      return proc?.child.pid ?? null;
     },
     threadId: sessionId,
     get activeTurnId() {
@@ -429,23 +509,32 @@ export async function openClaudeSession({
     get closed() {
       return closed || Boolean(closing);
     },
-    async startTurn(text, { outputSchema } = {}) {
+    async startTurn(text, { outputSchema, sandbox: requested } = {}) {
       validatePrompt(text);
-      if (failure && child) throw failure;
+      if (failure && proc) throw failure;
       if (closing) throw new Error('Claude session is closed');
-      if (active) throw new Error('A turn is already running in this session');
-      if (!child) {
-        start(outputSchema);
-        // The host records the PID before any input reaches the process.
+      if (active || switching) throw new Error('A turn is already running in this session');
+      const profile = turnSandbox(sandbox, requested);
+      if (proc && JSON.stringify(outputSchema ?? null) !== schemaKey)
+        throw new Error('A Claude session keeps the output schema of its first turn');
+      if (!proc || proc.profile !== profile) {
+        // Only a saved (narrower) conversation can be resumed; a write process is never narrowed.
+        if (proc && !proc.persist) throw new Error('This Claude session cannot narrow its permissions');
+        switching = true;
         try {
-          await onProcess(child.pid ?? null);
+          if (proc) await retire();
+          if (closing) throw new Error('Claude session is closed');
+          start(outputSchema, profile, { resume: Boolean(proc) });
+          // The host records the PID before any input reaches the process.
+          await onProcess(proc.child.pid ?? null);
         } catch (error) {
           fail(error);
           await close();
           throw error;
+        } finally {
+          switching = false;
         }
-      } else if (JSON.stringify(outputSchema ?? null) !== schemaKey)
-        throw new Error('A Claude session keeps the output schema of its first turn');
+      }
       const turnId = randomUUID();
       const done = new Promise((resolve, reject) => {
         active = { id: turnId, unreplayed: 1, resolve, reject, outputSchema };

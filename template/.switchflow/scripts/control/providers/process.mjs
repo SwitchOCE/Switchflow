@@ -35,6 +35,14 @@ export function validatePolicy({ sandbox, writableRoots = [], temporaryRoot }) {
   return temporaryRoot ? [...writableRoots, temporaryRoot] : [...writableRoots];
 }
 
+/** A turn may narrow its session's sandbox to read-only, never widen it. */
+export function turnSandbox(session, requested) {
+  if (requested === undefined || requested === null) return session;
+  if (!SANDBOXES.includes(requested)) throw new Error('Unsafe sandbox mode');
+  if (session === 'read-only' && requested !== 'read-only') throw new Error('A turn cannot widen its session sandbox');
+  return requested;
+}
+
 export function validatePrompt(text) {
   if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_PROMPT)
     throw new Error('Invalid or oversized prompt');

@@ -259,7 +259,7 @@
   background: var(--success);
   animation: nav-pulse 1.6s ease-in-out infinite;
 }
-.agent-status:is(.status-waiting, .status-queued)::before {
+.agent-status:is(.status-waiting, .status-queued, .status-approach)::before {
   background: var(--warning);
 }
 .agent-status.status-failed::before {
