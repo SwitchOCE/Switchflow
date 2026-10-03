@@ -11,6 +11,7 @@ import { confirmRefusal } from './orchestration.mjs';
 import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
 import { EnvironmentRegistry } from './environments/index.mjs';
+import { recoverHeldWorkers } from './worker-recovery.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -220,6 +221,8 @@ export class AgentHost {
   }
   bind(engine) {
     this.engine = engine;
+    // "Resume held workers" first saves what interrupted SSH workers left on their box.
+    engine.prepareResume ??= workers => recoverHeldWorkers(this, workers);
   }
   settings() {
     return readAgentSettings(this.context);
@@ -284,6 +287,9 @@ export class AgentHost {
     // that environment's prepared workspace (environments/index.mjs).
     environment = 'local',
     workspace = null,
+    // Cloud only: a recorded handle to reattach to after a restart, and where to record it.
+    reattach = null,
+    onCloudHandle = null,
     forward = async () => {},
   }) {
     const target =
@@ -309,6 +315,8 @@ export class AgentHost {
         signal,
         approval,
         forward,
+        reattach,
+        onCloudHandle,
       });
     const settings = await this.settings();
     if (target && typeof target.spawnFor !== 'function')
@@ -461,6 +469,8 @@ export class AgentHost {
         limits: this.limitsFor(settings),
         onEvent,
         signal: fields.signal,
+        ...(fields.reattach ? { resume: fields.reattach } : {}),
+        ...(fields.onCloudHandle ? { onHandle: fields.onCloudHandle } : {}),
       });
     } catch (error) {
       await this.registry.finish(meta.id, { status: 'failed', error: error.message });

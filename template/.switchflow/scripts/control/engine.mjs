@@ -87,6 +87,7 @@ export class ControlEngine {
       processStarted = processStartTime,
       stopProcess = stopProcessTree,
       bridgeFactory = startGitBridge,
+      prepareResume = null,
     },
   ) {
     this.context = context;
@@ -101,6 +102,7 @@ export class ControlEngine {
     this.processStarted = processStarted;
     this.stopProcess = stopProcess;
     this.bridgeFactory = bridgeFactory;
+    this.prepareResume = prepareResume;
   }
   async read() {
     const state = await readState(this.context, 'control', initial);
@@ -218,6 +220,9 @@ export class ControlEngine {
                 provider: entry.provider ?? null,
                 status: entry.status,
                 approval: entry.approval ?? null,
+                environment: entry.environment ?? 'local',
+                // A cloud worker kept running and is reconnected instead of delegated again.
+                reconnect: Boolean(entry.cloud?.key),
               })),
             }
           : null;
@@ -279,6 +284,28 @@ export class ControlEngine {
     s.activeRun = null;
     return false;
   }
+  /**
+   * Before "resume held workers" starts a run, prepareResume (set by the agent host, see
+   * worker-recovery.mjs) saves what held SSH workers left on their box. When it cannot, the
+   * workers stay held with the reason and nothing is resumed.
+   */
+  async prepareHeldWorkers(snapshot, id, input) {
+    const item = snapshot.initiatives.find(i => i.id === id);
+    const workers = item?.heldWorkers?.workers;
+    if (!this.prepareResume || !workers?.length || input.expectedRevision !== item.revision) return;
+    if (Object.keys(input).some(key => !['action', 'expectedRevision'].includes(key))) return;
+    const { blocked } = await this.prepareResume(workers);
+    if (!blocked) return;
+    await this.mutate(s => {
+      const live = s.initiatives.find(i => i.id === id);
+      if (!live?.heldWorkers || live.revision !== input.expectedRevision) return;
+      live.heldWorkers.blocked = blocked;
+      live.nextAction = blocked;
+      live.revision++;
+      event(live, 'resume-blocked', blocked);
+    });
+    throw new ControlError(blocked, 409);
+  }
   async create(input) {
     const item = createInitiative(input);
     const state = await this.mutate(s => {
@@ -304,7 +331,7 @@ export class ControlEngine {
           if (entry.state === 'running') await this.stopProcess(entry.pid);
       }
       held = await this.heldProcesses(snapshot.activeRun);
-    }
+    } else if (input.action === 'resume-workers') await this.prepareHeldWorkers(snapshot, id, input);
     const state = await this.mutate(s => {
       if (s.activeRun?.status === 'interrupted') {
         if (!held || s.activeRun.id !== snapshot.activeRun.id)
@@ -512,7 +539,7 @@ export class ControlEngine {
       if (stage === 'execution' && item.resumeWorkers?.workerIds?.length) {
         resumeWorkers = await readDelegations(this.context, item.resumeWorkers.workerIds);
         agentState.resumedWorkers = {
-          note: 'The owner resumed these workers from the interrupted run. The host has already delegated them again (or queued them for capacity) with their original instructions. Follow them with worker_status and wait_for_workers; do not delegate the same tasks again.',
+          note: 'The owner resumed these workers from the interrupted run. The host has already delegated them again (or queued them for capacity) with their original instructions, or reconnected cloud workers that kept running. Follow them with worker_status and wait_for_workers; do not delegate the same tasks again.',
           workers: resumeWorkers.map(({ task, kind, worktree }) => ({ task, kind, worktree })),
         };
       }

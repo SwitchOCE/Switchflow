@@ -1356,10 +1356,19 @@ function renderDetail() {
     ['failed', 'cancelled', 'blocked'].includes(item.status)
   ) {
     const count = heldWorkers.length;
+    const lines = [
+      `Resume starts ${count === 1 ? 'it' : 'them'} again with the original instructions, within the capacity limits: ${heldWorkers.map(worker => `${worker.task} ${worker.kind === 'review' ? 'review' : 'delivery'}`).join(', ')}. Retry starts delivery without them.`,
+    ];
+    if (heldWorkers.some(worker => worker.reconnect))
+      lines.push('Cloud workers kept running, so Resume reconnects to them instead of starting them again.');
+    if (heldWorkers.some(worker => !worker.reconnect && worker.environment && worker.environment !== 'local'))
+      lines.push('SSH workers start again from their uncommitted work, saved from the box first.');
+    if (item.heldWorkers.blocked) lines.push(item.heldWorkers.blocked);
     decision.append(
-      gateNote(`${count === 1 ? 'One worker was' : `${count} workers were`} in flight when the service stopped.`, [
-        `Resume starts ${count === 1 ? 'it' : 'them'} again with the original instructions, within the capacity limits: ${heldWorkers.map(worker => `${worker.task} ${worker.kind === 'review' ? 'review' : 'delivery'}`).join(', ')}. Retry starts delivery without them.`,
-      ]),
+      gateNote(
+        `${count === 1 ? 'One worker was' : `${count} workers were`} in flight when the service stopped.`,
+        lines,
+      ),
     );
     actions.append(actionButton(`Resume ${count === 1 ? 'held worker' : `${count} held workers`}`, 'resume-workers'));
   }

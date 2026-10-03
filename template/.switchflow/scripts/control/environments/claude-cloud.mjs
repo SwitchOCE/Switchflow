@@ -702,6 +702,14 @@ export function createClaudeCloudEnvironment({
  * so orchestration places a worker on Claude cloud without a separate code path. The first turn
  * starts the routine; later turns (a confirmed approach, a correction) are messages into the same
  * session. Each turn ends when the run log shows one more result.
+ *
+ * Restarts: onHandle(record) receives the handle as plain JSON whenever it changes (started, a
+ * poll with no result, a turn ended): key, task, sessionId, triggerId, branches, url, the poll
+ * position (seen, cursor, results, statusSeen), `turn` ({ open, writable, lastMessage }),
+ * `writable` (a writable turn has run) and `lastResult`. openCloudSession({ resume: record })
+ * reattaches to that session without starting anything, and resumeTurn() waits for the turn that
+ * was running. A poll that saw a result is recorded only with the end of its turn, so a restart
+ * in between reads that result again.
  */
 export async function openCloudSession({
   adapter,
@@ -710,13 +718,96 @@ export async function openCloudSession({
   cwd,
   limits = {},
   onEvent = async () => {},
+  onHandle = async () => {},
+  resume = null,
   signal,
   pollMs = (adapter.config?.pollSeconds ?? 60) * 1000,
   git = createGit(),
 }) {
-  let handle = null;
+  let handle = resume ? { ...structuredClone(resume), cwd: cwd ?? resume.cwd } : null;
   let active = null;
   let closed = false;
+  const record = () => onHandle(structuredClone(handle));
+  if (handle) {
+    await onEvent({ kind: 'session.started', provider: 'claude', transport: KIND, threadId: handle.sessionId });
+    await onEvent({
+      kind: 'notice',
+      level: 'info',
+      text: `Reconnected to Claude cloud session ${handle.sessionId}, which kept running while the service was stopped: ${handle.url}`,
+      url: handle.url,
+    });
+  }
+
+  /** One turn: begin() hands the worker its turn, then the run log is polled for one more result. */
+  async function runTurn(writable, begin) {
+    if (active) throw new Error('A turn is already running in this session');
+    if (closed) throw new Error('This cloud session has closed');
+    active = {};
+    try {
+      await onEvent({ kind: 'turn.started', turnId: handle?.sessionId ?? null });
+      await begin();
+      const before = handle.results;
+      const deadline = Date.now() + (limits.timeoutMs ?? 60 * 60 * 1000);
+      let finished = null;
+      let lastMessage = handle.turn?.lastMessage ?? null;
+      while (!finished) {
+        if (signal?.aborted || active.cancelled)
+          throw Object.assign(new Error('The cloud turn was cancelled.'), { interrupted: !signal?.aborted });
+        if (Date.now() > deadline)
+          throw new Error(
+            'The cloud turn did not finish within the turn time limit; the session may still be running.',
+          );
+        await sleep(pollMs, signal);
+        if (signal?.aborted || active.cancelled) continue;
+        const polled = await adapter.poll(handle);
+        let count = before;
+        for (const entry of polled.events) {
+          if (entry.kind === 'message') lastMessage = entry.text;
+          if (entry.kind === 'turn.completed' || entry.kind === 'turn.failed') {
+            if (++count > before) finished = entry;
+            continue;
+          }
+          await onEvent(entry);
+        }
+        if (!finished) {
+          handle.turn = { ...handle.turn, lastMessage };
+          await record();
+        }
+      }
+      if (finished.kind === 'turn.failed') throw new Error(`The cloud turn failed: ${finished.error}`);
+      const result = extractJson(lastMessage) ?? extractJson(finished.result);
+      if (!result) throw new Error('The cloud turn ended without the requested JSON result.');
+      if (!writable) {
+        const pushed = await adapter.pushedDuringApproach(handle);
+        if (pushed.length)
+          throw new Error(`The cloud worker pushed ${pushed.join(', ')} during its read-only approach turn.`);
+      } else {
+        const collected = await adapter.collect(handle, { cwd });
+        await onEvent({
+          kind: 'notice',
+          level: collected.collected ? 'info' : 'warning',
+          text: collected.collected
+            ? `Collected ${handle.branches.result} at ${String(collected.head).slice(0, 12)} into the candidate.`
+            : `Cloud result not collected: ${collected.reason}`,
+        });
+        if (collected.collected && typeof result.head === 'string') result.head = collected.head;
+      }
+      Object.assign(handle, { turn: { open: false, writable, lastMessage: null }, lastResult: result });
+      await record();
+      await onEvent({ kind: 'turn.completed', turnId: handle.sessionId, status: 'completed', usage: null });
+      return { turnId: handle.sessionId, result, text: lastMessage ?? '', exitCode: 0 };
+    } catch (error) {
+      if (handle?.turn?.open) {
+        handle.turn = { open: false, writable, lastMessage: null };
+        await record().catch(() => {});
+      }
+      await onEvent({ kind: 'turn.failed', turnId: handle?.sessionId ?? null, error: oneLine(error.message, 2000) });
+      throw error;
+    } finally {
+      active = null;
+    }
+  }
+
   const session = {
     provider: 'claude',
     transport: KIND,
@@ -735,13 +826,8 @@ export async function openCloudSession({
       return handle;
     },
     async startTurn(text, { sandbox } = {}) {
-      if (active) throw new Error('A turn is already running in this session');
-      if (closed) throw new Error('This cloud session has closed');
       const writable = sandbox !== 'read-only';
-      active = {};
-      try {
-        await onEvent({ kind: 'turn.started', turnId: handle?.sessionId ?? null });
-        const before = handle?.results ?? 0;
+      return runTurn(writable, async () => {
         if (!handle) {
           const head = await git.git(cwd, ['rev-parse', 'HEAD']);
           handle = await adapter.submit({ key, task, prompt: text, head, cwd, writable });
@@ -759,55 +845,16 @@ export async function openCloudSession({
               ? `${text}\n\nWrites are now allowed. Commit on ${handle.branches.result} and push it. End with only the requested JSON object.`
               : `${text}\n\nThis turn is read-only: do not edit, commit or push. End with only the requested JSON object.`,
           );
-        const deadline = Date.now() + (limits.timeoutMs ?? 60 * 60 * 1000);
-        let finished = null;
-        let lastMessage = null;
-        while (!finished) {
-          if (signal?.aborted || active.cancelled)
-            throw Object.assign(new Error('The cloud turn was cancelled.'), { interrupted: !signal?.aborted });
-          if (Date.now() > deadline)
-            throw new Error(
-              'The cloud turn did not finish within the turn time limit; the session may still be running.',
-            );
-          await sleep(pollMs, signal);
-          if (signal?.aborted || active.cancelled) continue;
-          const polled = await adapter.poll(handle);
-          let count = before;
-          for (const entry of polled.events) {
-            if (entry.kind === 'message') lastMessage = entry.text;
-            if (entry.kind === 'turn.completed' || entry.kind === 'turn.failed') {
-              if (++count > before) finished = entry;
-              continue;
-            }
-            await onEvent(entry);
-          }
-        }
-        if (finished.kind === 'turn.failed') throw new Error(`The cloud turn failed: ${finished.error}`);
-        const result = extractJson(lastMessage) ?? extractJson(finished.result);
-        if (!result) throw new Error('The cloud turn ended without the requested JSON result.');
-        if (!writable) {
-          const pushed = await adapter.pushedDuringApproach(handle);
-          if (pushed.length)
-            throw new Error(`The cloud worker pushed ${pushed.join(', ')} during its read-only approach turn.`);
-        } else {
-          const collected = await adapter.collect(handle, { cwd });
-          await onEvent({
-            kind: 'notice',
-            level: collected.collected ? 'info' : 'warning',
-            text: collected.collected
-              ? `Collected ${handle.branches.result} at ${String(collected.head).slice(0, 12)} into the candidate.`
-              : `Cloud result not collected: ${collected.reason}`,
-          });
-          if (collected.collected && typeof result.head === 'string') result.head = collected.head;
-        }
-        await onEvent({ kind: 'turn.completed', turnId: handle.sessionId, status: 'completed', usage: null });
-        return { turnId: handle.sessionId, result, text: lastMessage ?? '', exitCode: 0 };
-      } catch (error) {
-        await onEvent({ kind: 'turn.failed', turnId: handle?.sessionId ?? null, error: oneLine(error.message, 2000) });
-        throw error;
-      } finally {
-        active = null;
-      }
+        // Recorded once the worker has the turn, so a restart knows to wait for its result.
+        handle.turn = { open: true, writable, lastMessage: null };
+        handle.writable = Boolean(handle.writable || writable);
+        await record();
+      });
+    },
+    /** After a restart: waits for the turn that was running when the service stopped. */
+    async resumeTurn() {
+      if (!handle?.turn?.open) throw new Error('No cloud turn was running when the service stopped.');
+      return runTurn(handle.turn.writable, async () => {});
     },
     async steer(text, { by = 'orchestrator' } = {}) {
       if (!handle) throw new Error('The cloud session has not started yet.');
