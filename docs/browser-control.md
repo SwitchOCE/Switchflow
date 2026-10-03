@@ -345,7 +345,25 @@ What Claude Code 2.1.288 allows, verified on 2026-10-04:
 
 **Configuration** (an entry in the agent settings' `environments`, never in the checkout): `{ "id": "claude-cloud", "kind": "claude-cloud", "environmentId": "env_…", "repository": "https://github.com/<owner>/<repo>", "remote": "origin", "model": "claude-opus-5-5", "push": true, "pollSeconds": 60 }`, validated when saved, or added in the Agents view's "Where workers run". Environments are created only in the claude.ai/code UI; the repository must be reachable by the Claude GitHub App. `health()` checks the configuration, `claude auth status`, that `remote` is the configured repository and answers, an optional pushed branch, and the push grant.
 
-**Not yet:** a cloud worker held by a service restart is not reconnected (it keeps running; its routine and branches remain until the owner cleans them up), and Codex cloud is not wired.
+**Not yet:** a cloud worker held by a service restart is not reconnected (it keeps running; its routine and branches remain until the owner cleans them up).
+
+### Codex cloud workers
+
+`codex-cloud` (`scripts/control/environments/codex-cloud.mjs`) runs one Codex task on an OpenAI VM per worker through the experimental `codex cloud` CLI. It is opt-in: the entry must set `"experimental": true`. It is fire-and-forget: submit, poll, diff, apply. Capabilities: `stream`, `steer`, `interrupt` and `followUp` are all false; `result` is `diff`; `approachGate` is false.
+
+| Need | How (codex-cli 0.153.4, checked 2026-10-04) | Latency |
+| --- | --- | --- |
+| Start | The host pushes the candidate head to `sf-task/<key>`, then runs `codex cloud exec --env <environmentId> --branch sf-task/<key> "<prompt>"`, which prints only the task URL. The prompt goes in argv, so it is capped at 24,000 characters. | seconds to submit; the VM starts on OpenAI's side |
+| Progress | `codex cloud status <task>` every `pollSeconds` (default 60): pending, ready, applied or error, plus diff stats. No log or messages are available. | `pollSeconds` |
+| Steer, follow-up, interrupt | Not available from the CLI. A second turn, a steer or a confirm is refused; interrupt only stops Switchflow waiting, and the task keeps running until it ends or the owner stops it at its URL. | |
+| Result | No CLI command returns the assistant's messages, so the worker writes its JSON reply to `.switchflow-result.json`, and the host reads it from `codex cloud diff`. For a writable task the host applies the rest of the diff to the candidate with `git apply --check` first, then commits it there. It refuses when the candidate is dirty or the diff does not apply, so nothing is half-applied. `codex cloud apply` is not used: it applies into its working folder and can leave a partial apply. | one diff |
+| Cleanup | On close, `sf-task/<key>` is deleted. The task stays in ChatGPT (state is kept for 7 days). | |
+
+**Approach gate: not supported.** A confirmed approach could only start a second, unrelated task, and no reply text comes back. So the kind has no approach turn, and `delegate_task` refuses to place a delivery worker there (409). Codex cloud takes reviews only. A review session is read-only on every turn: the host never applies its diff, and any files it changed are reported and discarded. Only Codex runs there; a Claude worker is refused, and Codex is refused on `claude-cloud`. An optional `provider` field in either entry must match its kind.
+
+**Where code goes, and billing.** Codex cloud checks out from GitHub.com, never from local files, so the candidate head must be pushed. Switchflow pushes `sf-task/*` only when the owner sets `push: true` on the entry, as for Claude cloud. Without it, submit is refused and `health()` says why. Code goes to GitHub and OpenAI. Usage comes from the owner's ChatGPT plan allowance, the same allowance as local Codex, and cloud tasks use more of it. It requires ChatGPT sign-in; API keys get no cloud tasks.
+
+**Configuration:** `{ "id": "codex-cloud", "kind": "codex-cloud", "experimental": true, "environmentId": "<id from codex cloud or chatgpt.com/codex>", "repository": "https://github.com/<owner>/<repo>", "remote": "origin", "push": true, "pollSeconds": 60 }`. Environment IDs cannot be listed from the CLI, so copy the ID by hand. `health()` checks the configuration, `codex --version`, ChatGPT sign-in through `codex cloud list --json --env <id> --limit 1`, that `remote` is the configured repository and answers, and the push grant. Latency is minutes per task: plan reviews accordingly. Not yet: `--attempts` (best-of-N), and reconnecting a task after a service restart.
 
 ## Where data lives
 

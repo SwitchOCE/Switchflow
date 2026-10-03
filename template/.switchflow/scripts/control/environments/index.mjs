@@ -11,7 +11,8 @@
  *   capabilities  { stream, steer, interrupt, followUp, result }
  *                 result is 'local-worktree' (work happens in the candidate itself),
  *                 'remote-branch' (a branch on a git remote Switchflow fetches) or 'diff'.
- *                 Switchflow never pretends a missing capability exists.
+ *                 Switchflow never pretends a missing capability exists. approachGate: false
+ *                 (codex-cloud) means no read-only first turn, so delivery is refused there.
  *   health()      Promise<{ ok, reason?, providers?, checks? }>. providers, when present, has the
  *                 agent-settings capability shape ({ codex: {available, loggedIn}, claude: {...} })
  *                 for the CLIs on that environment. Never returns secrets.
@@ -31,7 +32,8 @@
  *
  * Submit kinds (claude-cloud, codex-cloud) have no local process and provide
  *   submit / poll / collect / cancel / cleanup (see environments/claude-cloud.mjs) and
- *   openSession(options), which wraps them in the usual session handle for orchestration.
+ *   openSession(options), which wraps them in the usual session handle for orchestration, and
+ *   provider, the one agent they run ('claude' or 'codex'). Codex cloud is opt-in per entry.
  *
  * A kind registers with registerEnvironmentKind(kind, { validate, create }). validate(config)
  * returns the normalized owner config or throws; create(config, deps) returns the environment.
@@ -41,6 +43,7 @@
 import { createLocalEnvironment } from './local.mjs';
 import { createSshEnvironment, validateSshConfig } from './ssh.mjs';
 import { createClaudeCloudEnvironment, openCloudSession, validateCloudConfig } from './claude-cloud.mjs';
+import { createCodexCloudEnvironment, openCodexCloudSession, validateCodexCloudConfig } from './codex-cloud.mjs';
 
 export const ENVIRONMENT_KINDS = Object.freeze(['local', 'ssh', 'claude-cloud', 'codex-cloud']);
 export const LOCAL_ID = 'local';
@@ -55,11 +58,18 @@ export function registerEnvironmentKind(kind, { validate, create }) {
   kinds.set(kind, { validate, create });
 }
 
+/** A cloud kind bundles its own agent: an optional `provider` field must name that agent. */
+function cloudProvider(config, provider, label) {
+  if (config.provider !== undefined && config.provider !== provider)
+    throw new Error(`${label} runs ${provider} workers only; provider ${config.provider} is not supported.`);
+}
+
 /** Claude Code cloud: owner config is the routine environment, repository and push grant. */
 function validateClaudeCloud(config) {
-  const allowed = [...COMMON_KEYS, 'environmentId', 'repository', 'remote', 'model', 'push', 'pollSeconds'];
+  const allowed = [...COMMON_KEYS, 'provider', 'environmentId', 'repository', 'remote', 'model', 'push', 'pollSeconds'];
   const extra = Object.keys(config).filter(key => !allowed.includes(key));
   if (extra.length) throw new Error(`Unsupported Claude cloud fields: ${extra.join(', ')}.`);
+  cloudProvider(config, 'claude', 'Claude cloud');
   const { config: valid, problems } = validateCloudConfig(config);
   if (problems.length) throw new Error(problems.join(' '));
   return valid;
@@ -68,11 +78,41 @@ export function createClaudeCloudAdapter(config, deps = {}) {
   const { stateDir, projectRoot, ...rest } = deps;
   const adapter = createClaudeCloudEnvironment({ config, projectRoot, ...rest });
   adapter.openSession = options => openCloudSession({ adapter, ...options });
-  return Object.assign(adapter, { id: config.id ?? adapter.id ?? 'claude-cloud', remote: true });
+  return Object.assign(adapter, { id: config.id ?? adapter.id ?? 'claude-cloud', remote: true, provider: 'claude' });
+}
+
+/**
+ * Codex cloud: experimental, so the owner opts in per entry with `experimental: true`. Config is
+ * the Codex cloud environment ID, the GitHub repository and the push grant.
+ */
+function validateCodexCloud(config) {
+  const allowed = [
+    ...COMMON_KEYS,
+    'provider',
+    'environmentId',
+    'repository',
+    'remote',
+    'push',
+    'pollSeconds',
+    'experimental',
+  ];
+  const extra = Object.keys(config).filter(key => !allowed.includes(key));
+  if (extra.length) throw new Error(`Unsupported Codex cloud fields: ${extra.join(', ')}.`);
+  cloudProvider(config, 'codex', 'Codex cloud');
+  const { config: valid, problems } = validateCodexCloudConfig(config);
+  if (problems.length) throw new Error(problems.join(' '));
+  return valid;
+}
+export function createCodexCloudAdapter(config, deps = {}) {
+  const { stateDir, projectRoot, ...rest } = deps;
+  const adapter = createCodexCloudEnvironment({ config, projectRoot, ...rest });
+  adapter.openSession = options => openCodexCloudSession({ adapter, ...options });
+  return Object.assign(adapter, { id: config.id ?? adapter.id ?? 'codex-cloud', remote: true });
 }
 
 registerEnvironmentKind('ssh', { validate: validateSshConfig, create: createSshEnvironment });
 registerEnvironmentKind('claude-cloud', { validate: validateClaudeCloud, create: createClaudeCloudAdapter });
+registerEnvironmentKind('codex-cloud', { validate: validateCodexCloud, create: createCodexCloudAdapter });
 
 const plainObject = value => value && typeof value === 'object' && !Array.isArray(value);
 

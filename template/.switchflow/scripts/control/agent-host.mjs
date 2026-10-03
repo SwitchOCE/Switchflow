@@ -441,7 +441,7 @@ export class AgentHost {
     const settings = await this.settings();
     const meta = await this.registry.create({
       ...fields,
-      provider: 'claude',
+      provider: remote.provider ?? 'claude',
       transport: remote.kind,
       environment: remote.id,
       model: remote.config?.model ?? null,
@@ -456,6 +456,8 @@ export class AgentHost {
       handle = await remote.openSession({
         task: fields.task ?? 'worker',
         cwd: fields.cwd,
+        // A read-only session (a review) stays read-only on every turn, whatever the turn asks.
+        sandbox: fields.sandbox,
         limits: this.limitsFor(settings),
         onEvent,
         signal: fields.signal,
