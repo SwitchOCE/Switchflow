@@ -74,6 +74,32 @@ function agentRoute(req,res,p,body){
  if(m[2]==='interrupt'){if(!s.canInterrupt)return json(res,{error:'No turn is running.'},409);s.status=s.parentId?'idle':'failed';pushEvent(s.id,{kind:'interrupt',by:'owner'});return json(res,{sessionId:s.id,interrupted:true},202);}
 }
 
+// Disposable UAT preview: simulates the launcher's states without starting any process.
+const previewCommand={display:'npm run dev',hash:'f'.repeat(64),cwd:'',port:null,env:[]};
+const previewCandidates=[{name:'integration',path:'C:/state/candidates/0123456789abcdef/integration',head:'4f1c2d9e8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e'},{name:'worker-ui',path:'C:/state/candidates/0123456789abcdef/worker-ui',head:'9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b'}];
+let preview;
+function seedPreview(mode='idle'){
+ preview={mode,configured:!['unconfigured','invalid'].includes(mode),configError:mode==='invalid'?'.switchflow/preview.json: command must be a program name on PATH (such as npm) or an absolute program path, without arguments.':null,candidates:mode==='multi'?previewCandidates:previewCandidates.slice(0,1),runtime:{state:'idle'}};
+ const logs=['> app@1.0.0 dev','> vite','','  VITE v7.1.0  ready in 412 ms','','  ➜  Local:   http://localhost:5173/','  ➜  press h + enter to show help'];
+ if(mode==='running')preview.runtime={state:'running',initiativeId:'fixture-uat',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs};
+ if(mode==='other')preview.runtime={state:'running',initiativeId:'fixture-plan',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs};
+}
+seedPreview(process.env.UI_PREVIEW||'idle');
+function previewRoute(req,res,id,action,body){
+ const item=initiatives.find(i=>i.id===id);
+ if(!item)return json(res,{error:'Initiative not found.'},404);
+ const eligible=item.stage==='uat'&&item.status==='awaiting-human'&&!item.approvedUat;
+ if(!action)return json(res,{configPath:'.switchflow/preview.json',configured:preview.configured,configError:preview.configError,command:preview.configured?previewCommand:null,eligible,reason:eligible?null:'A preview runs only while a delivered candidate waits for your UAT decision.',candidates:eligible?preview.candidates:[],suggested:eligible?preview.candidates[0].name:null,candidateError:null,runtime:preview.runtime});
+ writes.push({path:`preview/${action}`,body});
+ if(action==='stop'){if(['starting','running'].includes(preview.runtime.state))preview.runtime={...preview.runtime,state:'stopped',reason:'Stopped by you.'};return json(res,{runtime:preview.runtime});}
+ if(['starting','running'].includes(preview.runtime.state))return json(res,{error:'A preview for another initiative is running. Stop it first: one preview runs per project.'},409);
+ if(body.commandHash!==previewCommand.hash)return json(res,{error:'The preview command changed since it was shown. Review the current command, then start again.'},409);
+ const candidate=body.candidate||preview.candidates[0].name;
+ const runtime=preview.runtime={state:'starting',initiativeId:id,candidate,command:'npm run dev',url:null,pid:4242,startedAt:new Date().toISOString(),logs:['> app@1.0.0 dev','> vite']};
+ setTimeout(()=>{if(preview.runtime!==runtime||runtime.state!=='starting')return;if(preview.mode==='fail')Object.assign(runtime,{state:'failed',exitCode:1,reason:'The preview stopped unexpectedly (exit code 1).',logs:[...runtime.logs,'failed to load config from C:/state/candidates/0123456789abcdef/integration/vite.config.ts','error when starting dev server:',"Error: Cannot find module 'vite'"]});else Object.assign(runtime,{state:'running',url:'http://localhost:5173/',logs:[...runtime.logs,'','  VITE v7.1.0  ready in 412 ms','','  ➜  Local:   http://localhost:5173/']});},1500);
+ return json(res,{runtime},202);
+}
+
 const project={id:'ui-fixture',name:'UI review sandbox',available:true,attention:2,activeRun:false,root:'Disposable in-memory project',governanceRoot:'Disposable in-memory project'};
 const json=(res,data,status=200)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));};
 const getBody=async req=>{let raw='';for await(const chunk of req)raw+=chunk;try{return JSON.parse(raw||'{}');}catch{return raw;}};
@@ -82,6 +108,7 @@ const server=http.createServer(async(req,res)=>{try {
  const url=new URL(req.url,'http://localhost'),p=url.pathname,body=await getBody(req);
  if(p==='/__fixture/state')return json(res,{scenario,tasks,milestones,initiatives,writes});
  if(p==='/__fixture/scenario'){seed(url.searchParams.get('name')||'scale');return json(res,{scenario});}
+ if(p==='/__fixture/preview'){seedPreview(url.searchParams.get('mode')||'idle');return json(res,{preview});}
  if(p==='/__fixture/offline'){offline=url.searchParams.get('value')==='true';return json(res,{offline});}
  if(p==='/__fixture/fail-save'){failSave=true;return json(res,{failSave});}
  if(p==='/__fixture/lose-response'){loseResponse=true;return json(res,{loseResponse});}
@@ -98,7 +125,9 @@ const server=http.createServer(async(req,res)=>{try {
  if(p===base+'/skills')return json(res,{skills:[{id:'intake/SKILL.md',name:'intake',description:'Shape a clear human outcome',title:'Intake'}]});
  if(p===base+'/skills/content')return json(res,{id:'intake/SKILL.md',title:'Intake',markdown:'# Intake\n\nShape a clear human outcome.'});
  if(p===base+'/operations')return json(res,{issues:[],metrics:{},worktrees:[],retention:[]});
- if(p.startsWith(base+'/initiatives/')){const id=p.split('/')[5];const item=initiatives.find(i=>i.id===id);writes.push({path:p,body});applyAction(item,body);item.pending=false;return json(res,{initiatives});}
+ const previewMatch=p.match(/^\/api\/projects\/ui-fixture\/initiatives\/([^/]+)\/preview(?:\/(start|stop))?$/);
+ if(previewMatch)return previewRoute(req,res,previewMatch[1],previewMatch[2],body);
+ if(p.startsWith(base+'/initiatives/')){const id=p.split('/')[5];if(['accept-uat','request-rework','scope-change'].includes(body.action)&&preview.runtime.initiativeId===id&&['starting','running'].includes(preview.runtime.state))preview.runtime={...preview.runtime,state:'stopped',reason:body.action==='accept-uat'?'Stopped because you accepted the delivery.':'Stopped because you requested rework.'};const item=initiatives.find(i=>i.id===id);writes.push({path:p,body});applyAction(item,body);item.pending=false;return json(res,{initiatives});}
  const route=p.slice((base+'/native').length);
  if(req.method!=='GET'){
   writes.push({path:route,method:req.method,body});
