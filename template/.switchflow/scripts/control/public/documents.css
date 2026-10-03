@@ -161,8 +161,9 @@
 
 /* Prose: shared by documents, decisions, tasks, milestones, skills and agent messages.
    Sizes are relative so each host sets its own base size. */
+/* One reading measure app-wide; hosts centre or align the column. */
 .docs-prose {
-  max-width: 100%;
+  max-width: var(--measure);
   color: var(--text-1);
   line-height: 1.7;
   overflow-wrap: anywhere;

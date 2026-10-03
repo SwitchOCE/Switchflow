@@ -11,6 +11,7 @@ import {
   decisionTone,
   statusLabel,
   tocEntries,
+  draftChanged,
 } from './knowledge-model.js';
 
 // Markdown inserted around the selection by the editor toolbar and its shortcuts.
@@ -55,6 +56,7 @@ export function mountKnowledge(
     current = null,
     draft = null,
     baseline = null,
+    original = null,
     destroyed = false,
     generation = 0,
     listGeneration = 0,
@@ -112,13 +114,23 @@ export function mountKnowledge(
     }
   }
   function persist() {
-    stored = draft ? { draft, baseline } : null;
+    // An editor opened and left untouched is not a draft worth recovering.
+    stored = draft && changed() ? { draft, baseline } : null;
     try {
       if (stored) sessionStorage.setItem(key, JSON.stringify(stored));
       else sessionStorage.removeItem(key);
     } catch {
       report('Draft remains open, but this browser could not store it for recovery.', true);
     }
+  }
+  // The editable fields a draft started from, when they are still known.
+  function startingPoint() {
+    if (!draft) return null;
+    if (!draft.id) return draftFrom(null, kind);
+    return current?.id === draft.id && recordFingerprint(current) === baseline ? draftFrom(current, kind) : null;
+  }
+  function changed() {
+    return draftChanged(draft, original);
   }
   function resumeNotice() {
     const name = stored?.draft?.title?.trim();
@@ -293,6 +305,8 @@ export function mountKnowledge(
   }
   function reader() {
     frame.setAttribute('data-mode', 'read');
+    // With nothing selected the index is the list, so the navigator steps aside.
+    frame.setAttribute('data-selected', String(!!current));
     if (!current) {
       spy?.disconnect();
       spy = null;
@@ -422,13 +436,15 @@ export function mountKnowledge(
     spy = null;
     toc.innerHTML = '';
     frame.setAttribute('data-mode', 'edit');
+    original = startingPoint();
     resumeNotice();
     const fields =
       kind === 'documents'
-        ? `<div class="kn-editor-fields"><label>Type<select name="type">${DOCUMENT_TYPES.map(t => `<option value="${t}"${draft.type === t ? ' selected' : ''}>${statusLabel(t)}</option>`).join('')}</select></label><label>Folder<input name="folder" placeholder="e.g. guides" value="${esc(draft.folder)}"></label><label>Tags<input name="tags" placeholder="Comma separated" value="${esc(draft.tags)}"></label></div>`
-        : '<p class="kn-editor-hint">Keep the Context, Decision and Consequences sections. Alternatives is optional. Status and date are kept.</p>';
-    content.innerHTML = `<form class="panel knowledge-editor kn-editor" data-pane="write" aria-label="${draft.id ? 'Edit' : 'New'} ${noun}"><header class="kn-editor-head"><p class="kn-editor-kicker">${draft.id ? `Editing ${noun}` : `New ${noun}`}</p><input name="title" class="kn-title-input" required maxlength="300" placeholder="Title" aria-label="Title" value="${esc(draft.title)}">${fields}</header><div class="knowledge-conflict"></div><div class="kn-split"><section class="kn-pane kn-pane-source" aria-label="Markdown"><div class="kn-pane-bar"><div class="knowledge-format" role="group" aria-label="Markdown formatting">${FORMATS.map(([action, title, , shortcut]) => `<button type="button" class="button quiet button-small" data-format="${action}"${shortcut ? ` title="${title} (Ctrl+${shortcut.toUpperCase()})" aria-keyshortcuts="Control+${shortcut.toUpperCase()}"` : ''}>${title}</button>`).join('')}</div><div class="segmented kn-pane-switch" role="group" aria-label="Editor view"><button type="button" data-pane-switch="write" aria-pressed="true">Write</button><button type="button" data-pane-switch="preview" aria-pressed="false">Preview</button></div></div><textarea name="content" rows="18" spellcheck="true" aria-label="Markdown">${esc(draft.content)}</textarea></section><section class="kn-pane kn-pane-preview" aria-label="Preview"><div class="kn-pane-bar"><span class="kn-pane-label">Preview</span><div class="segmented kn-pane-switch" role="group" aria-label="Editor view"><button type="button" data-pane-switch="write" aria-pressed="false">Write</button><button type="button" data-pane-switch="preview" aria-pressed="true">Preview</button></div></div><article class="knowledge-preview docs-prose"></article></section></div><div class="knowledge-savebar kn-savebar"><span class="knowledge-save-state">Unsaved edits · kept in this tab</span><button type="button" class="button quiet" data-action="cancel" title="Close the editor. Your edits stay in this tab.">Close</button><button type="button" class="button quiet" data-action="discard">Discard</button><button type="button" class="button quiet" data-action="compare"${draft.id ? '' : ' disabled'} title="Check whether the saved ${noun} changed">Compare</button><button type="submit" class="button primary" data-action="save">Save ${noun}</button></div></form>`;
+        ? `<div class="kn-editor-fields"><label class="kn-field-title">Title<input name="title" required maxlength="300" value="${esc(draft.title)}"></label><label>Type<select name="type">${DOCUMENT_TYPES.map(t => `<option value="${t}"${draft.type === t ? ' selected' : ''}>${statusLabel(t)}</option>`).join('')}</select></label><label>Folder<input name="folder" placeholder="e.g. guides" value="${esc(draft.folder)}"></label><label>Tags<input name="tags" placeholder="Comma separated" value="${esc(draft.tags)}"></label></div>`
+        : `<div class="kn-editor-fields"><label class="kn-field-title">Title<input name="title" required maxlength="300" value="${esc(draft.title)}"></label></div><p class="kn-editor-hint">Keep the Context, Decision and Consequences sections. Alternatives is optional. Status and date are kept.</p>`;
+    content.innerHTML = `<form class="panel knowledge-editor kn-editor" data-pane="write" aria-label="${draft.id ? 'Edit' : 'New'} ${noun}"><header class="kn-editor-head"><p class="kn-editor-kicker">${draft.id ? `Editing ${noun}` : `New ${noun}`}</p><h2 class="kn-editor-title">${esc(draft.title.trim() || `Untitled ${noun}`)}</h2>${fields}</header><div class="knowledge-conflict"></div><div class="kn-split"><section class="kn-pane kn-pane-source" aria-label="Markdown"><div class="kn-pane-bar"><div class="knowledge-format" role="group" aria-label="Markdown formatting">${FORMATS.map(([action, title, , shortcut]) => `<button type="button" class="button quiet button-small" data-format="${action}"${shortcut ? ` title="${title} (Ctrl+${shortcut.toUpperCase()})" aria-keyshortcuts="Control+${shortcut.toUpperCase()}"` : ''}>${title}</button>`).join('')}</div><div class="segmented kn-pane-switch" role="group" aria-label="Editor view"><button type="button" data-pane-switch="write" aria-pressed="true">Write</button><button type="button" data-pane-switch="preview" aria-pressed="false">Preview</button></div></div><textarea name="content" rows="18" spellcheck="true" aria-label="Markdown">${esc(draft.content)}</textarea></section><section class="kn-pane kn-pane-preview" aria-label="Preview"><div class="kn-pane-bar"><span class="kn-pane-label">Preview</span><div class="segmented kn-pane-switch" role="group" aria-label="Editor view"><button type="button" data-pane-switch="write" aria-pressed="false">Write</button><button type="button" data-pane-switch="preview" aria-pressed="true">Preview</button></div></div><article class="knowledge-preview docs-prose"></article></section></div><div class="editor-bar knowledge-savebar"><span class="editor-state knowledge-save-state" role="status"></span><div class="editor-actions"><button type="button" class="button quiet" data-action="compare" hidden title="Check the saved ${noun} again">Compare again</button><button type="button" class="button quiet" data-action="discard">Discard</button><button type="button" class="button quiet" data-action="cancel" title="Close the editor. Unsaved changes stay in this tab.">Cancel</button><button type="submit" class="button primary" data-action="save">Save ${noun}</button></div></div></form>`;
     preview();
+    editorState();
     controls();
     find('[name=title]').focus();
   }
@@ -436,9 +452,19 @@ export function mountKnowledge(
     for (const field of content.querySelectorAll('[name]')) draft[field.name] = field.value;
     persist();
   }
-  function saveState(text) {
+  function saveState(text, state = 'dirty') {
     const node = find('.knowledge-save-state');
-    if (node) node.textContent = text;
+    if (!node) return;
+    node.textContent = text;
+    node.setAttribute('data-state', state);
+  }
+  // Reflect whether there is anything to save, and keep the heading on the current title.
+  function editorState() {
+    if (!draft) return;
+    const heading = find('.kn-editor-title');
+    if (heading) heading.textContent = draft.title.trim() || `Untitled ${noun}`;
+    if (changed()) saveState('Unsaved changes · kept in this tab');
+    else saveState('No changes yet', '');
   }
   async function compare() {
     if (!draft?.id) return true;
@@ -446,7 +472,8 @@ export function mountKnowledge(
     const latest = await api(`${endpoint}/${encodeURIComponent(draft.id)}`);
     if (destroyed || draft !== comparingDraft) return false;
     if (recordFingerprint(latest) === baseline) return true;
-    saveState('Saved version changed · your edits are kept');
+    saveState('Saved version changed · your edits are kept', 'error');
+    find('[data-action="compare"]')?.removeAttribute('hidden');
     find('.knowledge-conflict').innerHTML =
       `<div class="kn-conflict" role="alert"><div class="kn-conflict-head"><strong>The saved ${noun} changed while you were editing.</strong><p>Your edits are kept. Compare the differences below and copy what you need. Discard loads the saved version and offers Undo.</p></div>${
         knowledgeFieldComparison(draft, latest, kind)
@@ -500,13 +527,12 @@ export function mountKnowledge(
       report(`${Noun} saved.`);
       onChange();
     } catch (error) {
-      saveState('Not saved · your edits are kept');
+      saveState('Not saved · your edits are kept', 'error');
       report(`${error.message} Your draft is retained.`, true);
     } finally {
       busy = false;
       if (!destroyed) {
         for (const f of content.querySelectorAll('input,textarea,select,button')) f.disabled = false;
-        if (draft && !draft.id) find('[data-action="compare"]')?.setAttribute('disabled', '');
         controls();
       }
     }
@@ -602,6 +628,7 @@ export function mountKnowledge(
         }
         draft = draftFrom(target.dataset.action === 'edit' ? current : null, kind);
         baseline = target.dataset.action === 'edit' ? recordFingerprint(current) : null;
+        original = startingPoint();
         persist();
         editor();
         break;
@@ -610,24 +637,29 @@ export function mountKnowledge(
         baseline = stored?.baseline;
         if (draft) editor();
         break;
-      case 'cancel':
+      case 'cancel': {
         collect();
+        const kept = changed();
         draft = null;
+        original = null;
         reader();
         resumeNotice();
-        report('Unsaved edits kept in this browser tab. Resume them above.');
+        report(kept ? 'Unsaved changes kept in this tab. Resume them above.' : '');
         break;
+      }
       case 'discard': {
         collect();
-        discarded = { draft: { ...draft }, baseline };
+        const lost = changed();
+        if (lost) discarded = { draft: { ...draft }, baseline };
         const id = draft?.id;
         draft = null;
         baseline = null;
         persist();
         resumeNotice();
+        original = null;
         if (id) await open(id);
         else reader();
-        report('Edits discarded. Undo discard is available above.');
+        report(lost ? 'Edits discarded. Undo discard is available above.' : '');
         break;
       }
       case 'discard-stored':
@@ -668,6 +700,7 @@ export function mountKnowledge(
     } else if (draft && event.target.name) {
       collect();
       preview();
+      editorState();
     }
   };
   const keydown = event => {

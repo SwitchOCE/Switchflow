@@ -9,6 +9,7 @@ import {
   decisionTone,
   statusLabel,
   tocEntries,
+  draftChanged,
 } from '../template/.switchflow/scripts/control/public/knowledge-model.js';
 
 test('document edit preserves body, tags, type and nested folder in native payload', () => {
@@ -98,4 +99,15 @@ test('knowledge search, decision tone and contents entries', () => {
       ['b', 1],
     ],
   );
+});
+
+test('an untouched editor is not an unsaved draft', () => {
+  const record = { id: 'doc-1', title: 'Guide', rawContent: 'Body', type: 'guide', tags: ['a'], path: 'g/doc.md' };
+  const start = draftFrom(record, 'documents');
+  assert.equal(draftChanged({ ...start }, start), false);
+  assert.equal(draftChanged({ ...start, content: 'Body!' }, start), true);
+  assert.equal(draftChanged({ ...start, tags: 'a, b' }, start), true);
+  assert.equal(draftChanged(draftFrom(null, 'decisions'), draftFrom(null, 'decisions')), false);
+  assert.equal(draftChanged(start, null), true, 'unknown starting point counts as changed');
+  assert.equal(draftChanged(null, start), false);
 });
