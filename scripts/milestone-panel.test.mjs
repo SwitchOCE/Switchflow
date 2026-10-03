@@ -116,7 +116,7 @@ test('native edit uses captured revision and preserves a conflicted draft', asyn
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   const title = container.all().find(el => el.name === 'title');
   title.value = 'My retained scope';
@@ -190,7 +190,7 @@ test('active-agent guard rejects submit even if editor was opened while writable
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   writable = false;
   await container
@@ -208,7 +208,7 @@ test('wrapper edit compatibility still requires atomicRevision', async () => {
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   assert.equal(find('Save milestone').disabled, true);
 });
@@ -232,7 +232,7 @@ test('assignment writes only milestone and captured task revision; unassignment 
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   const filter = container.all().find(el => el['aria-label'] === 'Task assignment filter');
   filter.value = 'all';
@@ -266,7 +266,7 @@ test('removal confirmation names archive outcome and explicit task handling', as
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   container.all().find(el => el['aria-label'] === 'Task handling on milestone removal').value = 'clear';
   await find('Remove milestone').listeners.click();
@@ -294,7 +294,7 @@ test('opening another milestone while saving cannot replace or discard its edito
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   const saving = container
     .all()
@@ -320,7 +320,7 @@ test('late same-record loads cannot replace a newer response', async () => {
   await first;
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   assert.equal(container.all().find(el => el.name === 'title').value, 'Latest title');
 });
@@ -339,7 +339,7 @@ test('loading latest retains edits typed while the comparison read was pending',
   await panel.open('m-20');
   container
     .all()
-    .find(el => el.textContent === 'Edit milestone')
+    .find(el => el.textContent === 'Edit')
     .listeners.click();
   const loading = find('Load latest; keep my draft').listeners.click();
   container.all().find(el => el.name === 'title').value = 'Typed during request';
@@ -367,7 +367,7 @@ test('opening a milestone reads formatted scope before editing and does not writ
       .find(el => el.tagName === 'article')
       .innerHTML.includes('<strong>scope</strong>'),
   );
-  assert.ok(find('No delivery tasks linked.'));
+  assert.ok(find('No tasks linked yet.'));
   assert.ok(find('Back to milestones'));
   assert.equal(writes, 0);
 });
@@ -390,9 +390,9 @@ test('linked tasks and assignment matches reveal bounded batches with stable IDs
   await panel.refresh();
   await panel.open(milestone.id);
   const taskLinks = () =>
-    container.all().filter(el => el.tagName === 'button' && /^T-\d+ - Task /.test(el.textContent || ''));
+    container.all().filter(el => el.tagName === 'button' && /^T-\d+$/.test(el.dataset.task || ''));
   assert.equal(taskLinks().length, 20);
-  assert.ok(find('20 of 45 linked tasks shown'));
+  assert.ok(find('Showing 20 of 45'));
   find('Show more linked tasks').listeners.click();
   assert.equal(taskLinks().length, 40);
   taskLinks()[39].listeners.click();
@@ -400,7 +400,7 @@ test('linked tasks and assignment matches reveal bounded batches with stable IDs
   find('Show more linked tasks').listeners.click();
   assert.equal(taskLinks().length, 45);
   assert.equal(find('Show more linked tasks').hidden, true);
-  find('Edit milestone').listeners.click();
+  find('Edit').listeners.click();
   const mode = container.all().find(el => el['aria-label'] === 'Task assignment filter');
   mode.value = 'assigned';
   mode.listeners.change();
