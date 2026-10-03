@@ -283,6 +283,7 @@
 }
 .agents-environment-editor label {
   display: grid;
+  align-content: start;
   gap: 4px;
   margin: 0;
   font-size: 12px;
@@ -296,7 +297,19 @@
   align-items: center;
   gap: 6px;
 }
+.agents-environment-editor .agents-environment-check input {
+  flex: none;
+  width: auto;
+}
+.agents-environment-editor .agents-environment-wide {
+  align-items: flex-start;
+}
+.agents-environment-hint {
+  font-size: 11px;
+  line-height: 1.35;
+}
 .agents-environment-editor p,
+.agents-environment-editor .agents-environment-wide,
 .agents-environment-editor .agents-environment-tools {
   grid-column: 1 / -1;
   margin: 0;

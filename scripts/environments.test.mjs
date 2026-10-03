@@ -25,7 +25,10 @@ import {
   shellQuote,
   validateSshConfig,
 } from '../template/.switchflow/scripts/control/environments/ssh.mjs';
-import { fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
+import { ControlEngine } from '../template/.switchflow/scripts/control/engine.mjs';
+import { createInitiative } from '../template/.switchflow/scripts/control/lifecycle.mjs';
+import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
+import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const both = { codex: { available: true }, claude: { available: true, loggedIn: true } };
 const planHash = 'b'.repeat(64);
@@ -150,6 +153,9 @@ test('SSH configs are strict: absolute existing key, plain host and root, no inl
   refuse({ workRoot: '/home/me/$(id)' }, /workRoot/);
   refuse({ wake: 'wsl.exe "-d" Ubuntu' }, /wake/);
   refuse({ wake: 'cmd /c a&b' }, /wake/);
+  refuse({ maxWorkers: 0 }, /maxWorkers/);
+  refuse({ maxWorkers: 1.5 }, /maxWorkers/);
+  assert.equal(validateEnvironmentConfig({ ...sshConfig(file), maxWorkers: 3 }).maxWorkers, 3);
   refuse({ id: 'local' }, /reserved/);
   refuse({ kind: 'telnet' }, /Unsupported environment kind/);
   assert.throws(() => validateSshConfig({ ...sshConfig(file), port: 22.5 }), /port/);
@@ -366,6 +372,7 @@ function fakeEnvironment({ healthy = true } = {}) {
       id: config.id,
       kind: 'ssh',
       label: config.label,
+      maxWorkers: config.maxWorkers ?? 2,
       capabilities: { stream: true, steer: true, interrupt: true, followUp: true, result: 'remote-branch' },
       executables: { codex: 'codex', claude: 'claude' },
       async health() {
@@ -418,7 +425,13 @@ function respond(text, options, sandbox) {
   };
 }
 
-async function orchestrationWith(context, t, environmentDouble, placement = 'box') {
+async function orchestrationWith(
+  context,
+  t,
+  environmentDouble,
+  placement = 'box',
+  { config = {}, pool = roomyPool() } = {},
+) {
   const { file } = await keyFile(t);
   const initiativeId = randomUUID();
   const managedRoot = path.join(context.stateDir, 'candidates', 'grant');
@@ -435,11 +448,11 @@ async function orchestrationWith(context, t, environmentDouble, placement = 'box
   const host = new AgentHost(context, {
     capabilities: both,
     providers: { codex: fakeProvider('codex', log, respond), claude: fakeProvider('claude', log, respond) },
-    capacity: { pool: roomyPool() },
+    capacity: { pool },
     environments: { factories: { ssh: environmentDouble.factory } },
   });
   await host.init();
-  await host.updateSettings({ environments: [sshConfig(file)], placement: { delivery: placement } });
+  await host.updateSettings({ environments: [{ ...sshConfig(file), ...config }], placement: { delivery: placement } });
   const runId = randomUUID();
   const controller = new AbortController();
   const orchestration = new Orchestration({
@@ -547,4 +560,143 @@ test('an unhealthy or unknown environment is refused with its reason, never repl
     });
     assert.equal(local.environment, 'local');
     assert.equal(log.at(-1).options.spawnProcess, undefined);
+  }));
+
+test('SSH workers skip memory admission and queue against their box limit, not this PC', t =>
+  fixture(async context => {
+    const box = fakeEnvironment();
+    // No free memory here: a local worker would wait (or start with a warning); box workers do not.
+    const machine = fakeMachine({ free: 0 });
+    const { log, orchestration } = await orchestrationWith(context, t, box, 'box', {
+      config: { maxWorkers: 1 },
+      pool: machine.pool,
+    });
+    const delegate = environment =>
+      orchestration.call('delegate_task', {
+        task: 'DEMO-1',
+        kind: 'deliver',
+        instructions: 'x',
+        worktree: 'cand',
+        ...(environment ? { environment } : {}),
+      });
+    const first = await delegate();
+    assert.equal(first.status, 'working');
+    assert.equal(first.capacityNote, undefined, 'no memory warning for a box worker');
+    assert.equal(machine.pool.snapshot(0).reservations, 0, 'nothing reserved on this PC');
+    const firstSession = log.at(-1);
+
+    const second = await delegate();
+    assert.equal(second.status, 'queued');
+    assert.match(second.queue.reason, /1 worker is running on Test box, its limit \(maxWorkers\)/);
+
+    // The full box does not hold up this PC.
+    const local = await delegate('local');
+    assert.notEqual(local.status, 'queued');
+    assert.equal(local.environment, 'local');
+
+    // The box worker's approach turn ends: its slot frees and the queued one starts there.
+    await until(() => firstSession.handle.activeTurnId);
+    firstSession.handle.finish('approach');
+    await until(() => orchestration.workers.get(second.workerId).status === 'working');
+    assert.equal(orchestration.workers.get(second.workerId).environment.id, 'box');
+  }));
+
+test('a remote PID fences a restart even after its ssh client is gone, until the owner confirms', t =>
+  fixture(async context => {
+    const { file, directory } = await keyFile(t);
+    const fake = fakeSsh({
+      answer: call => (call.words?.some(word => word.includes('kill -TERM')) ? { code: 0 } : 'stay'),
+    });
+    t.after(() => fake.children.forEach(child => child.end(0)));
+    const runId = randomUUID();
+    const item = createInitiative({ title: 'Orchestrated', request: 'Request', start: false });
+    item.status = 'running';
+    item.runs = [{ id: runId, status: 'running' }];
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item],
+      activeRun: { id: runId, initiativeId: item.id, stage: 'execution', status: 'running' },
+    }));
+    const engine = new ControlEngine(context, { protocol, runner: async () => assert.fail('no run') });
+    t.after(() => engine.close());
+    const host = new AgentHost(context, {
+      capabilities: both,
+      capacity: { pool: roomyPool() },
+      environments: {
+        factories: {
+          ssh: (config, deps) =>
+            createSshEnvironment(config, {
+              ...deps,
+              stateDir: directory,
+              spawnProcess: fake.spawnProcess,
+              sshExecutable: 'ssh',
+            }),
+        },
+      },
+      providers: {
+        // Spawns its CLI through the environment as the real providers do; the box wrapper
+        // reports the remote PID on stderr.
+        codex: async options => {
+          options.spawnProcess('codex', ['app-server'], { env: {} });
+          fake.calls.at(-1).rawStderr.write('SWITCHFLOW_REMOTE_PID 4321\n');
+          return fakeProvider('codex')(options);
+        },
+      },
+    });
+    await host.init();
+    t.after(() => host.close());
+    await host.updateSettings({ environments: [sshConfig(file)] });
+    host.bind(engine);
+    await host.openSession({
+      provider: 'codex',
+      role: 'delivery',
+      kind: 'deliver',
+      runId,
+      initiativeId: item.id,
+      task: 'DEMO-1',
+      cwd: '/home/me/sf/worktrees/w1',
+      sandbox: 'workspace-write',
+      runDirectory: path.join(context.stateDir, 'runs', runId),
+      environment: 'box',
+      workspace: { path: '/home/me/sf/worktrees/w1', temporaryRoot: '/home/me/sf/tmp/w1', name: 'w1' },
+    });
+    const [entry] = await until(async () => {
+      const workers = (await engine.read()).activeRun.workers ?? [];
+      return workers[0]?.remotePid ? workers : null;
+    });
+    assert.equal(entry.environment, 'box');
+    assert.equal(entry.remotePid, 4321);
+
+    // Restart: the local ssh client (4242) is gone, but the box may still run the agent.
+    const restarted = new ControlEngine(context, {
+      protocol,
+      runner: async () => assert.fail('no run'),
+      processAlive: () => false,
+      stopProcess: async () => assert.fail('a remote process is never stopped through a local PID'),
+    });
+    t.after(() => restarted.close());
+    await restarted.recover();
+    let state = await restarted.read();
+    assert.equal(state.activeRun.status, 'interrupted');
+    const held = state.activeRun.held.find(process => process.kind === 'deliver');
+    assert.deepEqual([held.state, held.environment, held.remotePid, held.pid], ['remote', 'box', 4321, 4242]);
+    assert.equal(state.activeRun.unknownProcess, true);
+    assert.match(state.initiatives[0].nextAction, /on box, remote process group 4321/);
+    assert.match(state.initiatives[0].nextAction, /could not confirm/);
+
+    // Stop finds nothing verified to stop on this PC, so the hold stays and other actions are refused.
+    await restarted.action(item.id, { action: 'stop-processes', expectedRevision: state.initiatives[0].revision });
+    state = await restarted.read();
+    assert.equal(state.activeRun.status, 'interrupted');
+    await assert.rejects(
+      restarted.action(item.id, { action: 'retry', expectedRevision: state.initiatives[0].revision }),
+      /Confirm the unidentified prior process has stopped/,
+    );
+    await restarted.action(item.id, {
+      action: 'recover-run',
+      confirmedStopped: true,
+      expectedRevision: state.initiatives[0].revision,
+    });
+    assert.equal((await restarted.read()).activeRun, null);
   }));
