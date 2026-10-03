@@ -73,6 +73,22 @@ async function until(fn) {
   throw new Error('Timed out waiting for test condition');
 }
 
+test('requesting changes re-runs the stage under review without revoking earlier approval', () => {
+  const item = createInitiative({ title: 'Example', request: 'A useful example', start: false });
+  assert.throws(() => action(item, 'request-changes', { message: 'Too early' }), /waiting for your review/);
+  applyResult(item, result('intake'));
+  action(item, 'approve-scope');
+  item.pending = false;
+  applyResult(item, result('planning'));
+  const scope = item.approvedScope.hash;
+  action(item, 'request-changes', { message: 'Split phase two' });
+  assert.equal(item.stage, 'planning');
+  assert.equal(item.pending, true);
+  assert.equal(item.approvedScope.hash, scope);
+  assert.equal(item.messages.at(-1).message, 'Split phase two');
+  assert.throws(() => action(item, 'request-changes', { message: 'Again' }), /wait|waiting/i);
+});
+
 test('only Intake, Planning and human UAT authorize transitions; stale/partial approval fails', () => {
   const item = createInitiative({ title: 'Example', request: 'A useful example', start: false });
   assert.throws(() => action(item, 'approve-plan'), /Finish Planning/);

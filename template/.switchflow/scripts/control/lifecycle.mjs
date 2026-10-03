@@ -228,6 +228,15 @@ export function applyAction(item, input) {
     case 'update':
       item.messages.push({ type: 'update', message: text(input.message, 'Update'), at: now() });
       break;
+    case 'request-changes':
+      // Revise the proposal under review without leaving its stage or revoking earlier approvals.
+      requireState(
+        ['intake', 'planning'].includes(item.stage) && item.status === 'awaiting-human' && !item.questions.length,
+        'Changes can be requested while a scope or plan is waiting for your review.',
+      );
+      item.messages.push({ type: 'update', message: text(input.message, 'Requested changes'), at: now() });
+      enqueue(item);
+      break;
     case 'cancel':
       requireState(busy, 'There is no queued or running work to cancel.');
       item.pending = false;

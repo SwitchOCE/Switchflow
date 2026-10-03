@@ -154,7 +154,7 @@ export class ControlEngine {
       }
     });
     if (interrupt && this.current?.initiativeId === id) this.current.controller.abort();
-    if (['scope-change', 'update', 'request-rework'].includes(input.action)) {
+    if (['scope-change', 'update', 'request-rework', 'request-changes'].includes(input.action)) {
       await this.recordIssue({
         type: input.action === 'scope-change' ? 'scope-change' : 'intervention',
         summary: `Human ${input.action}`,
