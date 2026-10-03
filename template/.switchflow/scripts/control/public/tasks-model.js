@@ -3,6 +3,24 @@ export const escapeHTML = value =>
     /[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
+export const statusKey = status => String(status || '').toLowerCase();
+export const isoDay = value => (value ? String(value).slice(0, 10) : '');
+const initials = name =>
+  String(name || '')
+    .trim()
+    .split(/\s+/)
+    .map(part => part[0] || '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+export const avatarMarkup = name =>
+  `<span class="sf-avatar" data-owner="${escapeHTML(statusKey(name))}" aria-hidden="true">${escapeHTML(initials(name))}</span>`;
+// Owner avatar plus names, shared by cards, list rows and the detail rail.
+export function ownerMarkup(assignee = []) {
+  if (!assignee?.length)
+    return '<span class="sf-owner is-empty"><span class="sf-avatar" aria-hidden="true"></span><span class="sf-owner-name">Unassigned</span></span>';
+  return `<span class="sf-owner">${avatarMarkup(assignee[0])}<span class="sf-owner-name">${escapeHTML(assignee.join(', '))}</span></span>`;
+}
 export const splitValues = value =>
   String(value || '')
     .split(/[,\n]/)
