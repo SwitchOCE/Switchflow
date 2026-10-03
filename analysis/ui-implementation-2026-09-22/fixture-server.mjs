@@ -83,6 +83,12 @@ function seedPreview(mode='idle'){
  const logs=['> app@1.0.0 dev','> vite','','  VITE v7.1.0  ready in 412 ms','','  ➜  Local:   http://localhost:5173/','  ➜  press h + enter to show help'];
  if(mode==='running')preview.runtime={state:'running',initiativeId:'fixture-uat',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs};
  if(mode==='other')preview.runtime={state:'running',initiativeId:'fixture-plan',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs};
+ // Network-listener states: allowed and still running, stopped by the guardrail, or unverifiable.
+ const exposed=['0.0.0.0:5173','[::]:5173'];
+ if(mode==='network')preview.runtime={state:'running',initiativeId:'fixture-uat',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs:[...logs.slice(0,6),'  ➜  Network: http://192.168.1.5:5173/'],network:{state:'exposed',exposed,allowed:true,error:null}};
+ if(mode==='network-stopped')preview.runtime={state:'stopped',initiativeId:'fixture-uat',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,exitCode:null,reason:`Stopped because it was listening on your network (${exposed.join(', ')}), where other devices could reach it.`,logs:[...logs.slice(0,6),'  ➜  Network: http://192.168.1.5:5173/'],network:{state:'exposed',exposed,allowed:false,error:null}};
+ if(mode==='network-unknown')preview.runtime={state:'running',initiativeId:'fixture-uat',candidate:'integration',command:'npm run dev',url:'http://localhost:5173/',pid:4242,startedAt:date,logs,network:{state:'unknown',exposed:[],allowed:false,error:"No listening port was found among the preview's processes."}};
+ if(mode==='network')previewCommand.allowNetwork=true;else delete previewCommand.allowNetwork;
 }
 seedPreview(process.env.UI_PREVIEW||'idle');
 function previewRoute(req,res,id,action,body){
@@ -96,7 +102,7 @@ function previewRoute(req,res,id,action,body){
  if(body.commandHash!==previewCommand.hash)return json(res,{error:'The preview command changed since it was shown. Review the current command, then start again.'},409);
  const candidate=body.candidate||preview.candidates[0].name;
  const runtime=preview.runtime={state:'starting',initiativeId:id,candidate,command:'npm run dev',url:null,pid:4242,startedAt:new Date().toISOString(),logs:['> app@1.0.0 dev','> vite']};
- setTimeout(()=>{if(preview.runtime!==runtime||runtime.state!=='starting')return;if(preview.mode==='fail')Object.assign(runtime,{state:'failed',exitCode:1,reason:'The preview stopped unexpectedly (exit code 1).',logs:[...runtime.logs,'failed to load config from C:/state/candidates/0123456789abcdef/integration/vite.config.ts','error when starting dev server:',"Error: Cannot find module 'vite'"]});else Object.assign(runtime,{state:'running',url:'http://localhost:5173/',logs:[...runtime.logs,'','  VITE v7.1.0  ready in 412 ms','','  ➜  Local:   http://localhost:5173/']});},1500);
+ setTimeout(()=>{if(preview.runtime!==runtime||runtime.state!=='starting')return;if(preview.mode==='fail')Object.assign(runtime,{state:'failed',exitCode:1,reason:'The preview stopped unexpectedly (exit code 1).',logs:[...runtime.logs,'failed to load config from C:/state/candidates/0123456789abcdef/integration/vite.config.ts','error when starting dev server:',"Error: Cannot find module 'vite'"]});else Object.assign(runtime,{state:'running',url:'http://localhost:5173/',network:{state:'local',exposed:[],allowed:false,error:null},logs:[...runtime.logs,'','  VITE v7.1.0  ready in 412 ms','','  ➜  Local:   http://localhost:5173/']});},1500);
  return json(res,{runtime},202);
 }
 

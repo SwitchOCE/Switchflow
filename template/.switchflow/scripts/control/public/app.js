@@ -15,7 +15,7 @@ import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
 import { createRefreshControl } from './refresh-control.js';
-import { createPreviewBar } from './preview.js';
+import { createPreviewBar, createPreviewStatus } from './preview.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'You approve the scope'],
@@ -786,6 +786,8 @@ function renderUat(item, body, verdict) {
   const progress = el('div', 'uat-progress');
   progress.setAttribute('role', 'status');
   form.append(progress);
+  // Keeps the preview link in reach while the bar above scrolls away.
+  const previewStatus = createPreviewStatus(item.id);
   const list = el('ol', 'uat-list');
   form.append(list);
   const statusOf = check => form.elements.namedItem(`uat-status-${check.id}`)?.value || 'pending';
@@ -822,7 +824,7 @@ function renderUat(item, body, verdict) {
       ),
     );
     const head = el('div', 'uat-progress-head');
-    head.append(summary);
+    head.append(summary, previewStatus);
     const nextIndex = statuses.indexOf('pending');
     if (nextIndex >= 0)
       head.append(
