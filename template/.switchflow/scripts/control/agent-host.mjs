@@ -10,7 +10,7 @@ import { AgentSessionRegistry } from './agent-sessions.mjs';
 import { confirmRefusal } from './orchestration.mjs';
 import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
-import { defaultEnvironmentRegistry } from './environments/index.mjs';
+import { EnvironmentRegistry } from './environments/index.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -21,6 +21,8 @@ import {
 
 export const defaultProviders = Object.freeze({ codex: openCodexSession, claude: openClaudeSession });
 const MAX_STEER = 20000;
+/** Sessions with no agent process on this PC or a box we reach (environments/claude-cloud.mjs). */
+const CLOUD_TRANSPORTS = new Set(['claude-cloud', 'codex-cloud']);
 
 /** Maps `codex exec --json` events into the normalized session vocabulary. */
 export function normalizeExecEvent(entry) {
@@ -187,11 +189,9 @@ export class AgentHost {
       orchestrationFactory = null,
       capacity = {},
       processes = {},
-      environments = null,
+      environments = {},
     } = {},
   ) {
-    // Remote environments (environments/index.mjs): a registry, or an async function returning one.
-    this.environments = environments;
     this.context = context;
     this.capabilities = normalizeCapabilities(capabilities);
     this.providers = providers;
@@ -204,6 +204,15 @@ export class AgentHost {
     // Memory admission, leases and worker caps (capacity.mjs); leftover-process cleanup (process-tree.mjs).
     this.capacity = new CapacityManager(this, capacity);
     this.processes = processes instanceof ProcessTracker ? processes : new ProcessTracker(processes);
+    // Where workers run: this PC or an owner-configured environment (environments/index.mjs).
+    this.environments =
+      environments instanceof EnvironmentRegistry
+        ? environments
+        : new EnvironmentRegistry({
+            stateDir: context.stateDir,
+            projectRoot: context.governanceRoot,
+            ...environments,
+          });
     this.run = this.run.bind(this);
   }
   async init() {
@@ -215,17 +224,30 @@ export class AgentHost {
   settings() {
     return readAgentSettings(this.context);
   }
-  /** The configured environment, or a 409 naming why it cannot take workers. Never falls back to local. */
-  async environment(id) {
+  /**
+   * The environment with this id under the owner's settings, or null for this PC. A missing or
+   * disabled environment is a 409 with its reason; it never falls back to local.
+   */
+  async environment(id, settings = null) {
     if (!id || id === 'local') return null;
-    const registry =
-      typeof this.environments === 'function'
-        ? await this.environments()
-        : (this.environments ?? (await defaultEnvironmentRegistry(this.context)));
-    const entry = registry?.get(id);
-    if (!entry || typeof entry.openSession !== 'function')
-      throw new ControlError(`Environment ${id} is not configured for this project.`, 409);
-    return entry;
+    try {
+      return this.environments.get(id, settings ?? (await this.settings()));
+    } catch (error) {
+      throw new ControlError(error.message, 409);
+    }
+  }
+  /** The Agents view's "Test connection": a health check that starts no agent. */
+  async testEnvironment(id) {
+    if (typeof id !== 'string' || id.length > 40) throw new ControlError('Unknown environment.', 404);
+    const settings = await this.settings();
+    const configured = settings.environments.find(item => item.id === id);
+    if (!configured && id !== 'local' && !this.environments.fixed.has(id))
+      throw new ControlError('Unknown environment.', 404);
+    const environment = this.environments.get(id, {
+      environments: configured ? [{ ...configured, enabled: true }] : [],
+    });
+    const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
+    return { id, checkedAt: new Date().toISOString(), ...health };
   }
   limitsFor(settings) {
     return { timeoutMs: settings.limits.timeoutMinutes * 60 * 1000, maxTurns: settings.limits.maxTurns };
@@ -258,12 +280,21 @@ export class AgentHost {
     mcpConfigPath,
     gitHelperPath,
     approval = null,
+    // An environment id, or an environment object orchestration already resolved; workspace is
+    // that environment's prepared workspace (environments/index.mjs).
     environment = 'local',
+    workspace = null,
     forward = async () => {},
   }) {
-    const remote = await this.environment(environment);
-    if (remote)
-      return this.openRemoteSession(remote, {
+    const target =
+      typeof environment === 'string'
+        ? await this.environment(environment)
+        : environment?.kind === 'local'
+          ? null
+          : environment;
+    // Submit kinds (cloud) have no local process: their adapter gives the session handle.
+    if (typeof target?.openSession === 'function')
+      return this.openRemoteSession(target, {
         id,
         role,
         kind,
@@ -280,6 +311,11 @@ export class AgentHost {
         forward,
       });
     const settings = await this.settings();
+    if (target && typeof target.spawnFor !== 'function')
+      throw new ControlError(`Environment ${target.id} cannot run agent processes.`, 409);
+    const environmentId = target?.id ?? 'local';
+    // Process kinds other than local (ssh): the same CLIs, spawned through the environment.
+    const remote = Boolean(target);
     const model = settings.models[provider] ?? undefined;
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
@@ -300,6 +336,7 @@ export class AgentHost {
       reviewRound,
       fallback,
       approval,
+      environment: environmentId,
     });
     const onEvent = async entry => {
       await this.registry.record(meta.id, entry);
@@ -310,8 +347,13 @@ export class AgentHost {
     // process does, so a crash before its PID is known still leaves an unidentified entry.
     const tracked = kind !== 'stage' && Boolean(this.engine);
     const onProcess = async pid => {
-      this.processes.track(meta.id, pid);
+      // A remote CLI's local PID is its ssh client; the process tree to clean up lives on the box.
+      if (!remote) this.processes.track(meta.id, pid);
       if (tracked) await this.engine.trackProcess(runId, meta.id, { pid });
+    };
+    // The remote PID is fenced too, with its environment, so a restart can name what to stop.
+    const onRemoteProcess = async remotePid => {
+      if (tracked) await this.engine.trackProcess(runId, meta.id, { environment: environmentId, remotePid });
     };
     if (fallback)
       await onEvent({
@@ -334,26 +376,38 @@ export class AgentHost {
       signal,
       rawLogPath: this.registry.rawLogPath(meta),
       env,
+      ...(remote ? { spawnProcess: target.spawnFor(workspace, { onRemoteProcess }) } : {}),
     };
+    // Remote environments name their own CLIs; the host's Windows paths mean nothing there.
+    const executables = remote ? (target.executables ?? {}) : this.executables;
     let handle;
     try {
-      if (tracked) await this.engine.trackProcess(runId, meta.id, { kind, role, provider, task, pid: null });
+      if (tracked)
+        await this.engine.trackProcess(runId, meta.id, {
+          kind,
+          role,
+          provider,
+          task,
+          pid: null,
+          environment: environmentId,
+        });
       if (provider === 'claude')
         handle = await this.providers.claude({
           ...common,
           mcpConfigPath,
           gitHelperPath,
-          ...(this.executables.claude ? { executable: this.executables.claude } : {}),
+          ...(executables.claude ? { executable: executables.claude } : {}),
         });
       else {
         try {
           handle = await this.providers.codex({
             ...common,
             mcpServers,
-            ...(this.executables.codex ? { executable: this.executables.codex } : {}),
+            ...(executables.codex ? { executable: executables.codex } : {}),
           });
         } catch (error) {
-          if (!error.handshake || signal?.aborted) throw error;
+          // The exec fallback runs locally, so a remote session never takes it.
+          if (!error.handshake || signal?.aborted || remote) throw error;
           await onEvent({
             kind: 'notice',
             level: 'warning',
@@ -420,8 +474,8 @@ export class AgentHost {
    */
   async closeSession(meta, handle, { status, error = null, result = null }) {
     try {
-      if (meta.environment && meta.environment !== 'local') {
-        // Remote: no local processes; closing disables the routine and removes its branches.
+      if (meta.environment && meta.environment !== 'local' && CLOUD_TRANSPORTS.has(meta.transport)) {
+        // Cloud: no local processes; closing disables the routine and removes its branches.
         await handle?.close();
         return;
       }
@@ -568,6 +622,7 @@ export class AgentHost {
       settings,
       routing: this.routing(settings),
       capacity,
+      environments: this.environments.list(settings),
       activeRun: run
         ? { id: run.id, initiativeId: run.initiativeId, stage: run.stage, status: run.status ?? 'running' }
         : null,
@@ -743,6 +798,7 @@ export class AgentHost {
       );
     this.capacity.close();
     this.processes.close();
+    this.environments.close();
   }
 
   async ensureDirectory(...parts) {

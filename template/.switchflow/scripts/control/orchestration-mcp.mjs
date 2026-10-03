@@ -23,7 +23,7 @@ export const TOOLS = [
         environment: {
           type: 'string',
           description:
-            'Where the worker runs: "local" (default) or a configured remote environment such as "claude-cloud". Remote workers skip memory admission, start at once and report through polling (about a minute of lag); an unconfigured environment is refused, never replaced by local.',
+            'Optional override of where the worker runs: "local", an SSH box, or a cloud environment such as "claude-cloud", if the owner configured and enabled it. Defaults to the owner placement for the role. SSH workers stream and steer like local ones; cloud workers skip memory admission, start at once and report through polling (about a minute of lag). An unconfigured or unavailable environment is refused with its reason, never replaced by this PC.',
         },
       },
       required: ['task', 'kind', 'instructions', 'worktree'],

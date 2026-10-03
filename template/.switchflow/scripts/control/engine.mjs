@@ -31,7 +31,8 @@ function recordedProcesses(run) {
 
 function describeProcess(entry) {
   const who = entry.kind === 'stage' ? `${entry.role} agent` : `${entry.kind} worker for ${entry.task}`;
-  return `${entry.provider ?? 'unknown provider'} ${who} (${knownPid(entry.pid) ? `process ${entry.pid}` : 'process not recorded'})`;
+  const where = entry.remotePid ? ` on ${entry.environment}, remote process group ${entry.remotePid}` : '';
+  return `${entry.provider ?? 'unknown provider'} ${who} (${knownPid(entry.pid) ? `process ${entry.pid}` : 'process not recorded'}${where})`;
 }
 
 /** Owner-facing next step for a recovery hold. */
@@ -139,7 +140,9 @@ export class ControlEngine {
     const held = [];
     for (const entry of recordedProcesses(run)) {
       const state = await this.processState(entry);
-      if (state !== 'gone')
+      // A remote worker can outlive its local ssh client; only the owner can confirm it stopped.
+      const remote = entry.environment && entry.environment !== 'local' && knownPid(entry.remotePid);
+      if (state !== 'gone' || remote)
         held.push({
           kind: entry.kind,
           role: entry.role,
@@ -147,7 +150,8 @@ export class ControlEngine {
           task: entry.task ?? null,
           sessionId: entry.sessionId ?? null,
           pid: knownPid(entry.pid) ? entry.pid : null,
-          state,
+          ...(remote ? { environment: entry.environment, remotePid: entry.remotePid } : {}),
+          state: state === 'gone' ? 'remote' : state,
         });
     }
     return held;

@@ -75,9 +75,10 @@ export function workerPrompt({
   governanceRoot,
   gitBridge,
   instructions,
-  remote = false,
+  remote = null,
+  cloud = false,
 }) {
-  if (remote)
+  if (cloud)
     // A cloud worker has a clone, not the host's worktree, Backlog or Git helper: it commits on its
     // result branch (see environments/claude-cloud.mjs task.md) and the host collects it.
     return [
@@ -91,14 +92,32 @@ export function workerPrompt({
     ].join('\n');
   const lines = [
     `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host.`,
-    `Work only in ${worktree}. The primary Backlog is at ${governanceRoot}; use .switchflow/scripts/backlog.ps1 for task records.`,
   ];
-  if (kind === 'deliver')
+  if (remote) {
+    // On another machine the Backlog and the Git helper are out of reach; the host commits for it.
+    lines.push(
+      `You run on the remote environment "${remote.label}", in ${remote.path}, a copy of candidate ${candidate}. Work only there.`,
+      'The Switchflow Backlog and Git helper are not reachable from this machine: do not edit task records and do not commit. The orchestrator updates the task.',
+    );
+    if (kind === 'deliver')
+      lines.push(
+        'Your first turn is read-only (the host enforces it): read what you need and reply with the three-line approach and outcome "approach". The host unlocks writes when the orchestrator confirms the approach; then implement, and reply with outcome "handoff" (or "blocked") and the five-line envelope with head "". When each writing turn ends, the host commits your changes and brings them into the candidate.',
+      );
+    else
+      lines.push(
+        'You are read-only: do not edit files.',
+        'Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block"; the orchestrator records it.',
+      );
+  } else
+    lines.push(
+      `Work only in ${worktree}. The primary Backlog is at ${governanceRoot}; use .switchflow/scripts/backlog.ps1 for task records.`,
+    );
+  if (!remote && kind === 'deliver')
     lines.push(
       `Follow .agents/skills/deliver-task/SKILL.md. Your first turn is read-only (the host enforces it): read what you need and reply with the three-line approach and outcome "approach". The host unlocks writes when the orchestrator confirms the approach; then implement, stop at Review and reply with outcome "handoff" (or "blocked") and the five-line envelope.`,
       `Commit only through the Git helper: node ${gitBridge.helperPath} ${gitBridge.channelPath} with one JSON request, using candidate name "${candidate}".`,
     );
-  else
+  else if (!remote)
     lines.push(
       'Follow .agents/skills/review-task/SKILL.md. You are read-only: do not edit files or task records.',
       'Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block"; the orchestrator records it.',
@@ -253,13 +272,12 @@ export class Orchestration {
    */
   async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
     this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment']);
-    const { task, kind, instructions, provider: requested, environment = 'local' } = args;
-    if (typeof environment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(environment))
-      throw new ControlError('environment must be an environment ID such as local or claude-cloud.');
-    // A missing or unconfigured environment refuses; it never falls back to local.
-    const remote = await this.host.environment(environment);
-    if (remote && requested && requested !== 'claude')
-      throw new ControlError(`Environment ${environment} runs Claude workers only.`, 409);
+    const { task, kind, instructions, provider: requested, environment: requestedEnvironment } = args;
+    if (
+      requestedEnvironment !== undefined &&
+      (typeof requestedEnvironment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(requestedEnvironment))
+    )
+      throw new ControlError('environment must be an environment ID such as local, claude-cloud or an SSH box.');
     if (typeof task !== 'string' || !TASK_ID.test(task)) throw new ControlError('task must be a Backlog task ID.');
     if (!['deliver', 'review'].includes(kind)) throw new ControlError('kind must be deliver or review.');
     if (typeof instructions !== 'string' || !instructions.trim() || instructions.length > MAX_INSTRUCTIONS)
@@ -275,6 +293,28 @@ export class Orchestration {
       }
     }
     const entry = await this.candidate(args.worktree);
+    // Where: the owner's placement for the role, or another environment the owner enabled. An
+    // unavailable environment is refused with its reason; it never silently becomes this PC.
+    const role = kind === 'deliver' ? 'delivery' : 'review';
+    const environmentId = requestedEnvironment ?? settings.placement?.[role] ?? 'local';
+    // A missing, disabled or unconfigured environment refuses (409); it never falls back to local.
+    const environment = (await this.host.environment(environmentId, settings)) ?? this.host.environments.local;
+    // Cloud kinds run their own agent (Claude) with no process here; process kinds run our CLIs.
+    const remote = typeof environment.openSession === 'function';
+    if (remote && requested && requested !== 'claude')
+      throw new ControlError(`Environment ${environment.id} runs Claude workers only.`, 409);
+    let capabilities = this.host.capabilities;
+    if (!remote && environment.kind !== 'local') {
+      if (typeof environment.spawnFor !== 'function')
+        throw new ControlError(`Environment ${environment.id} cannot run delegated workers yet.`, 409);
+      const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
+      if (!health.ok)
+        throw new ControlError(
+          `Environment ${environment.id} is unavailable: ${health.reason} The task waits: delegate it again once the environment is healthy, or ask the owner to change its placement. Switchflow does not fall back to this PC.`,
+          409,
+        );
+      capabilities = health.providers ?? capabilities;
+    }
     let routed;
     let reviewRound = null;
     if (kind === 'review') {
@@ -288,7 +328,7 @@ export class Orchestration {
       routed = resolveProvider({
         role: 'review',
         settings,
-        capabilities: this.host.capabilities,
+        capabilities,
         author,
         requested: requested ?? null,
       });
@@ -296,11 +336,11 @@ export class Orchestration {
       routed = resolveProvider({
         role: 'delivery',
         settings,
-        capabilities: this.host.capabilities,
+        capabilities,
         requested: remote ? 'claude' : (requested ?? null),
       });
     if (remote && routed.provider !== 'claude')
-      throw new ControlError(`Environment ${environment} runs Claude workers only; route this review locally.`, 409);
+      throw new ControlError(`Environment ${environment.id} runs Claude workers only; route this review locally.`, 409);
     if (kind === 'review') this.reviewRounds.set(task, reviewRound);
     const write = kind === 'deliver';
     const worker = {
@@ -324,7 +364,9 @@ export class Orchestration {
       instructions,
       resumedFrom,
       environment,
-      remote: Boolean(remote),
+      workspace: null,
+      collected: null,
+      remote,
     };
     this.workers.set(worker.id, worker);
     if (write) this.authors.set(task, routed.provider);
@@ -339,6 +381,7 @@ export class Orchestration {
         kind,
         worktree: entry.name,
         provider: routed.provider,
+        environment: environment.id,
         instructions,
         status: 'queued',
         approval: worker.approval,
@@ -395,7 +438,14 @@ export class Orchestration {
       const leaseConfigPath = path.join(workerDirectory, 'mcp.json');
       await this.writeMcpConfig(leaseConfigPath, leaseServer);
       this.workerTokens.set(workerToken, worker.id);
-      const writableRoots = write
+      // An SSH box runs our CLIs in a workspace prepared there; cloud kinds open their own session.
+      const onBox = worker.environment.kind !== 'local' && !worker.remote;
+      if (onBox)
+        worker.workspace = await worker.environment.prepareWorkspace({
+          repo: entry.path,
+          name: `${task}-${kind}-${worker.id.slice(0, 8)}`,
+        });
+      const localRoots = write
         ? [
             entry.path,
             this.context.governanceRoot,
@@ -403,6 +453,7 @@ export class Orchestration {
             path.join(this.gitBridge.channelPath, 'requests'),
           ]
         : [];
+      const writableRoots = onBox ? (write ? worker.workspace.writableRoots : []) : localRoots;
       const opened = await this.host.openSession({
         id: worker.id,
         provider: routed.provider,
@@ -415,17 +466,19 @@ export class Orchestration {
         task,
         worktree: entry.path,
         reviewRound,
-        cwd: entry.path,
+        cwd: onBox ? worker.workspace.path : entry.path,
         sandbox: write ? 'workspace-write' : 'read-only',
         writableRoots,
-        temporaryRoot,
+        temporaryRoot: onBox ? worker.workspace.temporaryRoot : temporaryRoot,
         runDirectory: workerDirectory,
         signal: this.signal,
-        gitHelperPath: write ? this.gitBridge.helperPath : undefined,
-        mcpServers: { switchflow: leaseServer },
-        mcpConfigPath: leaseConfigPath,
-        approval: worker.approval,
+        // Remote workers reach neither the Git helper nor the loopback lease server: the host
+        // commits for them (collectRemote), and leases describe this PC's resources.
+        gitHelperPath: write && !onBox ? this.gitBridge.helperPath : undefined,
+        ...(onBox ? {} : { mcpServers: { switchflow: leaseServer }, mcpConfigPath: leaseConfigPath }),
         environment: worker.environment,
+        workspace: worker.workspace,
+        approval: worker.approval,
         forward: async () => {},
       });
       // Cancelled while it was starting: close what just opened.
@@ -450,12 +503,14 @@ export class Orchestration {
           governanceRoot: this.context.governanceRoot,
           gitBridge: this.gitBridge,
           instructions: worker.instructions,
-          remote: worker.remote,
+          remote: onBox ? { label: worker.environment.label, path: worker.workspace.path } : null,
+          cloud: worker.remote,
         }),
       );
     } catch (error) {
       // A worker that never opened must not leave a usable token behind.
       if (workerToken && !worker.handle) this.workerTokens.delete(workerToken);
+      if (!worker.handle) await this.cleanupRemote(worker);
       throw error;
     }
   }
@@ -481,6 +536,8 @@ export class Orchestration {
             instructions: resumeInstructions(entry),
             // A reviewer is routed afresh so it still differs from the author.
             ...(entry.kind === 'deliver' && entry.provider ? { provider: entry.provider } : {}),
+            // Same environment as before; a removed or unhealthy one is refused with its reason.
+            ...(entry.environment && entry.environment !== 'local' ? { environment: entry.environment } : {}),
           },
           'orchestrator',
           { resumedFrom: entry.workerId },
@@ -537,7 +594,7 @@ export class Orchestration {
         if (gated) {
           worker.approval = outcome.result?.outcome === 'approach' ? APPROVAL.awaiting : APPROVAL.drafting;
           await this.host.registry.update(worker.id, { approval: worker.approval });
-        }
+        } else await this.collectRemote(worker);
         if (await this.flushQueue(worker)) return;
         // A reviewer goes straight from working to completed, so a waiter never sees it idle.
         if (worker.kind === 'review') {
@@ -555,12 +612,47 @@ export class Orchestration {
       .catch(async error => {
         worker.error = error.message;
         if (error.interrupted && !this.closed) {
+          if (!gated) await this.collectRemote(worker);
           worker.status = 'idle';
           await this.host.registry.update(worker.id, { status: 'idle' });
           await this.flushQueue(worker);
         } else await this.finishWorker(worker, this.signal?.aborted || this.closed ? 'cancelled' : 'failed');
       })
       .finally(() => this.host.registry.wake());
+  }
+  /**
+   * A remote delivery worker's writing turn ended: commit its changes on the box and fast-forward
+   * the local candidate, so review, gates and merge see them exactly like local work.
+   */
+  async collectRemote(worker) {
+    if (!worker.workspace || worker.kind !== 'deliver') return;
+    try {
+      const collected = await worker.environment.collect(worker.workspace, {
+        into: worker.worktree,
+        message: `${worker.task}: work from ${worker.environment.label}`,
+      });
+      worker.collected = { ...collected, at: new Date().toISOString(), error: null };
+      await this.host.registry.record(worker.id, {
+        kind: 'notice',
+        level: 'info',
+        text: collected.changed
+          ? `Collected the remote work into ${worker.candidate} at ${collected.head.slice(0, 12)}.`
+          : `No new remote changes to collect into ${worker.candidate}.`,
+      });
+    } catch (error) {
+      worker.collected = { changed: false, head: null, at: new Date().toISOString(), error: error.message };
+      await this.host.registry.record(worker.id, {
+        kind: 'notice',
+        level: 'warning',
+        text: `Could not collect the remote work: ${error.message}`,
+      });
+    }
+  }
+  async cleanupRemote(worker) {
+    const workspace = worker.workspace;
+    if (!workspace) return;
+    worker.workspace = null;
+    await worker.environment.cleanup(workspace).catch(() => {});
   }
   /** Messages queued during a turn become the next turn, in order. */
   async flushQueue(worker) {
@@ -584,11 +676,16 @@ export class Orchestration {
       return;
     }
     // Closing the session also releases its leases, memory reservation and leftover processes.
-    await this.host.closeSession(worker.meta, worker.handle, {
-      status,
-      error: status === 'completed' ? null : worker.error,
-      result: worker.result,
-    });
+    try {
+      await this.host.closeSession(worker.meta, worker.handle, {
+        status,
+        error: status === 'completed' ? null : worker.error,
+        result: worker.result,
+      });
+    } finally {
+      // The result already lives in the local candidate; the remote worktree can go.
+      await this.cleanupRemote(worker);
+    }
   }
   summary(worker) {
     const meta = this.host.registry.get(worker.id)?.meta ?? worker.meta ?? {};
@@ -598,9 +695,10 @@ export class Orchestration {
       task: worker.task,
       kind: worker.kind,
       provider: worker.provider,
-      environment: worker.environment ?? 'local',
+      environment: worker.environment.id,
       ...(worker.handle?.cloud?.url ? { sessionUrl: worker.handle.cloud.url } : {}),
       worktree: worker.worktree,
+      ...(worker.collected ? { collected: worker.collected } : {}),
       reviewRound: worker.reviewRound,
       status: worker.status,
       ...(queue ? { queue } : {}),

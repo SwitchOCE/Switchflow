@@ -292,9 +292,38 @@ Each worker gets its own MCP server with only the lease tools (`acquire_lease`, 
 
 `GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `failed` (under Needs you) with an error naming their process, and their events stay readable. Their processes are fenced as described in [Recovery](#recovery).
 
+### Environments and SSH boxes
+
+A provider (Claude, Codex) is who runs a worker; an environment is where. `scripts/control/environments/index.mjs` holds the contract and the one registry: every environment has `id`, `kind` (`local`, `ssh`, `claude-cloud`, `codex-cloud`), `label`, `capabilities` (`stream`, `steer`, `interrupt`, `followUp`, `result`: `local-worktree`, `remote-branch` or `diff`) and `health()`. Process kinds (local, ssh) run the same provider CLIs through `spawnFor(workspace)` and add `prepareWorkspace`, `collect` and `cleanup`; cloud kinds add `submit`/`poll`/`collect` and wrap them in a session handle. Reviews, the approach gate and merges always stay on this PC.
+
+**Owner settings, never the checkout.** Environments and placement are part of the agent settings (`PUT /api/agents/settings`, stored in external `agent-settings.json`), because an agent that could edit them could send workers and code to a host of its choosing:
+
+```json
+{
+  "environments": [
+    { "id": "wsl", "kind": "ssh", "label": "WSL Ubuntu", "host": "localhost", "port": 2222, "user": "me",
+      "identityFile": "C:\\Users\\me\\.ssh\\switchflow_ed25519", "workRoot": "/home/me/switchflow",
+      "wake": "wsl.exe -d Ubuntu -- true", "keepAwake": "wsl.exe -d Ubuntu -- sleep infinity" }
+  ],
+  "placement": { "delivery": "wsl", "review": "local" }
+}
+```
+
+Unknown fields are refused, so no password or token can be stored inline; `identityFile` must be an absolute path to an existing file; `host`, `user` and `workRoot` are plain names (no options, no shell syntax, no `..`). `wake` runs once before connecting; `keepAwake` runs while any agent process is open on the box (WSL stops a distro that has no `wsl.exe` client, even with ssh sessions open, which dropped the first real runs). Both are plain words, run without a shell. Placement covers delivery and review workers; stage agents run on this PC. A placement must name a configured, enabled environment, and removing a placed environment is refused.
+
+**Placement and refusal.** `delegate_task` uses the role's placement, or its optional `environment` (`local` or an environment the owner enabled). Before placing a worker on an SSH box the host runs `health()` (wake, connect, `git`, `setsid`, a writable work root, a signed-in `codex` or `claude`); an unhealthy, disabled or unconfigured environment is refused with its reason (409) and the task waits. Switchflow never falls back to this PC. Provider routing uses the box's own CLIs.
+
+**SSH transport.** `ssh -F none -T` with `BatchMode=yes`, `ConnectTimeout=10`, `ServerAliveInterval=15`, `StrictHostKeyChecking=accept-new`, `IdentitiesOnly=yes` and a Switchflow-owned known-hosts file (`<state>/environments/<id>.known_hosts`); the user's ssh config is not read. Every remote command is built as argv and single-quoted word by word. Each CLI runs under a small `sh` wrapper that starts it with `setsid` (its own process group), keeps stdin attached, records its PID in `<workRoot>/run/` and reports it on stderr; the host fences that remote PID with the environment id in the run's worker record, so a restart lists it for the owner to confirm. Closing a session kills the remote process group over a second connection, then the local ssh client. Only the variables the provider added (temp folder, worker caps, `NO_COLOR`) reach the box. The sandbox is the same: Codex gets its writable roots and Claude its `--add-dir` as remote paths (the remote worktree and its temp folder).
+
+**Workspace.** The host pushes the candidate's head to a bare mirror at `<workRoot>/mirror.git` (`git push ssh://…`) on `switchflow/<worker>`, and opens a fresh remote worktree on it. Remote workers cannot reach the Backlog, the Git helper or the loopback lease server, so they do not edit task records or commit, and get no lease tools. After each writable turn (and after an interrupt) the host commits the remote changes, fetches the branch and fast-forwards the local candidate; a candidate that moved meanwhile is reported as a warning, not overwritten. Summaries add `environment` and `collected: { changed, head, error }`. When the worker finishes, its remote worktree, temp folder and PID files are removed; the branch stays in the mirror. No GitHub or shared remote is needed.
+
+**Agents view.** The routing panel has "Where workers run": the environment list with Test connection (`POST /api/agents/environments/<id>/test`, a health check that starts no agent), add and edit for SSH environments, and a "Runs on" choice for delivery and review workers. Session rows and heads show where each session runs.
+
+**Not yet:** SSH workers count against local memory admission and `limits.maxWorkers` like local ones; a worker held by a restart is re-delegated (its remote uncommitted work is lost, collected work is in the candidate); Claude keeps its conversation files in the box user's `~/.claude`.
+
 ### Claude cloud workers
 
-`delegate_task` takes an optional `environment`: `local` (default) or a configured remote environment. `claude-cloud` (`scripts/control/environments/claude-cloud.mjs`) runs a Claude worker in a claude.ai/code cloud environment, billed to the owner's Claude subscription. An unconfigured environment is refused (409); it never falls back to local. Cloud workers are Claude only, skip memory admission and do not count against `limits.maxWorkers`; leases still apply. Summaries add `environment` and, once started, `sessionUrl`.
+`delegate_task` takes an optional `environment` (see [Environments](#environments-and-ssh-boxes)). `claude-cloud` (`scripts/control/environments/claude-cloud.mjs`) runs a Claude worker in a claude.ai/code cloud environment, billed to the owner's Claude subscription. An unconfigured environment is refused (409); it never falls back to local. Cloud workers are Claude only, skip memory admission and do not count against `limits.maxWorkers`; leases still apply. Summaries add `environment` and, once started, `sessionUrl`.
 
 What Claude Code 2.1.288 allows, verified on 2026-10-04:
 
@@ -312,7 +341,7 @@ What Claude Code 2.1.288 allows, verified on 2026-10-04:
 
 **Branches.** Each worker has a key (`<task>-<8 hex>`). The host pushes the candidate head to `sf-task/<key>` and the task text to `task.md` on `sf-inbox/<key>`; the routine prompt stays short and fixed because the relaying model must echo it exactly. Both pushes need the owner's push grant (`push: true`); without it submit is refused.
 
-**Configuration** (owner settings, kept in the service's state directory as `environments`, never in the checkout): `{ "environments": { "claude-cloud": { "kind": "claude-cloud", "environmentId": "env_…", "repository": "https://github.com/<owner>/<repo>", "remote": "origin", "model": "claude-opus-5-5", "push": true, "pollSeconds": 60 } } }`. Environments are created only in the claude.ai/code UI; the repository must be reachable by the Claude GitHub App. `health()` checks the configuration, `claude auth status`, that `remote` is the configured repository and answers, an optional pushed branch, and the push grant.
+**Configuration** (an entry in the agent settings' `environments`, never in the checkout): `{ "id": "claude-cloud", "kind": "claude-cloud", "environmentId": "env_…", "repository": "https://github.com/<owner>/<repo>", "remote": "origin", "model": "claude-opus-5-5", "push": true, "pollSeconds": 60 }`, validated when saved. Environments are created only in the claude.ai/code UI; the repository must be reachable by the Claude GitHub App. `health()` checks the configuration, `claude auth status`, that `remote` is the configured repository and answers, an optional pushed branch, and the push grant.
 
 **Not yet:** a cloud worker held by a service restart is not reconnected (it keeps running; its routine and branches remain until the owner cleans them up), and Codex cloud is not wired.
 
@@ -325,7 +354,7 @@ What Claude Code 2.1.288 allows, verified on 2026-10-04:
 | Shared browser service and project registry | External `control-service/`; one port per state-home |
 | Delivery tasks, milestones, accepted product documents | Primary checkout's Backlog; worker worktrees use the same governance root |
 | Browser scope/plan approvals, revision history, sessions and run receipts | External project state, `control.json` and `runs/<id>/` |
-| Agent routing settings and the agent session index | External `agent-settings.json` and `agent-sessions.json`; per-session events in `runs/<id>/sessions/` |
+| Agent routing settings, environments, placement and the agent session index | External `agent-settings.json` and `agent-sessions.json`; per-session events in `runs/<id>/sessions/`; SSH known hosts in `environments/<id>.known_hosts` |
 | UAT preview command / running preview record | Primary checkout's `.switchflow/preview.json` (owner-edited) / external `preview.json` (process ID and start time only) |
 | Capacity profile / held leases / delegation ledger | Primary checkout's `.switchflow/capacity.json` (owner-edited) / external `leases.json` / external `worker-ledger.json` (task, kind, candidate, provider and instructions of recent delegations, for resuming after a restart) |
 | Friction/issues, check evidence, worktree registrations | Separate external JSON ledgers in `operations/` |

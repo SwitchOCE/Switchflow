@@ -170,6 +170,8 @@ export function codexArguments({
 }
 
 export function stopTree(child) {
+  // A remote environment's child (environments/ssh.mjs) knows how to stop its own remote tree.
+  if (typeof child.stopTree === 'function') return child.stopTree();
   if (!child.pid) return Promise.resolve();
   if (process.platform === 'win32') {
     return new Promise(resolve => {

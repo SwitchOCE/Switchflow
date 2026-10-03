@@ -31,6 +31,21 @@ const statusLabel = {
   cancelled: 'Cancelled',
 };
 const roleLabel = Object.fromEntries(roles.map(([id, label]) => [id, label]));
+// Workers that can run in another environment (agent-settings PLACEABLE_ROLES).
+const placeable = [
+  ['delivery', 'Task delivery workers'],
+  ['review', 'Review workers'],
+];
+const sshFields = [
+  ['id', 'Name (id)', 'text', 'wsl-box'],
+  ['label', 'Label', 'text', 'WSL box'],
+  ['host', 'Host', 'text', 'localhost'],
+  ['port', 'Port', 'number', '22'],
+  ['user', 'User', 'text', 'me'],
+  ['identityFile', 'Private key file (absolute path)', 'text', 'C:\\Users\\me\\.ssh\\id_ed25519'],
+  ['workRoot', 'Work root on the box', 'text', '/home/me/switchflow'],
+  ['wake', 'Wake command (optional)', 'text', 'wsl.exe -d Ubuntu -- true'],
+];
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -290,6 +305,10 @@ export function mountAgents(
       capacityStrip.append(el('p', 'capacity-error', `Using default capacity settings: ${capacity.profile.error}`));
   }
 
+  function environmentLabel(id) {
+    if (!id || id === 'local') return 'This PC';
+    return (data?.environments || []).find(environment => environment.id === id)?.label || id;
+  }
   function sessionRow(session, depth) {
     const row = el('button', 'agents-row');
     row.type = 'button';
@@ -302,6 +321,9 @@ export function mountAgents(
     meta.append(
       statusPill(session.status, session),
       el('span', '', [roleLabel[session.role] || session.role, taskOf(session)].filter(Boolean).join(' · ')),
+      ...(session.environment && session.environment !== 'local'
+        ? [el('span', 'agents-env-chip', `on ${environmentLabel(session.environment)}`)]
+        : []),
       el(
         'span',
         'agents-row-time',
@@ -495,6 +517,7 @@ export function mountAgents(
     facts.append(
       statusPill(session.status, session),
       el('span', '', roleLabel[session.role] || session.role || ''),
+      el('span', 'agents-env-fact', `Runs on ${environmentLabel(session.environment)}`),
       ...(session.model ? [el('span', '', session.model)] : []),
       ...(session.startedAt
         ? [el('span', '', duration(session.startedAt, live.has(session.status) ? null : session.updatedAt))]
@@ -823,7 +846,223 @@ export function mountAgents(
         save.disabled = false;
       }
     });
-    routing.append(form);
+    routing.append(form, renderEnvironments(blocked));
+  }
+
+  // Environments: where workers run. The owner's settings live in the service, not the checkout.
+  let environmentDraft = null;
+  let environmentEditing = null;
+  const environmentTests = {};
+  function renderEnvironments(blocked) {
+    const settings = data?.settings || {};
+    environmentDraft ??= structuredClone(settings.environments || []);
+    const form = el('form', 'agents-environments');
+    const intro = el('div', 'agents-routing-intro');
+    intro.append(
+      el('h2', '', 'Where workers run'),
+      el(
+        'p',
+        'muted',
+        'Workers run on this PC unless you place them on an SSH box. Code goes only to the boxes you add here. An unavailable box makes the task wait with its reason; Switchflow never falls back to this PC.',
+      ),
+    );
+    const list = el('ul', 'agents-environment-list');
+    const localItem = el('li', 'agents-environment');
+    localItem.append(el('strong', '', 'This PC'), el('span', 'muted', 'local · always available'));
+    list.append(localItem);
+    environmentDraft.forEach((environment, index) => {
+      const item = el('li', 'agents-environment');
+      const text = el('div', 'agents-environment-text');
+      text.append(
+        el('strong', '', environment.label || environment.id),
+        el(
+          'span',
+          'muted',
+          `${
+            environment.kind === 'ssh'
+              ? `ssh · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot}`
+              : `${environment.kind} · ${environment.repository || environment.environmentId || ''}`
+          }${environment.enabled === false ? ' · disabled' : ''}`,
+        ),
+      );
+      const result = environmentTests[environment.id];
+      if (result)
+        text.append(
+          el(
+            'span',
+            result.ok ? 'agents-environment-ok' : 'agents-route-error',
+            result.pending
+              ? 'Testing…'
+              : result.ok
+                ? `Connected. ${['codex', 'claude']
+                    .filter(name => result.providers?.[name]?.available)
+                    .map(name => `${providers[name].name} ${result.providers[name].version || ''}`.trim())
+                    .join(', ')}`
+                : result.reason || 'Not reachable.',
+          ),
+        );
+      const tools = el('div', 'agents-environment-tools');
+      const test = el('button', 'button quiet', 'Test connection');
+      test.type = 'button';
+      const saved = (settings.environments || []).some(other => other.id === environment.id);
+      test.disabled = !saved;
+      if (!saved) test.title = 'Save first, then test.';
+      test.addEventListener('click', async () => {
+        environmentTests[environment.id] = { pending: true };
+        renderRouting();
+        try {
+          environmentTests[environment.id] = await send(
+            `/agents/environments/${encodeURIComponent(environment.id)}/test`,
+            'POST',
+            {},
+          );
+        } catch (error) {
+          environmentTests[environment.id] = { ok: false, reason: error.message };
+        }
+        renderRouting();
+      });
+      const editButton = el('button', 'button quiet', 'Edit');
+      editButton.type = 'button';
+      editButton.disabled = !!blocked;
+      editButton.addEventListener('click', () => {
+        environmentEditing = index;
+        renderRouting();
+      });
+      const remove = el('button', 'button quiet', 'Remove');
+      remove.type = 'button';
+      remove.disabled = !!blocked;
+      remove.addEventListener('click', () => {
+        environmentDraft.splice(index, 1);
+        environmentEditing = null;
+        renderRouting();
+      });
+      // Only SSH environments are edited here; others keep their fields and can be tested or removed.
+      tools.append(test, ...(environment.kind === 'ssh' ? [editButton] : []), remove);
+      item.append(text, tools);
+      list.append(item);
+    });
+    form.append(intro, list);
+    if (environmentEditing !== null) form.append(environmentEditor(environmentDraft[environmentEditing] || null));
+    else {
+      const add = el('button', 'button quiet', 'Add SSH environment');
+      add.type = 'button';
+      add.disabled = !!blocked;
+      add.addEventListener('click', () => {
+        environmentEditing = 'new';
+        renderRouting();
+      });
+      form.append(add);
+    }
+    const placement = el('div', 'agents-routing-grid agents-placement');
+    for (const [role, label] of placeable) {
+      const row = el('label', 'agents-route');
+      const text = el('span');
+      text.append(el('strong', '', label), el('small', '', 'Runs on'));
+      const select = el('select');
+      select.name = `placement-${role}`;
+      select.disabled = !!blocked;
+      for (const environment of [{ id: 'local', label: 'This PC' }, ...environmentDraft]) {
+        const option = el('option', '', environment.label || environment.id);
+        option.value = environment.id;
+        option.selected = (settings.placement?.[role] || 'local') === environment.id;
+        select.append(option);
+      }
+      row.append(text, select);
+      placement.append(row);
+    }
+    const footer = el('div', 'agents-routing-footer');
+    const status = el('span', 'muted');
+    status.setAttribute('role', 'status');
+    status.textContent = blocked;
+    const save = el('button', 'button primary', 'Save environments');
+    save.type = 'submit';
+    save.disabled = !!blocked || environmentEditing !== null;
+    footer.append(status, save);
+    form.append(placement, footer);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const values = new FormData(form);
+      const next = {
+        environments: environmentDraft,
+        placement: Object.fromEntries(placeable.map(([role]) => [role, values.get(`placement-${role}`) || 'local'])),
+        ...(Number.isInteger(settings.revision) ? { expectedRevision: settings.revision } : {}),
+      };
+      save.disabled = true;
+      status.textContent = 'Saving…';
+      try {
+        const saved = await send('/agents/settings', 'PUT', next);
+        data = { ...data, settings: saved?.settings || data?.settings, routing: saved?.routing || data?.routing };
+        environmentDraft = null;
+        renderRouting();
+        refresh();
+      } catch (error) {
+        status.textContent = error.message;
+        save.disabled = false;
+      }
+    });
+    return form;
+  }
+  function environmentEditor(existing) {
+    const box = el('fieldset', 'agents-environment-editor');
+    box.append(el('legend', '', existing ? `Edit ${existing.label || existing.id}` : 'New SSH environment'));
+    const inputs = {};
+    for (const [name, label, type, placeholder] of sshFields) {
+      const wrap = el('label', '', label);
+      const input = el('input');
+      input.type = type;
+      input.name = `ssh-${name}`;
+      input.placeholder = placeholder;
+      const value = existing?.[name];
+      input.value = Array.isArray(value) ? value.join(' ') : (value ?? '');
+      if (name === 'id' && existing) input.readOnly = true;
+      inputs[name] = input;
+      wrap.append(input);
+      box.append(wrap);
+    }
+    const enabled = el('label', 'agents-environment-check');
+    const check = el('input');
+    check.type = 'checkbox';
+    check.checked = existing?.enabled !== false;
+    enabled.append(check, document.createTextNode(' Enabled'));
+    box.append(
+      enabled,
+      el(
+        'p',
+        'muted',
+        'Use a key-only login. Switchflow keeps its own known-hosts file and accepts a new host key once; no passwords or secrets are stored.',
+      ),
+    );
+    const tools = el('div', 'agents-environment-tools');
+    const done = el('button', 'button', existing ? 'Apply' : 'Add');
+    done.type = 'button';
+    done.addEventListener('click', () => {
+      const value = name => inputs[name].value.trim();
+      const config = {
+        id: value('id'),
+        kind: 'ssh',
+        label: value('label') || value('id'),
+        host: value('host'),
+        port: Number(value('port') || 22),
+        user: value('user'),
+        identityFile: value('identityFile'),
+        workRoot: value('workRoot'),
+        enabled: check.checked,
+        ...(value('wake') ? { wake: value('wake') } : {}),
+      };
+      if (existing) environmentDraft[environmentEditing] = config;
+      else environmentDraft.push(config);
+      environmentEditing = null;
+      renderRouting();
+    });
+    const cancel = el('button', 'button quiet', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => {
+      environmentEditing = null;
+      renderRouting();
+    });
+    tools.append(done, cancel);
+    box.append(tools);
+    return box;
   }
 
   async function loadEvents(force = false) {
