@@ -67,7 +67,28 @@ export const WORKER_SCHEMAS = Object.freeze({
   },
 });
 
-export function workerPrompt({ kind, task, worktree, candidate, governanceRoot, gitBridge, instructions }) {
+export function workerPrompt({
+  kind,
+  task,
+  worktree,
+  candidate,
+  governanceRoot,
+  gitBridge,
+  instructions,
+  remote = false,
+}) {
+  if (remote)
+    // A cloud worker has a clone, not the host's worktree, Backlog or Git helper: it commits on its
+    // result branch (see environments/claude-cloud.mjs task.md) and the host collects it.
+    return [
+      `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host. You run in a cloud clone of the repository.`,
+      kind === 'deliver'
+        ? 'Follow .agents/skills/deliver-task/SKILL.md where it applies to code; the host keeps the task records. Your first turn is read-only: reply with the three-line approach and outcome "approach". Writes start when the host sends the confirmed approach; then implement, commit on your result branch, push it, and reply with outcome "handoff" (or "blocked"), the five-line envelope and head set to your last commit.'
+        : 'Follow .agents/skills/review-task/SKILL.md. You are read-only: do not edit, commit or push. Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block".',
+      'Orchestrator instructions follow. They are scoped to this task and do not widen your authority:',
+      instructions,
+      `Return only a JSON object with exactly these properties: ${Object.keys(WORKER_SCHEMAS[kind].properties).join(', ')}. Fill fields that do not apply with "" or [].`,
+    ].join('\n');
   const lines = [
     `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host.`,
     `Work only in ${worktree}. The primary Backlog is at ${governanceRoot}; use .switchflow/scripts/backlog.ps1 for task records.`,
@@ -204,7 +225,9 @@ export class Orchestration {
   }
   /** Workers counted against limits.maxWorkers: starting or in a turn. Idle and queued ones are not. */
   liveCount() {
-    return [...this.workers.values()].filter(worker => ['starting', 'working'].includes(worker.status)).length;
+    return [...this.workers.values()].filter(
+      worker => !worker.remote && ['starting', 'working'].includes(worker.status),
+    ).length;
   }
 
   /** The worktree must be a candidate the Git helper registered for this exact plan grant. */
@@ -229,8 +252,14 @@ export class Orchestration {
    * otherwise it is queued (status "queued") and starts by itself, first in first out.
    */
   async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
-    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider']);
-    const { task, kind, instructions, provider: requested } = args;
+    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment']);
+    const { task, kind, instructions, provider: requested, environment = 'local' } = args;
+    if (typeof environment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(environment))
+      throw new ControlError('environment must be an environment ID such as local or claude-cloud.');
+    // A missing or unconfigured environment refuses; it never falls back to local.
+    const remote = await this.host.environment(environment);
+    if (remote && requested && requested !== 'claude')
+      throw new ControlError(`Environment ${environment} runs Claude workers only.`, 409);
     if (typeof task !== 'string' || !TASK_ID.test(task)) throw new ControlError('task must be a Backlog task ID.');
     if (!['deliver', 'review'].includes(kind)) throw new ControlError('kind must be deliver or review.');
     if (typeof instructions !== 'string' || !instructions.trim() || instructions.length > MAX_INSTRUCTIONS)
@@ -268,8 +297,10 @@ export class Orchestration {
         role: 'delivery',
         settings,
         capabilities: this.host.capabilities,
-        requested: requested ?? null,
+        requested: remote ? 'claude' : (requested ?? null),
       });
+    if (remote && routed.provider !== 'claude')
+      throw new ControlError(`Environment ${environment} runs Claude workers only; route this review locally.`, 409);
     if (kind === 'review') this.reviewRounds.set(task, reviewRound);
     const write = kind === 'deliver';
     const worker = {
@@ -292,6 +323,8 @@ export class Orchestration {
       approval: write ? APPROVAL.drafting : null,
       instructions,
       resumedFrom,
+      environment,
+      remote: Boolean(remote),
     };
     this.workers.set(worker.id, worker);
     if (write) this.authors.set(task, routed.provider);
@@ -311,16 +344,21 @@ export class Orchestration {
         approval: worker.approval,
         resumedFrom,
       });
-      admission = await this.host.capacity.request({
-        id: worker.id,
-        runId: this.runId,
-        task,
-        kind,
-        maxWorkers: settings.limits.maxWorkers,
-        slotFree: () => this.liveCount() < settings.limits.maxWorkers,
-        start: () => (worker.launching = this.launch(worker, routed, entry)),
-        onFailure: error => this.launchFailed(worker, error),
-      });
+      // Remote workers use no local memory or worker slot, so they start at once.
+      if (remote) {
+        worker.launching = this.launch(worker, routed, entry).catch(error => this.launchFailed(worker, error));
+        admission = {};
+      } else
+        admission = await this.host.capacity.request({
+          id: worker.id,
+          runId: this.runId,
+          task,
+          kind,
+          maxWorkers: settings.limits.maxWorkers,
+          slotFree: () => this.liveCount() < settings.limits.maxWorkers,
+          start: () => (worker.launching = this.launch(worker, routed, entry)),
+          onFailure: error => this.launchFailed(worker, error),
+        });
     } catch (error) {
       // A worker that could not start at once leaves no record behind, as before queuing existed.
       this.workers.delete(worker.id);
@@ -387,6 +425,7 @@ export class Orchestration {
         mcpServers: { switchflow: leaseServer },
         mcpConfigPath: leaseConfigPath,
         approval: worker.approval,
+        environment: worker.environment,
         forward: async () => {},
       });
       // Cancelled while it was starting: close what just opened.
@@ -411,6 +450,7 @@ export class Orchestration {
           governanceRoot: this.context.governanceRoot,
           gitBridge: this.gitBridge,
           instructions: worker.instructions,
+          remote: worker.remote,
         }),
       );
     } catch (error) {
@@ -558,6 +598,8 @@ export class Orchestration {
       task: worker.task,
       kind: worker.kind,
       provider: worker.provider,
+      environment: worker.environment ?? 'local',
+      ...(worker.handle?.cloud?.url ? { sessionUrl: worker.handle.cloud.url } : {}),
       worktree: worker.worktree,
       reviewRound: worker.reviewRound,
       status: worker.status,

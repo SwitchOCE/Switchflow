@@ -33,7 +33,7 @@ Provider (Claude or Codex) stays the choice of *who*; environment becomes the ch
 | **Local** (today) | CLIs on this PC | yes / yes / yes | local worktree | subscriptions | nowhere |
 | **SSH box** (home server, VPS, codespace) | the same CLIs over `ssh` stdio, worktrees on the box | yes / yes / yes | branch pushed to a git remote both sides reach (the box itself can be that remote) | subscriptions + the box | your box only |
 | **Claude self-hosted environment** (`claude --environment ccpool_…`) | Anthropic-controlled session executing on your box | to verify | to verify | subscription | your box (conversation via Anthropic, as today) |
-| **Claude Code cloud** (`claude --cloud`, claude.ai/code) | Anthropic sandbox, GitHub repo | to verify (attach, teleport exist) | `claude/*` branch on GitHub | subscription | GitHub + Anthropic |
+| **Claude Code cloud** (routines started through the CLI, claude.ai/code) | Anthropic sandbox, GitHub repo | polled log (~1 min) / message into the session (~2 s, taken at the next turn boundary) / no | `claude/*` branch on GitHub, fetched into the local candidate | subscription | GitHub + Anthropic |
 | **Claude Managed Agents** (API) | Anthropic sandbox, programmable environments | yes / yes / yes (events API) | branch on GitHub | API key, per token | GitHub + Anthropic |
 | **Codex cloud** | OpenAI VM per task | no / no / no (submit, poll, diff, apply) | diff applied into a local worktree | ChatGPT allowance (cloud costs more) | GitHub + OpenAI |
 
@@ -52,7 +52,7 @@ Adapter contract: `health()`, `capabilities`, `prepare(workspace)`, `start(task)
    - "Resume N held workers" after a restart: the next execution run re-delegates the interrupted run's queued and open workers with their original instructions. Provider-level session resume is not used yet.
    - A capacity strip in the Agents view.
 2. **Environment abstraction + SSH box.** Move process spawning behind a local environment adapter with no behaviour change, then add SSH. Full capabilities; code stays on hardware the owner controls; no GitHub requirement (the box can host the git remote).
-3. **Claude subscription cloud.** Probe `--cloud`, attach, teleport and self-hosted `--environment` on a throwaway private repo, then build the adapter for whatever is controllable.
+3. **Claude subscription cloud.** **Status: adapter built 2026-10-04** (`environments/claude-cloud.mjs`, documented in `docs/browser-control.md` "Claude cloud workers"). Probe results with Claude Code 2.1.288: `claude -p --cloud "<task>"` is refused (new cloud sessions are interactive only); a headless `claude -p --tools RemoteTrigger` turn drives the routines API with the CLI's sign-in (create, update, run, list_runs, get_run_log; no delete); `claude -p --cloud <session_id>` delivers follow-ups into a routine session in about 2 s; a routine's `allowed_tools` does not restrict the session, so the approach turn is read-only by instruction plus a host push check. Self-hosted `--environment ccpool_…` was not probed.
 4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling).
 5. **Managed Agents API** only if per-token billing is wanted.
 

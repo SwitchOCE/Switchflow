@@ -20,6 +20,11 @@ export const TOOLS = [
         instructions: { type: 'string', description: 'Dispatch note: environment receipt, base, scope reminders.' },
         worktree: { type: 'string', description: 'Candidate name or absolute path created by the Git helper.' },
         provider: { type: 'string', enum: ['claude', 'codex'], description: 'Optional override of role routing.' },
+        environment: {
+          type: 'string',
+          description:
+            'Where the worker runs: "local" (default) or a configured remote environment such as "claude-cloud". Remote workers skip memory admission, start at once and report through polling (about a minute of lag); an unconfigured environment is refused, never replaced by local.',
+        },
       },
       required: ['task', 'kind', 'instructions', 'worktree'],
       additionalProperties: false,
