@@ -178,6 +178,23 @@ test('owner settings hold environments and placement; placement must name an ena
       }),
     /disabled/,
   );
+  // Codex cloud cannot hold the approach gate, so it takes reviews but never delivery placement.
+  const codexCloud = {
+    id: 'codex',
+    kind: 'codex-cloud',
+    environmentId: 'env-test',
+    repository: 'https://github.com/example/project',
+    push: true,
+    experimental: true,
+  };
+  assert.equal(
+    applySettingsPatch(base, { environments: [codexCloud], placement: { review: 'codex' } }).placement.review,
+    'codex',
+  );
+  assert.throws(
+    () => applySettingsPatch(base, { environments: [codexCloud], placement: { delivery: 'codex' } }),
+    /reviews only/,
+  );
   // Removing a placed environment is refused rather than silently moving work to this PC.
   assert.throws(() => applySettingsPatch(saved, { environments: [] }), /not a configured environment/);
   assert.throws(() => applySettingsPatch(base, { environments: [sshConfig(file), sshConfig(file)] }), /unique/);

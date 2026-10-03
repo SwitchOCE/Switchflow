@@ -136,6 +136,9 @@ export function applySettingsPatch(current, input) {
     const environment = next.environments.find(item => item.id === id);
     if (!environment) fail(`placement.${role} names ${id}, which is not a configured environment.`);
     if (!environment.enabled) fail(`placement.${role} names ${id}, which is disabled.`);
+    // Codex cloud has no follow-up, so it cannot hold the approach-before-edit gate every delivery worker needs.
+    if (role === 'delivery' && environment.kind === 'codex-cloud')
+      fail(`placement.delivery names ${id}: Codex cloud takes reviews only, because it cannot hold the approach gate.`);
   }
   next.revision = current.revision + 1;
   next.updatedAt = new Date().toISOString();
