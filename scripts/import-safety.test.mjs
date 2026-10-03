@@ -3,7 +3,10 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import test from 'node:test';
+import nodeTest from 'node:test';
+// Every test here runs a .ps1 script through Windows PowerShell, which other hosts do not have.
+const test = (name, fn) =>
+  nodeTest(name, { skip: process.platform !== 'win32' && 'Needs Windows PowerShell (powershell.exe)' }, fn);
 const importer = resolve('scripts/import-switchflow.ps1');
 const ps = code =>
   spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', code], {

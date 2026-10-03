@@ -128,7 +128,7 @@ test('records are read from active and completed folders only', () => {
 
 test(
   'PowerShell wrapper runs reviews read-only and rejects unknown options',
-  { skip: process.platform !== 'win32' },
+  { skip: process.platform !== 'win32' && 'Needs Windows PowerShell (powershell.exe)' },
   () => {
     const root = mkdtempSync(path.join(tmpdir(), 'switchflow-reviews-cli-'));
     const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../template/.switchflow/scripts');

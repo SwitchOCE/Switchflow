@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
+import { isRunProcessAlive } from '../template/.switchflow/scripts/control/codex-runner.mjs';
 import {
   resolveProject,
   readState,
@@ -198,7 +199,7 @@ test(
     assert.ok(Date.now() - started < 10000);
     const descendant = Number(/descendant=(\d+)/.exec(result.output)?.[1]);
     assert.ok(Number.isSafeInteger(descendant) && descendant > 0, result.output);
-    assert.throws(() => process.kill(descendant, 0), { code: 'ESRCH' });
+    assert.equal(isRunProcessAlive(descendant), false);
     const retry = await runCheck(context, { ...check, args: ['-e', 'process.exit(0)'] });
     assert.equal(retry.exitCode, 0);
   },
