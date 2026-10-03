@@ -26,6 +26,46 @@ function seed(name='scale') {
  if(name==='empty'){tasks=[];milestones=[];docs=[];decisions=[];}
 }
 seed(process.env.UI_SCENARIO||'scale');
+// Disposable agent sessions: one Claude orchestrator steering Codex workers.
+const agentStart=Date.now();
+const iso=ms=>new Date(agentStart+ms).toISOString();
+let agentSettings={roles:{intake:'claude',planning:'claude',execution:'claude',delivery:'codex',review:'auto',uat:'claude'},models:{claude:null,codex:null},limits:{timeoutMinutes:60,maxWorkers:2,maxReviewRounds:2}};
+const agentSessions=[
+ {id:'orch-1',parentId:null,provider:'claude',role:'execution',initiativeId:'fixture-plan',title:'Orchestrate phase 1 · Review the next delivery plan',status:'running',startedAt:iso(-540000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:182000,outputTokens:9400},lastMessage:'DEMO-3 is in review with Codex; DEMO-2 is being implemented.'},
+ {id:'work-2',parentId:'orch-1',provider:'codex',role:'delivery',taskId:'DEMO-2',title:'Deliver DEMO-2 · Verify dependency completion',status:'running',startedAt:iso(-300000),updatedAt:iso(0),model:'gpt-5.6-codex',usage:{inputTokens:96000,outputTokens:5100},lastMessage:'Running the dependency check tests.'},
+ {id:'work-3',parentId:'orch-1',provider:'codex',role:'delivery',taskId:'DEMO-3',title:'Deliver DEMO-3 · Outcome 3',status:'completed',startedAt:iso(-520000),updatedAt:iso(-200000),model:'gpt-5.6-codex',usage:{inputTokens:120000,outputTokens:7200},lastMessage:'Envelope written; task moved to Review.'},
+ {id:'rev-3',parentId:'orch-1',provider:'claude',role:'review',taskId:'DEMO-3',title:'Review DEMO-3',status:'running',startedAt:iso(-190000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:40000,outputTokens:900},lastMessage:'Reading the diff.'},
+ {id:'intake-0',parentId:null,provider:'claude',role:'intake',initiativeId:'fixture-uat',title:'Intake · Review the delivered workspace',status:'completed',startedAt:iso(-86400000),updatedAt:iso(-86000000),model:'claude-opus-5-5',usage:{inputTokens:52000,outputTokens:3100},lastMessage:'Scope ready for your review.'},
+];
+const agentEvents=Object.fromEntries(agentSessions.map(s=>[s.id,[]]));
+let agentSeq=0;
+const pushEvent=(id,event)=>{agentEvents[id].push({seq:++agentSeq,at:new Date().toISOString(),...event});const s=agentSessions.find(x=>x.id===id);s.updatedAt=new Date().toISOString();if(event.kind==='message')s.lastMessage=String(event.text).slice(0,160);};
+pushEvent('orch-1',{kind:'session.started'});
+pushEvent('orch-1',{kind:'message',text:'Reading the approved plan for **phase 1**. Two tasks can run in parallel: `DEMO-2` and `DEMO-3`. Delegating both to Codex in separate worktrees.'});
+pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-3 → codex (deliver)'});
+pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-2 → codex (deliver)'});
+pushEvent('orch-1',{kind:'tool',text:'wait_for_workers work-2, work-3'});
+pushEvent('orch-1',{kind:'message',text:'DEMO-3 finished. Starting an independent Claude review, since Codex wrote it.'});
+pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-3 → claude (review)'});
+for(const [kind,text] of [['message','Confirming the three-line approach:\n1. Read DEMO-2 and its acceptance criteria.\n2. Extend `check-ready-dependencies` for completed records.\n3. Add regression tests.'],['command','node --test scripts/check-completed-tasks.test.mjs'],['file_change','scripts/check-ready-dependencies.mjs (+18 −4)'],['command','node --test scripts/flow.test.mjs']]) pushEvent('work-2',{kind,text});
+pushEvent('work-3',{kind:'message',text:'Implemented and tested. Handoff envelope recorded.',final:true});
+pushEvent('work-3',{kind:'turn.completed',usage:{inputTokens:120000,outputTokens:7200}});
+pushEvent('rev-3',{kind:'message',text:'Reading the diff for DEMO-3 against its acceptance criteria.'});
+pushEvent('intake-0',{kind:'message',text:'Scope ready for your review.',final:true});
+const liveLines=['Running the dependency check tests.','Two tests fail on block-list labels; fixing the parser.','Tests pass. Writing the handoff envelope.'];
+let liveIndex=0;
+setInterval(()=>{const w=agentSessions.find(s=>s.id==='work-2');if(w.status!=='running')return;pushEvent('work-2',{kind:liveIndex%2?'command':'message',text:liveIndex%2?'node --test scripts/flow.test.mjs':liveLines[Math.min(liveIndex/2|0,2)]});w.usage.inputTokens+=3000;liveIndex++;},4000).unref();
+function agentRoute(req,res,p,body){
+ const rest=p.slice('/api/projects/ui-fixture/agents'.length);
+ if(rest===''&&req.method==='GET')return json(res,{providers:{claude:{available:true,version:'2.1.288 (Claude Code)',loggedIn:true},codex:{available:true,version:'codex-cli 0.153.4'}},settings:agentSettings,sessions:agentSessions});
+ if(rest==='/settings'&&req.method==='PUT'){if(activeRun)return json(res,{error:'Routing is locked while an agent run is active.'},409);agentSettings=body;return json(res,{settings:agentSettings});}
+ const m=rest.match(/^\/([^/]+)\/(events|steer|interrupt)$/);const s=m&&agentSessions.find(x=>x.id===decodeURIComponent(m[1]));
+ if(!s)return json(res,{error:'Unknown agent session.'},404);
+ if(m[2]==='events'){const after=Number(new URL(req.url,'http://x').searchParams.get('after'))||0;const events=agentEvents[s.id].filter(e=>e.seq>after);return json(res,{events,nextAfter:events.at(-1)?.seq??after,status:s.status});}
+ if(m[2]==='steer'){const live=['running','waiting'].includes(s.status);pushEvent(s.id,{kind:'steer',source:'owner',text:String(body.message||''),mode:live?'steer':'followup'});setTimeout(()=>pushEvent(s.id,{kind:'message',text:'Understood — adjusting: '+String(body.message||'').slice(0,80)}),1200);if(!live){s.status='running';}return json(res,{ok:true,mode:live?'steer':'followup'});}
+ if(m[2]==='interrupt'){s.status='interrupted';pushEvent(s.id,{kind:'interrupt',text:'Stopped by you'});return json(res,{ok:true});}
+}
+
 const project={id:'ui-fixture',name:'UI review sandbox',available:true,attention:2,activeRun:false,root:'Disposable in-memory project',governanceRoot:'Disposable in-memory project'};
 const json=(res,data,status=200)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));};
 const getBody=async req=>{let raw='';for await(const chunk of req)raw+=chunk;try{return JSON.parse(raw||'{}');}catch{return raw;}};
@@ -46,6 +86,7 @@ const server=http.createServer(async(req,res)=>{try {
  if(p==='/api/projects')return json(res,{csrfToken:'disposable-token',projects:[project]});
  const base='/api/projects/ui-fixture';
  if(p===base+'/state')return json(res,{schemaVersion:1,revision:1,project:{...project,activeRun:!!activeRun},csrfToken:'disposable-token',tasks,initiatives,activeRun,capabilities:{codex:true}});
+ if(p.startsWith(base+'/agents'))return agentRoute(req,res,p,body);
  if(p===base+'/skills')return json(res,{skills:[{id:'intake/SKILL.md',name:'intake',description:'Shape a clear human outcome',title:'Intake'}]});
  if(p===base+'/skills/content')return json(res,{id:'intake/SKILL.md',title:'Intake',markdown:'# Intake\n\nShape a clear human outcome.'});
  if(p===base+'/operations')return json(res,{issues:[],metrics:{},worktrees:[],retention:[]});

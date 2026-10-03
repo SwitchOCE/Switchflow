@@ -191,52 +191,67 @@ export function taskEditor({
   }
   function renderRead() {
     const section = (title, body) => `<section><h3>${title}</h3>${body}</section>`;
-    form.querySelector('.sf-task-reading').innerHTML =
-      `<p class="sf-task-properties"><strong>${e(task.status)}</strong> · ${e(task.assignee?.join(', ') || 'Unassigned')} · ${e(milestones.find(x => x.id === task.milestone)?.title || task.milestone || 'No milestone')}</p>${narratives.map(([name, label]) => (name === 'blockReason' ? (taskBlockerText(task, tasks) ? section(label, `<p>${e(taskBlockerText(task, tasks))}</p>`) : '') : task[name] ? section(label, `<div class="docs-prose">${renderMarkdown(task[name]).html}</div>`) : name === 'description' ? section(label, '<p class="muted">Not recorded.</p>') : '')).join('')}${[
-        ['acceptanceCriteriaItems', 'Acceptance criteria'],
-        ['definitionOfDoneItems', 'Definition of done'],
-      ]
-        .map(([name, label]) =>
-          task[name]?.length
-            ? section(
-                label,
-                `<ul class="sf-read-checklist">${task[name].map(x => `<li>${x.checked ? '☑' : '☐'} ${e(x.text)}</li>`).join('')}</ul>`,
-              )
-            : '',
-        )
-        .join('')}${
-        task.dependencies?.length
+    const property = (label, value) => (value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : '');
+    const day = value => e(String(value || '').slice(0, 10));
+    const related = (id, title, status) =>
+      `<button type="button" class="sf-related" data-related="${e(id)}"><span class="sf-related-title">${e(title || id)}</span><span class="sf-related-meta">${e(id)} · ${e(status || 'Status unavailable')}</span></button>`;
+    const blockedBy = (task.dependencies || []).map(id => {
+      const other = tasks.find(x => x.id === id);
+      return related(id, other?.title, other?.status);
+    });
+    const blocks = tasks.filter(x => x.dependencies?.includes(task.id)).map(x => related(x.id, x.title, x.status));
+    const rail = `<aside class="sf-read-rail" aria-label="Task properties"><dl class="sf-read-properties">${[
+      property(
+        'Status',
+        `<span class="sf-status-dot" data-status="${e(String(task.status || '').toLowerCase())}"></span>${e(task.status || 'No status')}`,
+      ),
+      property('Owner', e(task.assignee?.join(', ') || 'Unassigned')),
+      property('Milestone', e(milestones.find(x => x.id === task.milestone)?.title || task.milestone || 'None')),
+      property('Priority', e(task.priority || '')),
+      property('Type', e(task.type || '')),
+      property('Labels', (task.labels || []).map(label => `<span class="sf-chip">${e(label)}</span>`).join(' ')),
+      property('Created', day(task.createdDate)),
+      property('Updated', day(task.updatedDate)),
+    ].join(
+      '',
+    )}</dl>${blockedBy.length ? section('Blocked by', `<div class="sf-related-list">${blockedBy.join('')}</div>`) : ''}${
+      blocks.length ? section('Blocks', `<div class="sf-related-list">${blocks.join('')}</div>`) : ''
+    }${[
+      ['references', 'References'],
+      ['modifiedFiles', 'Changed files'],
+    ]
+      .map(([name, label]) =>
+        task[name]?.length
+          ? section(label, `<ul class="sf-rail-list">${task[name].map(x => `<li>${e(x)}</li>`).join('')}</ul>`)
+          : '',
+      )
+      .join('')}</aside>`;
+    const main = `<div class="sf-read-main">${narratives
+      .map(([name, label]) =>
+        name === 'blockReason'
+          ? taskBlockerText(task, tasks)
+            ? section(label, `<p class="sf-read-blocker">${e(taskBlockerText(task, tasks))}</p>`)
+            : ''
+          : task[name]
+            ? section(label, `<div class="docs-prose">${renderMarkdown(task[name]).html}</div>`)
+            : name === 'description'
+              ? section(label, '<p class="muted">Not recorded.</p>')
+              : '',
+      )
+      .join('')}${[
+      ['acceptanceCriteriaItems', 'Acceptance criteria'],
+      ['definitionOfDoneItems', 'Definition of done'],
+    ]
+      .map(([name, label]) =>
+        task[name]?.length
           ? section(
-              'Blocked by',
-              task.dependencies
-                .map(id => {
-                  const related = tasks.find(x => x.id === id);
-                  return `<button type="button" class="button quiet" data-related="${e(id)}">${e(related?.title || id)} · ${e(related?.status || 'Status unavailable')}</button>`;
-                })
-                .join(''),
+              `${label} <span class="sf-count">${task[name].filter(x => x.checked).length}/${task[name].length}</span>`,
+              `<ul class="sf-read-checklist">${task[name].map(x => `<li class="${x.checked ? 'is-checked' : ''}"><span aria-hidden="true">${x.checked ? '☑' : '☐'}</span> ${e(x.text)}</li>`).join('')}</ul>`,
             )
-          : ''
-      }${
-        tasks.some(x => x.dependencies?.includes(task.id))
-          ? section(
-              'Blocks',
-              tasks
-                .filter(x => x.dependencies?.includes(task.id))
-                .map(
-                  x =>
-                    `<button type="button" class="button quiet" data-related="${e(x.id)}">${e(x.title)} · ${e(x.status)}</button>`,
-                )
-                .join(''),
-            )
-          : ''
-      }${[
-        ['references', 'References'],
-        ['modifiedFiles', 'Changed files'],
-      ]
-        .map(([name, label]) =>
-          task[name]?.length ? section(label, `<ul>${task[name].map(x => `<li>${e(x)}</li>`).join('')}</ul>`) : '',
-        )
-        .join('')}<button type="button" class="button quiet" data-add-content>Add or edit task content</button>`;
+          : '',
+      )
+      .join('')}<button type="button" class="button quiet" data-add-content>Add or edit task content</button></div>`;
+    form.querySelector('.sf-task-reading').innerHTML = `<div class="sf-read-layout">${main}${rail}</div>`;
   }
   function comments() {
     proseCleanup();

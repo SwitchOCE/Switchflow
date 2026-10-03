@@ -126,6 +126,17 @@ async function readProject(route, projectId = selectedProjectId) {
   if (!response.ok) throw new Error(data.error || `Unable to load project (${response.status}).`);
   return data;
 }
+async function writeProject(route, method, body, projectId = selectedProjectId) {
+  const response = await fetch(scopedPath(route, projectId), {
+    method,
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Switchflow-Token': sharedToken },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  return data;
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -1590,7 +1601,11 @@ function showView(view, updateLocation = true) {
     });
     void panel.refresh();
   } else if (viewName === 'agents')
-    panel = mountAgents(container, { request: route => readProject(route, id), ...options });
+    panel = mountAgents(container, {
+      ...options,
+      request: route => readProject(route, id),
+      send: (route, method, body) => writeProject(route, method, body, id),
+    });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
   else panel = mountInsights(container, { ...options, kind: viewName });
