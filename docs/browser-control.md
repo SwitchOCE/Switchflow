@@ -14,6 +14,43 @@ UAT acceptance saves the human verdict and candidate evidence immediately, then 
 
 Walkthrough file references can open a committed-text preview in the board. The service accepts only the exact file reference already in that initiative's UAT, within a candidate registered to its approved grant. It verifies the candidate identity and reads the recorded commit's blob, preserving its whitespace; working-file edits cannot change the displayed acceptance artifact. Binary, oversized, linked, protected and unrelated files are refused. Application walkthroughs use their real HTTP or HTTPS links and still require the owner to try the product.
 
+## UAT preview
+
+The UAT checklist has a **Preview** bar that starts the delivered candidate on this computer and links to it. Starting a preview runs delivered code with your own permissions, outside any agent sandbox, exactly as if you had started it yourself.
+
+Configure it once in `.switchflow/preview.json` in the primary checkout, next to `project.json`, and commit it like other project configuration:
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "npm",
+  "args": ["run", "dev", "--", "--host", "127.0.0.1"],
+  "cwd": "web",
+  "port": 5173,
+  "env": { "VITE_MODE": "uat" }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `command` | One program: a name found on `PATH` (such as `npm` or `node`) or an absolute path. Never a shell command line. |
+| `args` | Its arguments, one string each. Optional. |
+| `cwd` | Folder inside the candidate to run in, with forward slashes. Optional; defaults to the candidate root. |
+| `port` | Optional. The preview counts as running once this loopback port accepts connections, and is refused if the port is already busy. Without it, the first `http://localhost`, `127.0.0.1` or `[::1]` address the program prints is used. |
+| `env` | Optional extra variables. Do not put secrets here; the file is committed. |
+
+**Who decides the command.** Only this owner-edited file supplies the command; it is read from the primary checkout, never from the candidate. Agents may propose a command in their delivery evidence, but it runs only after you put it in this file. Agents can write the governance checkout for Backlog work, so the file alone is not a security boundary: the bar always shows the exact command, Start sends the hash of the command you saw, and the service refuses to start if the file changed since. Every start is an explicit click. A missing or invalid file shows how to configure it.
+
+**What it runs.** The candidate is the managed worktree registered to the initiative's approved Git grant, the same registry the committed-file preview uses. The bar suggests the candidate the delivery evidence names (by path, then HEAD); when several are registered you can pick another. Before starting, the service verifies the worktree identity, its branch, that its HEAD is the recorded delivered commit, and that no tracked file is modified, so the preview shows the delivered commit rather than your working checkout. The program runs in the candidate folder; keep generated build output gitignored so later candidate merges see a clean worktree.
+
+**How it runs.** No shell is used. On Windows, `npm` and `npx` run as Node with npm's own CLI script; other `.cmd` or `.bat` wrappers are refused with a message to name the program they wrap. Program lookup uses absolute `PATH` entries only, never the candidate folder. The program receives your environment plus `HOST=127.0.0.1`, `BROWSER=none`, `PORT` when configured, and then `env`. The service cannot force a program to bind loopback only; configure that in its arguments as above. The bar links only to loopback addresses. It shows the latest 40 output lines (ANSI colours removed); output stays in memory and is not saved.
+
+**Lifecycle.** One preview runs per project. Stop ends it whichever initiative started it. The service stops it, including its child processes (`taskkill /T /F` on Windows, the process group elsewhere), when you accept the delivery, request rework or change scope, when the initiative otherwise leaves UAT, and when the service shuts down. Starting requires the initiative to be waiting for your UAT decision with no agent working on it, and the board disables Start while any agent is active or queued, like other edits. A crash shows the exit code and last output; Start again retries.
+
+**After a restart.** The service records the preview's process ID and start time in `<stateDir>/preview.json`, outside every agent write grant. On startup, if that process is still alive and its operating-system start time matches the record, the service stops its tree, because it is the previous session's own child. A live process that cannot be confirmed (for example a reused process ID) is left alone, and the bar says so. Unlike an agent run, a leftover preview does not fence other work.
+
+Routes: `GET /api/projects/<id>/initiatives/<initiative>/preview` returns configuration, candidates and the running state; `POST …/preview/start` takes `{ "commandHash": "…", "candidate": "<optional name>" }`; `POST …/preview/stop` takes `{}`. Both POSTs need the page token.
+
 ## Scope, concurrency and interruptions
 
 The service admits one agent run per Git project at a time. Other initiatives can queue. Each human action carries the initiative revision actually displayed; stale actions fail and the browser retains typed drafts. Updates enter the next checkpoint. A scope change stops the current run, retains the old approvals for audit, revokes the current grant, and returns to Intake. New work waits for the stopped process to settle.
@@ -150,7 +187,7 @@ Returns 202:
 
 ### Orchestrator and workers
 
-During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
+During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config with `default_tools_approval_mode = "approve"`, because under approval policy `never` Codex refuses any MCP tool it would otherwise ask about. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -173,7 +210,7 @@ The host enforces:
 
 The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
 
-`GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `cancelled` with an error, and their events stay readable.
+`GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `failed` (under Needs you) with an error naming their process, and their events stay readable. Their processes are fenced as described in [Recovery](#recovery).
 
 ## Where data lives
 
@@ -185,6 +222,7 @@ The suite lock is one project-wide lock so parallel workers do not run the full 
 | Delivery tasks, milestones, accepted product documents | Primary checkout's Backlog; worker worktrees use the same governance root |
 | Browser scope/plan approvals, revision history, sessions and run receipts | External project state, `control.json` and `runs/<id>/` |
 | Agent routing settings and the agent session index | External `agent-settings.json` and `agent-sessions.json`; per-session events in `runs/<id>/sessions/` |
+| UAT preview command / running preview record | Primary checkout's `.switchflow/preview.json` (owner-edited) / external `preview.json` (process ID and start time only) |
 | Friction/issues, check evidence, worktree registrations | Separate external JSON ledgers in `operations/` |
 | Investigation output | Managed external scratch; agents read only explicitly referenced material |
 | Selected durable scratch output | Explicit promotion into the governance collection; never automatic ingestion |
@@ -197,7 +235,24 @@ Scratch's default write-only use is a role boundary, not an operating-system ACL
 
 ## Recovery
 
-A normal cancel stops the owned process tree and records the interruption. Restart never treats an interrupted process as completed. A still-live recorded PID fences new work. A missing PID retains an unknown-process hold: inspect the previous process and checkpoint, then explicitly confirm it has stopped in the board before releasing recovery. The server does not kill a possibly reused or unknown PID. Retry is an explicit action after recovery, not automatic replay of uncertain work.
+A normal cancel stops the owned process tree and records the interruption. Restart never treats an interrupted process as completed. Retry is an explicit action after recovery, not automatic replay of uncertain work.
+
+The restart fence covers every agent process of the active run: the stage agent and each delegated worker or reviewer. A worker gets a durable entry in `control.json` (`activeRun.workers`: session, kind, provider, task, PID, time recorded) before its provider starts, and its PID is written as soon as the process exists: Codex app-server before its handshake, Claude CLI before its first input, `codex exec` at each turn's start. A cleanly closed worker's entry is removed. On restart each recorded process is classified:
+
+| State | Meaning | Effect |
+| --- | --- | --- |
+| `running` | PID is alive and its start time is no later than when it was recorded | Holds the run until it stops or the owner stops it |
+| `unverified` | PID is alive but its start time cannot be read | Holds the run until the owner confirms it stopped |
+| `unknown` | No PID was recorded, for example a crash during startup | Holds the run until the owner confirms it stopped |
+| gone | PID is not alive, or a later process reused it | No hold |
+
+The hold lists each process (provider, stage or worker kind, task, PID) in `activeRun.held` and in the initiative's next action, and the Agents view lists those sessions as `failed`. Owner actions on the initiative:
+
+- `stop-processes` ends the tree (`taskkill /T /F` on Windows, the process group elsewhere) of each process whose identity is verified again at that moment. Unverified and unknown entries are never stopped by the service. The hold is released when nothing remains.
+- `recover-run` with `confirmedStopped: true` releases a hold whose remaining entries are unverified or unknown. It is refused while a verified process is still running.
+- Any other action is refused while the hold remains; once every recorded process has stopped, the next action releases it.
+
+The service does not stop these processes on its own at startup. Recovery runs whenever a project attaches, possibly without the owner present, and acts on state written by a previous service; stopping is irreversible and the owner may want to inspect the worker's work first. When the service dies its agents' stdin closes. In live checks on Windows (2026-10-03), Codex app-server and Claude CLI exited within about 1.5 s of that even mid-turn, and Codex took its running shell command with it, so a hold on a live worker is the exception: a hung process, or one whose identity cannot be confirmed. Start-time verification makes a stop request safe against PID reuse; it costs one PowerShell `Get-Process` call (about 0.3 s) per live PID, only during recovery.
 
 Native Backlog and MCP editing timeouts and invalid transport responses retain their request and write-admission lock until the owned child emits closure. Sending a termination signal alone does not establish that the writer stopped. If termination cannot be confirmed, the request remains pending and new writes remain fenced; inspect and stop that exact child before recovery. No replacement child starts while its predecessor is uncertain.
 
@@ -209,7 +264,7 @@ Malformed state and unexplained stale data locks fail closed. Stop the service, 
 
 ## Verification and security boundaries
 
-The server accepts only its loopback Host and same-origin browser requests. Every mutation requires a per-service token; JSON payloads and native decision-editor UTF-8 text are bounded. It launches fixed local executables with argument arrays and stdin, never browser-supplied shell commands. Native Backlog request handlers run through a private process pipe per canonical project, with no additional HTTP listeners. All writes share the agent-admission fence. Repository attachment responses are sandboxed and cannot execute scripts with workspace authority. The native web bundle is hashed alongside the executable in the fork receipt. Only local users and processes that can access this host should use this service; it is not a remotely authenticated multi-user server.
+The server accepts only its loopback Host and same-origin browser requests. Every mutation requires a per-service token; JSON payloads and native decision-editor UTF-8 text are bounded. It launches fixed local executables with argument arrays and stdin, never browser-supplied shell commands. The one owner-configured program, the [UAT preview](#uat-preview), also runs without a shell and only after the owner starts the exact command shown. Native Backlog request handlers run through a private process pipe per canonical project, with no additional HTTP listeners. All writes share the agent-admission fence. Repository attachment responses are sandboxed and cannot execute scripts with workspace authority. The native web bundle is hashed alongside the executable in the fork receipt. Only local users and processes that can access this host should use this service; it is not a remotely authenticated multi-user server.
 
 Agent results, events and completion receipts are bounded and persisted. A malformed final result, missing durable session, failed turn, timeout or process error cannot advance to UAT. Each agent runs under the owner's existing local Codex or Claude login with sandboxing and no approval bypass. Success in adapter tests is not real agent proof; a successful agent run is not human UAT.
 

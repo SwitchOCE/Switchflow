@@ -7,8 +7,8 @@
   --surface: #ffffff;
   --surface-2: #f6f7f9;
   --surface-3: #eceff3;
-  --border: #e1e5eb;
-  --border-strong: #c9d0da;
+  --border: #cfd5de;
+  --border-strong: #b3bcc8;
   --text-1: #111827;
   --text-2: #4b5563;
   --text-3: #6b7280;
@@ -80,8 +80,8 @@ html[data-theme='dark'] {
   --surface: #161d28;
   --surface-2: #121821;
   --surface-3: #1e2734;
-  --border: #253041;
-  --border-strong: #354257;
+  --border: #3a475c;
+  --border-strong: #4f5e76;
   --text-1: #e7ecf3;
   --text-2: #a7b2c3;
   --text-3: #7f8b9e;

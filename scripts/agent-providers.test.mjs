@@ -120,7 +120,7 @@ function run(message) {
     }
     if (queue.length) run(queue.shift());
   };
-  if (text.includes('slow')) setTimeout(finish, 300); else finish();
+  if (text.includes('slow')) setTimeout(finish, 2000); else finish();
 }
 let buffer = '';
 process.stdin.on('data', chunk => {
@@ -142,8 +142,22 @@ process.stdin.on('data', chunk => {
 process.stdin.on('end', () => process.exit(0));
 `;
 
+// Waits for a condition instead of a fixed sleep: process start-up time varies with machine load.
+async function until(condition, label, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
 async function fixture(t, script, mode = 'normal') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'switchflow-provider-'));
+  // A failed assertion must not leave a fake provider running, or the test file never exits.
+  const children = [];
+  t.after(() => {
+    for (const child of children) if (child.exitCode === null) child.kill();
+  });
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const scriptPath = path.join(root, 'fake.cjs');
   const log = path.join(root, 'log.jsonl');
@@ -165,11 +179,14 @@ async function fixture(t, script, mode = 'normal') {
         events.push(event);
       },
       rawLogPath: path.join(root, 'raw', 'session.jsonl'),
-      spawnProcess: (_exe, args, options) =>
-        spawn(process.execPath, [scriptPath, ...args], {
+      spawnProcess: (_exe, args, options) => {
+        const child = spawn(process.execPath, [scriptPath, ...args], {
           ...options,
           env: { ...options.env, FAKE_LOG: log, FAKE_MODE: mode },
-        }),
+        });
+        children.push(child);
+        return child;
+      },
     },
   };
 }
@@ -207,6 +224,8 @@ test('Codex app-server arguments and thread settings keep the exec guardrails', 
   assert.equal(params.config.apps._default.enabled, false);
   for (const feature of ['apps', 'plugins', 'computer_use']) assert.ok(args.includes(`features.${feature}=false`));
   assert.equal(params.config.mcp_servers.switchflow.command, 'node');
+  // approvalPolicy "never" would otherwise refuse host tools that lack readOnlyHint (live run, 2026-10-03).
+  assert.equal(params.config.mcp_servers.switchflow.default_tools_approval_mode, 'approve');
   assert.deepEqual(sandboxPolicy({ sandbox: 'read-only', writableRoots: [temporaryRoot] }), {
     type: 'readOnly',
     networkAccess: false,
@@ -218,7 +237,7 @@ test('Codex session streams normalized events, steers the active turn and parses
   const session = await openCodexSession({ ...options, model: 'gpt-test', effort: 'low' });
   assert.equal(session.threadId, '01a1000a-0000-7000-8000-000000000001');
   const turn = session.startTurn('Take your time', { outputSchema: schema });
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await until(() => session.activeTurnId, 'the Codex turn to start');
   assert.ok(session.activeTurnId);
   await assert.rejects(session.steer('wrong', { expectedTurnId: 'stale' }), /No active turn/);
   await session.steer('stop and report', { by: 'orchestrator' });
@@ -265,7 +284,7 @@ test('Codex interrupt, failure, declined approvals and handshake failure', async
   const { options, events } = await fixture(t, fakeCodex, 'approval');
   const session = await openCodexSession(options);
   const turn = session.startTurn('wait');
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await until(() => session.activeTurnId, 'the Codex turn to start');
   assert.equal(await session.interrupt(), true);
   await assert.rejects(turn, error => error.interrupted === true);
   assert.equal(await session.interrupt(), false);
@@ -282,7 +301,8 @@ test('Codex session stops on cancellation and when the host cannot record events
   const controller = new AbortController();
   const session = await openCodexSession({ ...options, signal: controller.signal });
   const turn = session.startTurn('wait');
-  setTimeout(() => controller.abort(), 50);
+  await until(() => session.activeTurnId, 'the Codex turn to start');
+  controller.abort();
   await assert.rejects(turn, /cancelled/);
   await session.close();
   const second = await fixture(t, fakeCodex);
@@ -340,7 +360,7 @@ test('Claude session streams events, queues a steer into the same turn and retur
   const { options, events, lines } = await fixture(t, fakeClaude);
   const session = await openClaudeSession({ ...options, executable: 'claude.exe', limits: { maxTurns: 5 } });
   const turn = session.startTurn('slow question', { outputSchema: schema });
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await until(() => events.some(event => event.kind === 'command'), 'the Claude turn to start');
   await session.steer('extra detail', { by: 'owner' });
   const outcome = await turn;
   // The steer produced its own reply; the turn ends with the last one.
@@ -368,10 +388,10 @@ test('Claude session streams events, queues a steer into the same turn and retur
 });
 
 test('Claude errors, interrupts and sign-in failures are not treated as success', async t => {
-  const { options } = await fixture(t, fakeClaude);
+  const { options, events } = await fixture(t, fakeClaude);
   const session = await openClaudeSession({ ...options, executable: 'claude.exe' });
   const turn = session.startTurn('slow work');
-  await new Promise(resolve => setTimeout(resolve, 50));
+  await until(() => events.some(event => event.kind === 'command'), 'the Claude turn to start');
   assert.equal(await session.interrupt(), true);
   await assert.rejects(turn, error => error.interrupted === true);
   await session.close();

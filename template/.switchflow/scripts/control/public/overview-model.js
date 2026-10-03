@@ -201,8 +201,10 @@ export function overviewGroups(state, milestones = []) {
           ]
         : []),
       {
-        title: 'Up next',
-        empty: 'Nothing is ready to start.',
+        title: 'Agents up next',
+        empty: humanTasks.length
+          ? `No agent work is ready. ${humanTasks.length === 1 ? 'Your task is' : `${humanTasks.length} of your tasks are`} ready under Needs you.`
+          : 'Nothing is ready to start.',
         items: next.eligible.length ? next.eligible : boardNext,
       },
       {

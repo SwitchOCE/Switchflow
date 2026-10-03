@@ -49,6 +49,64 @@ export function isRunProcessAlive(pid) {
   }
 }
 
+/**
+ * Creation time (ms) of a live process, or null when it cannot be read. Recovery compares it with
+ * the time the PID was recorded: a process created later is a reused PID, not the recorded agent.
+ */
+export function processStartTime(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return Promise.resolve(null);
+  const [file, args] =
+    process.platform === 'win32'
+      ? [
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+          ],
+        ]
+      : ['ps', ['-o', 'lstart=', '-p', String(pid)]];
+  return new Promise(resolve =>
+    execFile(
+      file,
+      args,
+      { windowsHide: true, timeout: 15000, env: { ...process.env, LC_ALL: 'C' } },
+      (error, stdout) => {
+        const time = error ? NaN : Date.parse(String(stdout).trim());
+        resolve(Number.isFinite(time) ? time : null);
+      },
+    ),
+  );
+}
+
+/** Ends a recorded process and its descendants by PID. Callers verify its identity first. */
+export function stopProcessTree(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return Promise.resolve(false);
+  if (process.platform === 'win32')
+    return new Promise(resolve => {
+      const killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+        windowsHide: true,
+        shell: false,
+        stdio: 'ignore',
+      });
+      killer.once('error', () => resolve(false));
+      killer.once('close', code => resolve(code === 0));
+    });
+  try {
+    // POSIX agents start detached, so the recorded PID leads its process group.
+    process.kill(-pid, 'SIGKILL');
+    return Promise.resolve(true);
+  } catch {
+    try {
+      process.kill(pid, 'SIGKILL');
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+}
+
 export function codexArguments({
   schemaPath,
   outputPath,

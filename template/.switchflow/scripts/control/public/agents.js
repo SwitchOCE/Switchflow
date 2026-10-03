@@ -1,6 +1,7 @@
 // Agents: live and recent provider sessions, the orchestrator → worker tree, a readable
 // transcript and a composer that steers the selected session mid-turn.
 import { renderMarkdown } from './documents.js';
+import { createRefreshControl } from './refresh-control.js';
 
 const providers = {
   claude: { name: 'Claude', mark: 'C' },
@@ -75,7 +76,7 @@ const settleAfterMs = 3 * 24 * 60 * 60 * 1000;
 
 export function mountAgents(
   container,
-  { request, send, canWrite, writeBlockedReason, onOpenTask, projectId, initiativeTitle = () => '' },
+  { request, send, canWrite, writeBlockedReason, onOpenTask, onOpenInitiative, projectId, initiativeTitle = () => '' },
 ) {
   const taskOf = session => session.task || session.taskId || null;
   const titleOf = session => {
@@ -126,6 +127,7 @@ export function mountAgents(
   let headNode = null;
   let renderedFor = null;
   let settledOpen = false;
+  let composerControls = null;
 
   container.replaceChildren();
   const header = el('header', 'agents-header');
@@ -143,8 +145,9 @@ export function mountAgents(
     routingToggle.setAttribute('aria-expanded', String(showRouting));
     renderRouting();
   });
+  const refreshControl = createRefreshControl(() => refresh());
   const headerTools = el('div', 'agents-header-tools');
-  headerTools.append(providerChips, routingToggle);
+  headerTools.append(providerChips, routingToggle, refreshControl.create());
   header.append(titles, headerTools);
 
   const routing = el('section', 'agents-routing');
@@ -159,9 +162,14 @@ export function mountAgents(
   list.setAttribute('aria-label', 'Agent sessions');
   const detail = el('section', 'agents-detail');
   detail.setAttribute('aria-live', 'off');
-  layout.dataset.pane = 'list';
   layout.append(list, detail);
   container.append(header, routing, message, layout);
+  // Phones show one pane at a time; the page header compacts while a session is open.
+  const setPane = pane => {
+    layout.dataset.pane = pane;
+    container.dataset.agentsPane = pane;
+  };
+  setPane('list');
 
   function sessions() {
     return Array.isArray(data?.sessions) ? data.sessions : [];
@@ -215,7 +223,7 @@ export function mountAgents(
     if (session.lastMessage) row.append(el('span', 'agents-row-last', session.lastMessage));
     row.addEventListener('click', () => {
       select(session.id);
-      layout.dataset.pane = 'detail';
+      setPane('detail');
       detail.querySelector('h2')?.focus?.({ preventScroll: true });
     });
     return row;
@@ -380,7 +388,7 @@ export function mountAgents(
     const back = el('button', 'button quiet agents-back', '← Sessions');
     back.type = 'button';
     back.addEventListener('click', () => {
-      layout.dataset.pane = 'list';
+      setPane('list');
       list.querySelector(`[data-session="${CSS.escape(session.id)}"]`)?.focus({ preventScroll: true });
     });
     title.append(back);
@@ -424,9 +432,9 @@ export function mountAgents(
     }
     if (!live.has(session.status)) {
       const done = !!settled[session.id];
-      const settle = el('button', 'button quiet', done ? 'Unsettle' : 'Settle');
+      const settle = el('button', 'button quiet', done ? 'Return to inbox' : 'Mark handled');
       settle.type = 'button';
-      settle.title = done ? 'Move back to your inbox' : 'Mark handled and move out of your inbox';
+      settle.title = done ? 'Move back to your inbox' : 'Move out of your inbox';
       settle.addEventListener('click', () => setSettled(session, !done));
       actions.append(settle);
     }
@@ -442,13 +450,27 @@ export function mountAgents(
   }
 
   function composer(session) {
+    composerControls = null;
     if (!live.has(session.status) && !steerable(session)) {
-      const note = el('p', 'agents-ended');
-      note.textContent =
-        session.status === 'failed' || session.status === 'interrupted'
-          ? 'This session has ended. Retry or add an update on its initiative to continue.'
-          : 'This session has ended. Add an update on its initiative to give the next run more direction.';
-      return note;
+      const ended = el('div', 'agents-ended');
+      const canOpen = !!(session.initiativeId && onOpenInitiative && initiativeTitle(session.initiativeId));
+      ended.append(
+        el(
+          'p',
+          '',
+          session.status === 'failed' || session.status === 'interrupted'
+            ? `This session has ended. Retry or add an update on its initiative${canOpen ? '' : ' in Overview'} to continue.`
+            : `This session has ended. Add an update on its initiative${canOpen ? '' : ' in Overview'} to give the next run more direction.`,
+        ),
+      );
+      if (canOpen) {
+        const open = el('button', 'button quiet', 'Open initiative →');
+        open.type = 'button';
+        open.title = initiativeTitle(session.initiativeId);
+        open.addEventListener('click', () => onOpenInitiative(session.initiativeId));
+        ended.append(open);
+      }
+      return ended;
     }
     const form = el('form', 'agents-composer');
     const field = el('textarea');
@@ -456,7 +478,6 @@ export function mountAgents(
     field.maxLength = 20000;
     field.setAttribute('aria-label', `Message ${providers[session.provider]?.name || 'agent'}`);
     const working = ['working', 'running', 'starting'].includes(session.status);
-    const blocked = !canWrite() ? writeBlockedReasonFor() : '';
     const unavailable = !steerable(session)
       ? session.transport === 'exec'
         ? 'This session runs through codex exec, which cannot take messages.'
@@ -509,24 +530,31 @@ export function mountAgents(
     const submit = el('button', 'button primary', 'Send');
     submit.type = 'submit';
     const hint = el('p', 'agents-composer-hint');
-    hint.textContent = blocked || unavailable;
-    const disabled = !!(blocked || unavailable) || sending;
-    field.disabled = disabled;
-    submit.disabled = disabled;
-    for (const option of modes.children) option.disabled = disabled;
+    hint.textContent = unavailable;
+    // Above the field so a reason or a failure is read before the next attempt.
+    const blockedNote = el('p', 'agents-composer-blocked');
+    blockedNote.setAttribute('role', 'status');
+    const errorNote = el('p', 'agents-composer-error');
+    errorNote.setAttribute('role', 'alert');
+    field.disabled = !!unavailable;
     const row = el('div', 'agents-composer-row');
     row.append(field, submit);
-    form.append(row);
+    form.append(blockedNote, errorNote, row);
     const foot = el('div', 'agents-composer-foot');
     if (modes.childElementCount) foot.append(modes);
     foot.append(hint);
     form.append(foot);
+    composerControls = { form, submit, modes, blockedNote, unavailable };
+    updateComposerAccess();
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const text = field.value.trim();
       if (!text || sending) return;
+      updateComposerAccess();
+      if (unavailable || blockedNote.textContent) return;
       sending = true;
       submit.disabled = true;
+      errorNote.textContent = '';
       hint.textContent = 'Sending…';
       try {
         const result = await send(`/agents/${encodeURIComponent(session.id)}/steer`, 'POST', {
@@ -545,13 +573,27 @@ export function mountAgents(
         pinnedToBottom = true;
         await loadEvents(true);
       } catch (error) {
-        hint.textContent = `${error.message} Your message is kept.`;
+        hint.textContent = '';
+        const reason = String(error.message || 'The request failed').trim();
+        errorNote.textContent = `Not sent: ${/[.!?]$/.test(reason) ? reason : `${reason}.`} Your message is kept.`;
       } finally {
         sending = false;
-        submit.disabled = false;
+        updateComposerAccess();
       }
     });
     return form;
+  }
+  // Writes can stop (offline, another operation) after the composer was drawn; keep Send honest.
+  function updateComposerAccess() {
+    const controls = composerControls;
+    if (!controls?.form.isConnected) return;
+    const reason = controls.unavailable ? '' : !canWrite() ? writeBlockedReasonFor() : '';
+    const text = reason ? `Sending is paused. ${reason}` : '';
+    if (controls.blockedNote.textContent !== text) controls.blockedNote.textContent = text;
+    const disabled = !!(controls.unavailable || reason) || sending;
+    controls.submit.disabled = disabled;
+    controls.submit.title = reason;
+    for (const option of controls.modes.children) option.disabled = !!(controls.unavailable || reason);
   }
   function writeBlockedReasonFor() {
     const reason = writeBlockedReason?.() || '';
@@ -726,6 +768,7 @@ export function mountAgents(
       const next = await request('/agents');
       if (destroyed) return;
       data = next;
+      refreshControl.loaded();
       message.textContent = data?.notice || '';
       if (!selected || !current()) {
         const pick =
@@ -747,10 +790,13 @@ export function mountAgents(
         headNode.replaceWith(head);
         headNode = head;
       }
+      updateComposerAccess();
       schedule();
     } catch (error) {
       if (destroyed) return;
       message.textContent = `Agent sessions are unavailable: ${error.message}`;
+      refreshControl.failed(error);
+      updateComposerAccess();
       if (!data) {
         renderProviders();
         renderList();
@@ -762,13 +808,16 @@ export function mountAgents(
   timer = setInterval(() => {
     if (!document.hidden && container.isConnected && !container.closest('[hidden]')) void refresh();
   }, 3000);
+  const accessTimer = setInterval(updateComposerAccess, 1000);
   void refresh();
   return {
     refresh,
     open: id => select(id),
     destroy() {
       destroyed = true;
+      refreshControl.destroy();
       clearInterval(timer);
+      clearInterval(accessTimer);
       clearTimeout(streamTimer);
     },
   };

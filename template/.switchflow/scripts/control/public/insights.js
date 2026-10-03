@@ -1,4 +1,5 @@
 import { formatProjectDate, normalizeDateFormat } from './ui-date.js';
+import { createRefreshControl } from './refresh-control.js';
 
 const settingsDrafts = new Map();
 function storeDraft(project, draft) {
@@ -444,7 +445,7 @@ function renderHistory(model, { onOpenTask, dateFormat, historyState }) {
 function renderStatistics(
   container,
   model,
-  { refresh, onOpenTask, dateFormat, historyState, dateFormatAvailable = true },
+  { refreshControl, onOpenTask, dateFormat, historyState, dateFormatAvailable = true },
 ) {
   container.replaceChildren();
   const header = node('header', 'page-header');
@@ -454,9 +455,7 @@ function renderStatistics(
     node('p', '', model.totalTasks ? 'Where the work stands and what has been completed.' : 'No tasks yet.'),
   );
   const actions = node('div', 'page-actions');
-  const reload = action('Refresh');
-  reload.addEventListener('click', refresh);
-  actions.append(reload);
+  actions.append(refreshControl.create());
   header.append(copy, actions);
 
   const statusTotal = key =>
@@ -573,17 +572,14 @@ const settingsSections = [
 ];
 
 function renderSettings(container, context) {
-  const { projectId, canWrite, writeBlockedReason, refresh, save, discard, latestConfig, draft } = context;
+  const { projectId, canWrite, writeBlockedReason, refreshControl, save, discard, latestConfig, draft } = context;
   const writable = isWritable(canWrite);
   container.replaceChildren();
   const header = node('header', 'page-header');
   const copy = node('div');
   copy.append(node('h1', '', 'Settings'), node('p', '', 'Project configuration stored in Backlog.'));
   const actions = node('div', 'page-actions');
-  const reload = action('Reload');
-  reload.title = 'Reload saved settings';
-  reload.addEventListener('click', refresh);
-  actions.append(reload);
+  actions.append(refreshControl.create());
   header.append(copy, actions);
   container.append(header);
   if (!writable) {
@@ -913,6 +909,8 @@ export function mountInsights(
     } catch {}
   }
   let statisticsSignature = '';
+  // Each render rebuilds the page header; the same control is moved into the new one.
+  const refreshControl = createRefreshControl(() => refresh());
   const historyState = { page: 0 };
 
   container.classList.add('insights-view');
@@ -963,6 +961,7 @@ export function mountInsights(
     if (destroyed || ticket !== generation) return;
     if (statistics.status === 'rejected') {
       failure(statistics.reason, refreshStatistics, hadContent);
+      refreshControl.failed(statistics.reason);
       return;
     }
     container.querySelector('[data-refresh-error]')?.remove();
@@ -978,7 +977,7 @@ export function mountInsights(
     if (signature !== statisticsSignature || !container.querySelector('.insights-tiles')) {
       statisticsSignature = signature;
       renderStatistics(container, model, {
-        refresh: refreshStatistics,
+        refreshControl,
         onOpenTask,
         dateFormat,
         historyState,
@@ -986,6 +985,7 @@ export function mountInsights(
       });
     }
     container.removeAttribute('aria-busy');
+    refreshControl.loaded();
   }
 
   async function saveSettings({ saveButton, discardButton }) {
@@ -1051,7 +1051,7 @@ export function mountInsights(
       projectId,
       canWrite,
       writeBlockedReason,
-      refresh: refreshSettings,
+      refreshControl,
       save: saveSettings,
       discard: discardSettings,
       latestConfig,
@@ -1077,11 +1077,15 @@ export function mountInsights(
         if (!rendered || fenceChanged) renderSettings(container, settingsContext());
         if (changed) setSaveState(container, 'Saved settings reloaded. Your unsaved changes are kept.', 'dirty');
       } else if (changed || !rendered || fenceChanged) renderSettings(container, settingsContext());
+      container.querySelector('[data-refresh-error]')?.remove();
+      refreshControl.loaded();
     } catch (error) {
       if (destroyed || ticket !== generation) return;
       if (draft?.dirtyFields.size && container.querySelector('.insights-settings'))
         setSaveState(container, `${errorMessage(error, 'Unable to reload settings.')} Your changes are kept.`, 'error');
-      else failure(error, refreshSettings);
+      // A failed reload keeps the settings already on screen, as Insights does.
+      else failure(error, refreshSettings, Boolean(container.querySelector('.insights-settings')));
+      refreshControl.failed(error);
     } finally {
       if (!destroyed && ticket === generation) container.removeAttribute('aria-busy');
     }
@@ -1095,6 +1099,7 @@ export function mountInsights(
       destroyed = true;
       generation++;
       clearTimeout(savedTimer);
+      refreshControl.destroy();
       container.settingsObserver?.disconnect();
       delete container.settingsObserver;
       container.classList.remove('insights-view');

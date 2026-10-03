@@ -162,6 +162,7 @@ export async function openClaudeSession({
   effort,
   limits = {},
   onEvent = () => {},
+  onProcess = async () => {},
   signal,
   mcpConfigPath,
   gitHelperPath,
@@ -433,8 +434,17 @@ export async function openClaudeSession({
       if (failure && child) throw failure;
       if (closing) throw new Error('Claude session is closed');
       if (active) throw new Error('A turn is already running in this session');
-      if (!child) start(outputSchema);
-      else if (JSON.stringify(outputSchema ?? null) !== schemaKey)
+      if (!child) {
+        start(outputSchema);
+        // The host records the PID before any input reaches the process.
+        try {
+          await onProcess(child.pid ?? null);
+        } catch (error) {
+          fail(error);
+          await close();
+          throw error;
+        }
+      } else if (JSON.stringify(outputSchema ?? null) !== schemaKey)
         throw new Error('A Claude session keeps the output schema of its first turn');
       const turnId = randomUUID();
       const done = new Promise((resolve, reject) => {

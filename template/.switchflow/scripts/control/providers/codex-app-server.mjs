@@ -101,6 +101,10 @@ export function threadStartParams({
       enabled: true,
       startup_timeout_sec: 30,
       tool_timeout_sec: 120,
+      // Under approvalPolicy "never", Codex refuses any MCP tool it would otherwise ask about (every
+      // tool without readOnlyHint). Host-supplied servers enforce their own guardrails, so their
+      // tools are pre-approved; user servers stay disabled above.
+      default_tools_approval_mode: 'approve',
     };
   }
   const config = {
@@ -165,6 +169,7 @@ export async function openCodexSession({
   effort,
   limits = {},
   onEvent = () => {},
+  onProcess = async () => {},
   signal,
   mcpServers = {},
   rawLogPath,
@@ -404,6 +409,13 @@ export async function openCodexSession({
   }, timeoutMs);
   signal?.addEventListener('abort', abort, { once: true });
 
+  try {
+    // The host records the PID before the handshake, so a crash cannot leave it unaccounted for.
+    await onProcess(child.pid ?? null);
+  } catch (error) {
+    await close();
+    throw error;
+  }
   try {
     await request(
       'initialize',

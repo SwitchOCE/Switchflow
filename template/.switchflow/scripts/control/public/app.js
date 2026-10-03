@@ -14,6 +14,8 @@ import { createNativeClient, workspaceLocation } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
+import { createRefreshControl } from './refresh-control.js';
+import { createPreviewBar } from './preview.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'You approve the scope'],
@@ -178,6 +180,25 @@ function notice(message) {
   $('#notice-banner').textContent = message;
   $('#notice-banner').hidden = !message;
 }
+const when = value =>
+  new Date(value).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const sentence = value => {
+  const text = String(value).replace(/[-_]+/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+const actionSaved = {
+  'approve-scope': 'Scope approved. Planning is queued.',
+  'approve-plan': 'Plan approved. Delivery is queued.',
+  'request-changes': 'Sent to the agent. It will revise and bring it back for your review.',
+  'request-rework': 'Rework requested. The agent will return with updated checks.',
+  'accept-uat': 'Accepted. The initiative is complete.',
+  answer: 'Answers sent to the agent.',
+  update: 'Update saved for the next run.',
+  'scope-change': 'Scope change recorded. The initiative returns to intake.',
+  start: 'Intake started.',
+  retry: 'Retrying from the current checkpoint.',
+  cancel: 'Run cancelled.',
+};
 function readable(value) {
   if (typeof value === 'string') return value;
   if (value === null || value === undefined) return '';
@@ -329,14 +350,12 @@ async function act(action, payload = {}) {
     if (action === 'update') delete drafts.get(item.id)?.['project-update'];
     if (action === 'scope-change') delete drafts.get(item.id)?.['scope-change'];
     if (action === 'request-rework') delete drafts.get(item.id)?.['rework-feedback'];
-    if (action === 'request-changes') {
-      delete drafts.get(item.id)?.['change-request'];
-      changesOpenFor = null;
-    }
+    if (action === 'request-changes') delete drafts.get(item.id)?.['change-request'];
+    if (['request-changes', 'request-rework'].includes(action)) changesOpenFor = null;
     if (['scope-change', 'request-rework'].includes(action)) clearUatDraft(item.id);
     await refresh(true);
     $('#live-status').textContent = connected
-      ? 'Project action saved. The board is up to date.'
+      ? actionSaved[action] || 'Saved.'
       : 'Project action saved, but the latest state could not be loaded. Refresh before taking another action.';
   } catch (error) {
     if (error.status === 409) await refresh(true);
@@ -442,11 +461,15 @@ function initiativeTone(item) {
   );
 }
 const overviewSlug = title => title.toLowerCase().replace(/\s+/g, '-');
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 const overviewTiles = [
-  ['Needs you', overview => `${overview.decisions.length} reviews · ${overview.humanTasks.length} tasks`],
+  [
+    'Needs you',
+    overview => `${plural(overview.decisions.length, 'review')} · ${plural(overview.humanTasks.length, 'task')}`,
+  ],
   ['Running now', () => (state?.activeRun?.status === 'running' ? 'An agent is working' : 'No agent running')],
   [
-    'Up next',
+    'Agents up next',
     overview =>
       overview.nextSource === 'board' ? 'Ready on the board, by milestone order' : 'Ready in an approved plan',
   ],
@@ -465,6 +488,7 @@ function renderOverview() {
     );
   const overview = overviewGroups(state, overviewMilestones.get(selectedProjectId)?.value);
   const groups = new Map(overview.groups.map(group => [overviewSlug(group.title), group]));
+  renderOverviewNext(groups);
   for (const [title, caption] of overviewTiles) {
     const key = overviewSlug(title);
     const count = groups.get(key)?.items.length || 0;
@@ -514,7 +538,7 @@ function renderOverview() {
     });
     block.append(list);
     if (group.items.length > 5) list.append(older);
-    if (group.title === 'Up next') {
+    if (group.title === 'Agents up next') {
       const milestones = overviewMilestones.get(selectedProjectId);
       const foot = el('footer', 'overview-foot');
       foot.append(
@@ -537,6 +561,33 @@ function renderOverview() {
     [...container.querySelectorAll('[data-overview-key]')]
       .find(n => n.dataset.overviewKey === focused)
       ?.focus({ preventScroll: true });
+}
+// One answer to "what's next": the top of Needs you, else the agents' next step.
+function renderOverviewNext(groups) {
+  let hero = $('#overview-next');
+  if (!hero) {
+    hero = el('section', 'overview-next');
+    hero.id = 'overview-next';
+    hero.setAttribute('aria-label', 'Next');
+    $('#overview-stats').before(hero);
+  }
+  const mine = groups.get('needs-you')?.items[0];
+  const agents = groups.get('agents-up-next')?.items[0];
+  const item = mine || agents;
+  hero.hidden = !item;
+  if (!item) return hero.replaceChildren();
+  const open = button(
+    'Open',
+    () => (item.kind === 'task' ? openTask(item.id, open) : openDetail(item.id, open)),
+    'primary',
+  );
+  const text = el('div', 'overview-next-text');
+  text.append(
+    el('span', 'overview-next-label', mine ? 'Next for you' : 'Next for the agents'),
+    el('strong', '', `${item.kind === 'task' ? `${item.id} · ` : ''}${item.title}`),
+    el('span', 'muted', item.reason),
+  );
+  hero.replaceChildren(text, open);
 }
 async function refreshOverviewMilestones() {
   const id = selectedProjectId,
@@ -785,6 +836,16 @@ function renderUat(item, body, verdict) {
     for (const [index, row] of [...list.children].entries()) row.dataset.result = statuses[index];
     submit.dataset.blocked = String(passed !== statuses.length);
     submit.disabled = busy || passed !== statuses.length;
+    // Once a check fails, rework is the decision on offer; Accept steps aside.
+    submit.hidden = failed > 0;
+    verdict.rework.toggle.textContent = failed ? `Request rework (${failed})` : 'Request rework…';
+    verdict.rework.toggle.className = `button ${failed ? 'primary' : 'quiet'}`;
+    verdict.next.textContent =
+      passed === statuses.length
+        ? 'Accept the delivered outcome.'
+        : failed && !remaining
+          ? `Request rework for ${failed === 1 ? 'the failed check' : `${failed} failed checks`}.`
+          : nextAction(item);
     submitNote.textContent =
       passed === statuses.length
         ? 'Every check passed. Accepting completes this initiative.'
@@ -851,34 +912,54 @@ function renderUat(item, body, verdict) {
     act('accept-uat', { results });
   });
   body.append(section('Your guided acceptance checks', form));
-  return true;
+  const summary = () =>
+    normalized
+      .map((check, index) => ({ check, index }))
+      .filter(({ check }) => statusOf(check) === 'failed')
+      .map(({ check, index }) => {
+        const notes = form.elements.namedItem(`uat-notes-${check.id}`)?.value.trim();
+        const title = check.title || check.text;
+        return `- Check ${index + 1}${title ? ` (${title})` : ''}${notes ? `: ${notes}` : ''}`;
+      })
+      .join('\n');
+  return { summary };
 }
 /** A "Request changes" control beside an approval: reveals a short form in the decision footer. */
-function requestChanges(decision, actions, kind) {
-  const form = renderInputAction(
-    'Send to the agent',
-    'change-request',
-    `What should change in this ${kind}?`,
-    'request-changes',
-    'message',
-    `The agent revises the ${kind} and brings it back for your review. Earlier approvals stand.`,
-    'primary',
-  );
+function requestChanges(
+  decision,
+  actions,
+  {
+    kind,
+    id = 'change-request',
+    action = 'request-changes',
+    payloadKey = 'message',
+    toggleLabel = 'Request changes…',
+    label = `What should change in this ${kind}?`,
+    help = `The agent revises the ${kind} and brings it back for your review. Earlier approvals stand.`,
+    prefill = () => '',
+  },
+) {
+  const form = renderInputAction('Send to the agent', id, label, action, payloadKey, help, 'primary');
   form.classList.add('request-changes');
+  const field = form.querySelector('textarea');
   // A kept draft reopens the form, so unsent words are never hidden behind the button.
-  form.hidden = changesOpenFor !== selectedId && !drafts.get(selectedId)?.['change-request']?.trim();
-  const toggle = button('Request changes…', () => {
-    changesOpenFor = selectedId;
+  form.hidden = changesOpenFor !== `${selectedId}:${id}` && !drafts.get(selectedId)?.[id]?.trim();
+  const toggle = button(toggleLabel, () => {
+    changesOpenFor = `${selectedId}:${id}`;
+    if (!field.value.trim() && prefill()) {
+      field.value = prefill();
+      remember(id, field.value);
+    }
     form.hidden = false;
     actions.hidden = true;
-    form.querySelector('textarea').focus();
+    field.focus();
   });
   // While writing changes, the approval waits out of sight.
   actions.hidden = !form.hidden;
   const cancel = button('Cancel', () => {
     changesOpenFor = null;
-    delete drafts.get(selectedId)?.['change-request'];
-    form.querySelector('textarea').value = '';
+    delete drafts.get(selectedId)?.[id];
+    field.value = '';
     form.hidden = true;
     actions.hidden = false;
     toggle.focus();
@@ -886,6 +967,7 @@ function requestChanges(decision, actions, kind) {
   form.querySelector('.detail-actions').prepend(cancel);
   decision.append(form);
   actions.append(toggle);
+  return { toggle, form };
 }
 function renderInputAction(title, id, label, action, payloadKey, help, kind = 'quiet') {
   const form = el('form');
@@ -954,7 +1036,7 @@ function renderHistory(item, records, key, renderRecord) {
   const filter = el('select');
   filter.setAttribute('aria-label', `Filter ${key}`);
   for (const value of ['all', ...new Set(records.map(r => r.type || r.status || 'other'))]) {
-    const option = el('option', '', value === 'all' ? 'All types' : value);
+    const option = el('option', '', value === 'all' ? 'All types' : sentence(value));
     option.value = value;
     filter.append(option);
   }
@@ -980,11 +1062,7 @@ function renderHistory(item, records, key, renderRecord) {
       controls.lastElementChild?.focus();
     });
     older.disabled = page.index + 1 === page.pages;
-    controls.append(
-      newer,
-      el('span', 'muted', `${page.start}–${page.end} of ${page.total} matching retained ${key}`),
-      older,
-    );
+    controls.append(newer, el('span', 'muted', `${page.start}–${page.end} of ${page.total}`), older);
     if (!page.total) list.append(el('p', 'muted', 'No matching records.'));
   };
   filter.addEventListener('change', () => {
@@ -997,7 +1075,7 @@ function renderHistory(item, records, key, renderRecord) {
       'muted',
       key === 'reviews'
         ? `${records.length} saved rework reviews. Expand a review to read its observations.`
-        : `${records.length} retained ${key}. Runtime retention is limited to the latest ${key === 'events' ? 200 : 100}; older discarded records are unavailable.`,
+        : `${records.length} ${records.length === 1 ? key.replace(/s$/, '') : key}, newest first.`,
     ),
     filter,
     controls,
@@ -1038,7 +1116,7 @@ function renderReworkReview(review) {
   }
   if (review.candidateEvidence?.length)
     content.append(detail('Candidate evidence for this review', renderValue(review.candidateEvidence)));
-  const date = review.at ? new Date(review.at).toLocaleString() : 'Recorded review';
+  const date = review.at ? when(review.at) : 'Recorded review';
   const node = detail(`${date} · ${summary.checked}/${summary.total} checked · ${summary.failed} need rework`, content);
   // Feedback remains visible in the collapsed summary without exposing all check metadata.
   node.firstElementChild.append(el('span', 'rework-feedback-summary', review.message || 'Rework requested.'));
@@ -1049,7 +1127,7 @@ function renderActivity(item) {
     const row = el('div', 'timeline');
     row.append(el('p', '', readable(event) || event.type || JSON.stringify(event)));
     const timestamp = event.at || event.createdAt || event.timestamp;
-    if (timestamp) row.append(el('time', 'muted', new Date(timestamp).toLocaleString()));
+    if (timestamp) row.append(el('time', 'muted', when(timestamp)));
     return row;
   });
 }
@@ -1089,16 +1167,17 @@ function renderDetail() {
   const decision = el('section', 'decision-region');
   decision.setAttribute('aria-label', 'Current decision');
   const body = el('div', 'detail-body');
+  const recoveryHold = state.activeRun?.status === 'interrupted' && state.activeRun?.initiativeId === item.id;
   const next = el('div', 'next-action');
   next.append(
     el(
       'p',
       'eyebrow',
-      ['failed', 'blocked', 'cancelled'].includes(item.status) || !isRunning(item)
+      recoveryHold || ['failed', 'blocked', 'cancelled'].includes(item.status) || !isRunning(item)
         ? 'YOUR NEXT ACTION'
         : 'AGENT NEXT ACTION',
     ),
-    el('p', '', nextAction(item)),
+    el('p', '', recoveryHold ? 'Stop or confirm the agent processes left by the interrupted run.' : nextAction(item)),
   );
   decision.append(next);
   const error = el('p', 'inline-error');
@@ -1107,6 +1186,14 @@ function renderDetail() {
   error.hidden = true;
   body.append(error);
   body.append(section('The outcome you asked for', item.request));
+  const lastNote = [...(item.messages || [])].reverse().find(m => m.type === 'update' && m.message);
+  if (lastNote)
+    body.append(
+      section(
+        `Your latest note${lastNote.at ? ` · ${when(lastNote.at)}` : ''}`,
+        el('blockquote', 'owner-note', lastNote.message),
+      ),
+    );
   if (item.summary || isRunning(item)) body.append(section('Where things stand', statusSummary(item)));
   if (item.inventory || item.currentCapabilities || item.context)
     body.append(section('What is already in place', item.inventory || item.currentCapabilities || item.context));
@@ -1117,35 +1204,69 @@ function renderDetail() {
   if (displayedPlan?.length || (displayedPlan && !Array.isArray(displayedPlan)))
     body.append(section('Delivery plan', renderPlan(displayedPlan)));
   const actions = el('div', 'detail-actions');
-  const recoveryHold =
-    state.activeRun?.status === 'interrupted' &&
-    state.activeRun?.unknownProcess &&
-    state.activeRun?.initiativeId === item.id;
   if (recoveryHold) {
+    // Older state has no list; its hold is one unidentified stage process.
+    const held = state.activeRun.held || [{ kind: 'stage', role: item.stage, pid: null, state: 'unknown' }];
+    const running = held.filter(entry => entry.state === 'running');
     const recovery = el('form');
+    const list = el('ul', 'recovery-processes');
+    for (const entry of held) {
+      const row = el('li');
+      const pill = el('span', 'status-pill', entry.state === 'running' ? 'Running' : 'Unconfirmed');
+      pill.dataset.status = entry.state === 'running' ? 'blocked' : 'backlog';
+      row.append(
+        pill,
+        el(
+          'span',
+          '',
+          `${entry.provider || 'Agent'} · ${entry.kind === 'stage' ? `${entry.role} agent` : `${entry.kind} worker for ${entry.task}`}`,
+        ),
+        el('span', 'muted', entry.pid ? `process ${entry.pid}` : 'process not recorded'),
+      );
+      list.append(row);
+    }
     recovery.append(
       el(
         'p',
         'gate-note',
-        'The previous agent process could not be identified. Check that it has stopped before releasing this hold.',
+        'The service stopped while these agent processes were open. No new work starts until they have stopped.',
       ),
+      list,
     );
-    const label = el('label', 'checkbox-label');
-    const confirmation = el('input');
-    confirmation.type = 'checkbox';
-    confirmation.required = true;
-    label.append(confirmation, el('span', '', 'I have checked that the previous agent process has stopped'));
-    const release = el('button', 'button quiet', 'Release recovery hold');
-    release.type = 'submit';
-    release.dataset.action = 'recover-run';
     const controls = el('div', 'detail-actions');
-    controls.append(release);
-    recovery.append(label, controls);
-    recovery.addEventListener('submit', event => {
-      event.preventDefault();
-      if (confirmation.checked) act('recover-run', { confirmedStopped: true });
-    });
-    body.append(section('Confirm the previous process has stopped', recovery));
+    if (running.length) {
+      controls.append(
+        actionButton(
+          `Stop ${running.length === 1 ? 'the running process' : `the ${running.length} running processes`}`,
+          'stop-processes',
+          undefined,
+          'danger',
+        ),
+      );
+    }
+    if (running.length < held.length) {
+      const label = el('label', 'checkbox-label');
+      const confirmation = el('input');
+      confirmation.type = 'checkbox';
+      confirmation.required = true;
+      label.append(confirmation, el('span', '', 'I have checked that the unconfirmed processes have stopped'));
+      const release = el('button', 'button quiet', 'Release recovery hold');
+      release.type = 'submit';
+      release.dataset.action = 'recover-run';
+      // setBusy re-enables action buttons unless they say they are blocked.
+      release.dataset.blocked = String(running.length > 0);
+      release.disabled = running.length > 0;
+      if (running.length) release.title = 'Stop the running processes first.';
+      controls.append(release);
+      recovery.append(label);
+      recovery.addEventListener('submit', event => {
+        event.preventDefault();
+        if (confirmation.checked) act('recover-run', { confirmedStopped: true });
+      });
+    }
+    recovery.append(controls);
+    recovery.classList.add('recovery-form');
+    decision.append(recovery);
   }
   const normalGate = !isRunning(item) && !['failed', 'cancelled', 'blocked', 'complete'].includes(item.status);
   if (
@@ -1155,10 +1276,8 @@ function renderDetail() {
     item.scope &&
     !item.questions?.length
   ) {
-    decision.append(
-      el('p', 'gate-note', 'Approve this scope to prepare a plan. Delivery still requires plan approval.'),
-    );
-    requestChanges(decision, actions, 'scope');
+    decision.append(el('p', 'gate-note', 'Approving prepares a plan. Delivery still needs your plan approval.'));
+    requestChanges(decision, actions, { kind: 'scope' });
     actions.append(actionButton('Approve scope & prepare plan →', 'approve-scope'));
   }
   if (
@@ -1169,16 +1288,14 @@ function renderDetail() {
     item.plan &&
     (!Array.isArray(item.plan) || item.plan.length)
   ) {
-    decision.append(
-      el(
-        'p',
-        'gate-note',
-        'Approving this plan authorizes the agent to carry out its delivery phases and bring the result back for UAT.',
-      ),
-    );
     const routing = routingSummary();
+    const note = el(
+      'p',
+      'gate-note routing-note',
+      `Approving starts delivery and brings the result back for UAT.${routing ? ` ${routing} ` : ''}`,
+    );
+    decision.append(note);
     if (routing) {
-      const note = el('p', 'gate-note routing-note', `${routing} `);
       const change = el('button', 'text-link', 'Change routing');
       change.type = 'button';
       change.addEventListener('click', () => {
@@ -1186,9 +1303,8 @@ function renderDetail() {
         showView('agents');
       });
       note.append(change);
-      decision.append(note);
     }
-    requestChanges(decision, actions, 'plan');
+    requestChanges(decision, actions, { kind: 'plan' });
     actions.append(actionButton('Approve plan & start delivery →', 'approve-plan'));
   }
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
@@ -1200,27 +1316,30 @@ function renderDetail() {
   if (item.stage === 'uat' && normalGate && !item.approvedUat) {
     const note = el('p', 'gate-note');
     decision.append(note);
-    if (renderUat(item, body, { note, actions }))
-      actions.prepend(
-        button('Request rework…', () => {
-          const field = $('#rework-feedback');
-          field?.scrollIntoView({ block: 'center' });
-          field?.focus({ preventScroll: true });
-        }),
-      );
+    const projectId = selectedProjectId;
     body.append(
-      section(
-        'Something needs to change?',
-        renderInputAction(
-          'Request rework',
-          'rework-feedback',
-          'What happened, and what should happen instead?',
-          'request-rework',
-          'feedback',
-          'The agent will address the feedback and return with updated acceptance checks.',
-        ),
-      ),
+      createPreviewBar({
+        initiativeId: item.id,
+        path: route => scopedPath(route, projectId),
+        token: () => state?.csrfToken,
+        canWrite: () => projectId === selectedProjectId && connected && !agentsBusy() && !busy,
+        writeBlockedReason: () =>
+          !connected ? 'Connection lost.' : agentsBusy() ? 'Paused while an agent is active or queued.' : '',
+        initiativeTitle: id => state?.initiatives?.find(entry => entry.id === id)?.title,
+      }),
     );
+    let reworkSummary = () => '';
+    const rework = requestChanges(decision, actions, {
+      id: 'rework-feedback',
+      action: 'request-rework',
+      payloadKey: 'feedback',
+      toggleLabel: 'Request rework…',
+      label: 'What should change?',
+      help: 'Your check results and notes go with this. The agent reworks the delivery and returns with updated checks.',
+      prefill: () => reworkSummary(),
+    });
+    const uat = renderUat(item, body, { note, actions, next: next.lastElementChild, rework });
+    if (uat) reworkSummary = uat.summary;
   }
   if (actions.childElementCount) decision.append(actions);
   if (item.stage === 'uat' && item.approvedUat)
@@ -1255,7 +1374,7 @@ function renderDetail() {
         'Run records',
         renderHistory(item, item.runs, 'runs', run =>
           detail(
-            `${run.stage || 'Run'} · ${run.status || 'Recorded'} · ${run.startedAt ? new Date(run.startedAt).toLocaleString() : run.id}`,
+            `${sentence(run.stage || 'run')} · ${run.status || 'recorded'} · ${run.startedAt ? when(run.startedAt) : run.id}`,
             renderValue(run),
           ),
         ),
@@ -1340,6 +1459,7 @@ function openDetail(id, trigger, { navigate = true } = {}) {
   $('#detail-content').replaceChildren();
   renderDetail();
   if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
+  updateTitle();
   detailScroller().scrollTop = 0;
   if (navigate && !followingRoute && workspaceLocation(location.href).initiative !== id)
     writeLocation({ view: activeView, initiative: id });
@@ -1360,6 +1480,7 @@ $('#detail-dialog').addEventListener('close', () => {
   selectedId = null;
   displayedRevision = null;
   displayedActivity = null;
+  updateTitle();
   const card = [...document.querySelectorAll('[data-initiative-id]')].find(node => node.dataset.initiativeId === id);
   (card || returnFocus || $('#new-initiative')).focus({ preventScroll: true });
 });
@@ -1377,15 +1498,14 @@ async function refresh(forceDetail = false) {
     $('#offline-state').hidden = true;
     sharedToken = state.csrfToken;
     connected = true;
-    document.title = `${state.project.name} · Switchflow`;
+    updateTitle();
     if (Date.now() - projectsRefreshedAt > 8000) loadProjects().catch(() => {});
     setConnection('Connected locally', 'connected');
     $('#project-name').textContent = state.project?.name || 'Project control';
     renderBoard();
     void refreshOverviewMilestones();
     void refreshAgentRouting();
-    $('#updated-at').textContent =
-      `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    for (const control of shellRefresh) control.loaded();
     if (selectedId && current()) {
       const editing =
         $('#detail-dialog').contains(document.activeElement) &&
@@ -1423,8 +1543,9 @@ async function refresh(forceDetail = false) {
     if (epoch !== projectEpoch) return;
     connected = false;
     setConnection('Connection lost', 'offline');
+    for (const control of shellRefresh) control.failed(error);
     showError(
-      `${error.message} Your entries are preserved. Check that the local control server is running, then refresh.`,
+      `${error.message} Your entries are kept. Check that the Switchflow service is running; this page reconnects on its own.`,
     );
   } finally {
     if (epoch === projectEpoch) refreshing = false;
@@ -1481,7 +1602,12 @@ $('#create-form').addEventListener('submit', async event => {
   }
 });
 $('#filter').addEventListener('input', renderBoard);
-$('#refresh').addEventListener('click', () => refresh(true));
+// Overview and Initiatives both show the shell state, so each header gets a control over the same load.
+const shellRefresh = ['#workspace-board', '#workspace-initiatives'].map(section => {
+  const control = createRefreshControl(() => refresh(true));
+  $(`${section} .page-actions`).append(control.create());
+  return control;
+});
 
 function agentsBusy() {
   return !!state?.activeRun || (state?.initiatives || []).some(isRunning);
@@ -1619,6 +1745,7 @@ function writeLocation(values, replace = false) {
       '',
       url,
     );
+  updateTitle();
 }
 function nativeClient(id) {
   return createNativeClient({
@@ -1631,8 +1758,27 @@ function nativeClient(id) {
     },
   });
 }
+// The tab names where you are: the open initiative or record, the view, then the project.
+function updateTitle() {
+  const view = document.querySelector(`.nav-tab[data-view="${activeView}"] .nav-label`)?.textContent.trim();
+  const route = workspaceLocation(location.href);
+  const record =
+    route.view !== activeView
+      ? ''
+      : route.task
+        ? state?.tasks?.find(task => task.id === route.task)?.title || route.task
+        : route.record
+          ? (activeView === 'milestones' &&
+              overviewMilestones.get(selectedProjectId)?.value?.find(item => item.id === route.record)?.title) ||
+            route.record
+          : '';
+  const initiative =
+    $('#detail-dialog').open && selectedId ? state?.initiatives?.find(item => item.id === selectedId)?.title : '';
+  document.title = [initiative || record, view, state?.project?.name, 'Switchflow'].filter(Boolean).join(' · ');
+}
 function showView(view, updateLocation = true) {
   activeView = views.includes(view) ? view : 'board';
+  updateTitle();
   if (matchMedia('(max-width:760px)').matches) setDrawer(false);
   $('.skip-link').href = `#workspace-${activeView}`;
   $('.skip-link').textContent = 'Skip to workspace content';
@@ -1725,6 +1871,10 @@ function showView(view, updateLocation = true) {
       request: route => readProject(route, id),
       send: (route, method, body) => writeProject(route, method, body, id),
       initiativeTitle: initiativeId => state?.initiatives?.find(item => item.id === initiativeId)?.title || '',
+      onOpenInitiative: initiativeId => {
+        if (state?.initiatives?.some(item => item.id === initiativeId))
+          openDetail(initiativeId, document.activeElement);
+      },
     });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
@@ -2047,6 +2197,11 @@ mountSearch({
     })),
     { label: 'New initiative', hint: 'Start intake for a new outcome', run: openCreate },
     {
+      label: 'Refresh view',
+      hint: 'Reload what this view shows',
+      run: () => $(`#workspace-${activeView} .refresh-control-button`)?.click(),
+    },
+    {
       label: 'Create task',
       hint: 'Tasks',
       run: async () => {
@@ -2070,7 +2225,10 @@ mountSearch({
       if (item.task) {
         await panel.refresh();
         await panel.openTask(item.task);
-      } else await panel.open(item.record);
+      } else {
+        await panel.open(item.record);
+        if (item.view === 'milestones') writeLocation({ view: 'milestones', record: item.record }, true);
+      }
     }
   },
 });

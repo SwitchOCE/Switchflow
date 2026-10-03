@@ -1,4 +1,5 @@
 import { renderMarkdown, resolveDocumentLink } from './documents.js';
+import { createRefreshControl } from './refresh-control.js';
 
 const node = (tag, className, text) => {
   const element = document.createElement(tag);
@@ -12,7 +13,7 @@ const allDocuments = skills => skills.flatMap(item => [item, ...references(item)
 export function mountSkills(container, { request, onNavigate = () => {} }) {
   container.classList.add('skills-view');
   container.innerHTML = `<header class="page-header"><div><h1 class="skills-title">Skills <span class="chip">Read only</span></h1><p>Instructions agents follow in this project.</p></div>
-    <div class="page-actions"><button type="button" class="button quiet" data-refresh>Refresh</button></div></header>
+    <div class="page-actions"><div class="refresh-control"></div></div></header>
     <div class="skills-layout">
       <aside class="panel skills-list" aria-label="Skill list">
         <div class="skills-search"><input type="search" placeholder="Filter skills" aria-label="Find a skill" data-skill-search></div>
@@ -29,8 +30,13 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
     nav = find('.skills-nav'),
     content = find('.skills-document'),
     toc = find('.skills-toc'),
-    status = find('.skills-status'),
-    refreshButton = find('[data-refresh]');
+    status = find('.skills-status');
+  // A manual refresh also reloads the open skill.
+  const refreshControl = createRefreshControl(async () => {
+    await refresh();
+    if (current) await open(current, '', false);
+  });
+  refreshControl.mount(find('.refresh-control'));
   let skills = [],
     warnings = [],
     current = null,
@@ -202,36 +208,34 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
   async function refresh() {
     const ticket = ++listing;
     nav.setAttribute('aria-busy', 'true');
-    refreshButton.disabled = true;
-    report(skills.length ? 'Refreshing skills…' : 'Loading skills…');
+    if (!skills.length) report('Loading skills…');
     try {
       const result = await request('/skills');
       if (destroyed || ticket !== listing) return;
       skills = Array.isArray(result.skills) ? result.skills : [];
       warnings = Array.isArray(result.warnings) ? result.warnings : [];
       tree();
+      refreshControl.loaded();
       // Show the first skill rather than an empty reader, unless a specific record was asked for.
       if (!current && !requested && skills.length) void open(skills[0].id, '', false);
     } catch (error) {
-      if (!destroyed && ticket === listing)
+      if (!destroyed && ticket === listing) {
         report(
           `${error.message} ${skills.length ? 'The current list is still shown.' : 'No skills were loaded.'} Check the project connection and refresh.`,
           true,
         );
+        refreshControl.failed(error);
+      }
     } finally {
       if (!destroyed && ticket === listing) {
         nav.removeAttribute('aria-busy');
-        refreshButton.disabled = false;
       }
     }
   }
   const click = async event => {
     const target = event.target.closest('button,a');
     if (!target || !container.contains(target)) return;
-    if (target.hasAttribute('data-refresh')) {
-      await refresh();
-      if (current) await open(current, '', false);
-    } else if (target.hasAttribute('data-clear-search')) {
+    if (target.hasAttribute('data-clear-search')) {
       search.value = '';
       tree();
       search.focus();
@@ -268,6 +272,7 @@ export function mountSkills(container, { request, onNavigate = () => {} }) {
     },
     destroy() {
       destroyed = true;
+      refreshControl.destroy();
       generation++;
       listing++;
       container.removeEventListener('click', click);

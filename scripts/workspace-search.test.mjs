@@ -30,6 +30,22 @@ test('workspace search models preserve record routes and distinguish matches wit
   assert.match(matchedSnippet(matches[2].item, 'needle'), /different needle/i);
 });
 
+test('workspace search finds milestones by title or ID and opens them in Milestones', () => {
+  const milestones = [
+    { id: 'm-1', title: 'Accept and launch' },
+    { id: 'm-2', title: 'Establish the first outcome' },
+  ];
+  const byTitle = buildSearchMatches([], [], 'establish', milestones);
+  assert.deepEqual(
+    byTitle.map(item => [item.type, item.view, item.record]),
+    [['milestone', 'milestones', 'm-2']],
+  );
+  assert.deepEqual(
+    buildSearchMatches([], [], 'M-1', milestones).map(item => item.record),
+    ['m-1'],
+  );
+});
+
 test('workspace snippets are bounded and prefer text around the match', () => {
   const value = `${'prefix '.repeat(40)}needle ${'suffix '.repeat(40)}`;
   const snippet = matchedSnippet({ description: value }, 'needle', 90);

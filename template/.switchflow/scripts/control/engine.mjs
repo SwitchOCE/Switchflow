@@ -3,11 +3,52 @@ import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { readState, updateState, assertSafePath, git } from '../operations/storage.mjs';
 import { createInitiative, applyAction, applyResult, ControlError, event, now, hash } from './lifecycle.mjs';
-import { isRunProcessAlive } from './codex-runner.mjs';
+import { isRunProcessAlive, processStartTime, stopProcessTree } from './codex-runner.mjs';
 import { startGitBridge } from './git-bridge.mjs';
 
 const initial = { schemaVersion: 1, revision: 0, initiatives: [], activeRun: null };
 const MAX_INLINE_OWNER_HISTORY = 128 * 1024;
+// A recorded process must already exist when its PID is recorded; allow for clock granularity.
+const PID_RECORD_SLACK_MS = 2000;
+const knownPid = pid => Number.isSafeInteger(pid) && pid > 0;
+
+/** Every agent process an interrupted run recorded: the stage agent and its delegated workers. */
+function recordedProcesses(run) {
+  return [
+    {
+      kind: 'stage',
+      role: run.stage ?? 'stage',
+      provider: run.provider ?? null,
+      task: null,
+      sessionId: null,
+      pid: run.pid,
+      recordedAt: run.processStartedAt,
+    },
+    ...(Array.isArray(run.workers) ? run.workers : []),
+  ];
+}
+
+function describeProcess(entry) {
+  const who = entry.kind === 'stage' ? `${entry.role} agent` : `${entry.kind} worker for ${entry.task}`;
+  return `${entry.provider ?? 'unknown provider'} ${who} (${knownPid(entry.pid) ? `process ${entry.pid}` : 'process not recorded'})`;
+}
+
+/** Owner-facing next step for a recovery hold. */
+function holdNote(held) {
+  const running = held.filter(entry => entry.state === 'running');
+  const uncertain = held.filter(entry => entry.state !== 'running');
+  const notes = [];
+  if (running.length)
+    notes.push(
+      `Agent processes from the interrupted run are still running: ${running.map(describeProcess).join('; ')}. Stop them here, or retry after they stop. The checkpoint is preserved.`,
+    );
+  if (uncertain.length)
+    notes.push(
+      `The service could not confirm these agent processes stopped: ${uncertain.map(describeProcess).join('; ')}. Check that they have stopped, then confirm to release the recovery fence.`,
+    );
+  return notes.join(' ');
+}
+
 export class ControlEngine {
   constructor(
     context,
@@ -17,6 +58,8 @@ export class ControlEngine {
       onChange = () => {},
       recordIssue = async () => {},
       processAlive = isRunProcessAlive,
+      processStarted = processStartTime,
+      stopProcess = stopProcessTree,
       bridgeFactory = startGitBridge,
     },
   ) {
@@ -29,6 +72,8 @@ export class ControlEngine {
     this.closed = false;
     this.pumping = false;
     this.processAlive = processAlive;
+    this.processStarted = processStarted;
+    this.stopProcess = stopProcess;
     this.bridgeFactory = bridgeFactory;
   }
   async read() {
@@ -52,11 +97,71 @@ export class ControlEngine {
     this.onChange(result.revision);
     return result;
   }
+  /**
+   * "running" (the recorded process, verified by start time), "unverified" (a live PID whose
+   * identity cannot be read), "unknown" (no PID was recorded) or "gone" (stopped or reused).
+   */
+  async processState({ pid, recordedAt }) {
+    if (!knownPid(pid)) return 'unknown';
+    if (!this.processAlive(pid)) return 'gone';
+    const started = await this.processStarted(pid);
+    const recorded = Date.parse(recordedAt);
+    if (!Number.isFinite(started) || !Number.isFinite(recorded)) return 'unverified';
+    return started > recorded + PID_RECORD_SLACK_MS ? 'gone' : 'running';
+  }
+  /** Recorded processes of an interrupted run that still fence new work. */
+  async heldProcesses(run) {
+    const held = [];
+    for (const entry of recordedProcesses(run)) {
+      const state = await this.processState(entry);
+      if (state !== 'gone')
+        held.push({
+          kind: entry.kind,
+          role: entry.role,
+          provider: entry.provider ?? null,
+          task: entry.task ?? null,
+          sessionId: entry.sessionId ?? null,
+          pid: knownPid(entry.pid) ? entry.pid : null,
+          state,
+        });
+    }
+    return held;
+  }
+  /**
+   * Records a delegated worker's process in the same durable state as the stage PID, so a
+   * restart fences it too. pid null means a process may be starting but is not yet identified.
+   */
+  async trackProcess(runId, sessionId, fields) {
+    await this.mutate(s => {
+      if (s.activeRun?.id !== runId) return;
+      s.activeRun.workers ??= [];
+      let entry = s.activeRun.workers.find(worker => worker.sessionId === sessionId);
+      if (!entry) {
+        entry = { sessionId, pid: null, recordedAt: null };
+        s.activeRun.workers.push(entry);
+      }
+      const { pid, ...rest } = fields;
+      Object.assign(entry, rest);
+      if (pid !== undefined && pid !== entry.pid) {
+        entry.pid = knownPid(pid) ? pid : null;
+        entry.recordedAt = entry.pid ? now() : null;
+      }
+    });
+  }
+  /** Called after a worker's process has been closed by this service. */
+  async untrackProcess(runId, sessionId) {
+    await this.mutate(s => {
+      if (s.activeRun?.id !== runId || !s.activeRun.workers) return;
+      s.activeRun.workers = s.activeRun.workers.filter(worker => worker.sessionId !== sessionId);
+    });
+  }
   async recover() {
     const state = await this.read();
     if (!state.activeRun) return;
+    const held = await this.heldProcesses(state.activeRun);
     // An uncertain run is never replayed after service restart.
     await this.mutate(s => {
+      if (s.activeRun?.id !== state.activeRun.id) return;
       const item = s.initiatives.find(i => i.id === s.activeRun.initiativeId);
       if (item) {
         item.status = 'failed';
@@ -71,16 +176,62 @@ export class ControlEngine {
         }
         event(item, 'interrupted', item.nextAction);
       }
-      const knownProcess = Number.isSafeInteger(s.activeRun.pid) && s.activeRun.pid > 0;
-      if (!knownProcess || this.processAlive(s.activeRun.pid)) {
+      // The service does not kill here: the owner sees the list and chooses to stop or wait.
+      if (held.length) {
         s.activeRun.status = 'interrupted';
-        s.activeRun.unknownProcess = !knownProcess;
-        if (item)
-          item.nextAction = s.activeRun.unknownProcess
-            ? 'The service stopped before recording the agent process identity. Confirm the previous process has stopped to release the recovery fence.'
-            : `The prior agent process (${s.activeRun.pid}) is still running. Retry becomes available after it stops; its checkpoint is preserved.`;
+        s.activeRun.held = held;
+        s.activeRun.unknownProcess = held.some(entry => entry.state !== 'running');
+        if (item) item.nextAction = holdNote(held);
       } else s.activeRun = null;
     });
+  }
+  /**
+   * Applies an action against an interrupted run's recovery hold. Returns true when the action
+   * was the recovery action itself; throws while the hold still fences other work.
+   */
+  recoveryAction(s, id, input, held) {
+    const run = s.activeRun;
+    const item = s.initiatives.find(i => i.id === run.initiativeId);
+    const running = held.filter(entry => entry.state === 'running');
+    const release = note => {
+      event(item, 'recovery', note);
+      item.revision++;
+      item.nextAction = 'Recovery released. Review the checkpoint and retry.';
+      s.activeRun = null;
+    };
+    if (input.action === 'recover-run' || input.action === 'stop-processes') {
+      if (run.initiativeId !== id || !item)
+        throw new ControlError('Confirm the unidentified prior process has stopped before releasing recovery.', 409);
+      if (input.expectedRevision !== item.revision)
+        throw new ControlError('The recovery state changed. Refresh first.', 409);
+      if (input.action === 'recover-run') {
+        if (input.confirmedStopped !== true)
+          throw new ControlError('Confirm the unidentified prior process has stopped before releasing recovery.', 409);
+        if (running.length)
+          throw new ControlError('Stop the agent processes that are still running before releasing recovery.', 409);
+        release('Human confirmed the prior agent processes have stopped.');
+        return true;
+      }
+      if (!held.length) {
+        release('Human stopped the prior agent processes.');
+        return true;
+      }
+      run.held = held;
+      run.unknownProcess = held.some(entry => entry.state !== 'running');
+      item.revision++;
+      item.nextAction = holdNote(held);
+      event(item, 'recovery', running.length ? 'Some agent processes did not stop.' : item.nextAction);
+      return true;
+    }
+    if (held.some(entry => entry.state !== 'running'))
+      throw new ControlError('Confirm the unidentified prior process has stopped before releasing recovery.', 409);
+    if (running.length)
+      throw new ControlError(
+        'Agent processes from the interrupted run are still running. Stop them or wait before changing or restarting work.',
+        409,
+      );
+    s.activeRun = null;
+    return false;
   }
   async create(input) {
     const item = createInitiative(input);
@@ -92,29 +243,27 @@ export class ControlEngine {
   }
   async action(id, input) {
     let interrupt = false;
+    // Process checks can take seconds on Windows, so they run before the state lock is taken.
+    const snapshot = await this.read();
+    let held = null;
+    if (snapshot.activeRun?.status === 'interrupted') {
+      const hold = snapshot.initiatives.find(i => i.id === id);
+      if (
+        input.action === 'stop-processes' &&
+        snapshot.activeRun.initiativeId === id &&
+        input.expectedRevision === hold?.revision
+      ) {
+        // Only processes whose recorded identity is verified now are stopped, with their trees.
+        for (const entry of await this.heldProcesses(snapshot.activeRun))
+          if (entry.state === 'running') await this.stopProcess(entry.pid);
+      }
+      held = await this.heldProcesses(snapshot.activeRun);
+    }
     const state = await this.mutate(s => {
       if (s.activeRun?.status === 'interrupted') {
-        if (s.activeRun.unknownProcess) {
-          if (input.action !== 'recover-run' || input.confirmedStopped !== true || s.activeRun.initiativeId !== id)
-            throw new ControlError(
-              'Confirm the unidentified prior process has stopped before releasing recovery.',
-              409,
-            );
-          const item = s.initiatives.find(i => i.id === id);
-          if (input.expectedRevision !== item.revision)
-            throw new ControlError('The recovery state changed. Refresh first.', 409);
-          event(item, 'recovery', 'Human confirmed the prior unrecorded process has stopped.');
-          item.revision++;
-          item.nextAction = 'Recovery released. Review the checkpoint and retry.';
-          s.activeRun = null;
-          return;
-        }
-        if (this.processAlive(s.activeRun.pid))
-          throw new ControlError(
-            'The prior agent process is still running. Wait for it to stop before changing or restarting work.',
-            409,
-          );
-        s.activeRun = null;
+        if (!held || s.activeRun.id !== snapshot.activeRun.id)
+          throw new ControlError('The recovery state changed. Refresh first.', 409);
+        if (this.recoveryAction(s, id, input, held)) return;
       }
       const item = s.initiatives.find(i => i.id === id);
       if (!item) throw new ControlError('Initiative not found.', 404);

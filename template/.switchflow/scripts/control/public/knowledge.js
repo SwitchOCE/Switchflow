@@ -1,5 +1,6 @@
 import { renderDocument, renderMarkdown, resolveDocumentLink, documentImageUrl } from './documents.js';
 import { formatProjectDate } from './ui-date.js';
+import { createRefreshControl } from './refresh-control.js';
 import {
   escapeHtml as esc,
   draftFrom,
@@ -73,7 +74,7 @@ export function mountKnowledge(
   if (stored && (!stored.draft || typeof stored.draft.title !== 'string' || typeof stored.draft.content !== 'string'))
     stored = null;
   container.classList.add('knowledge-reader');
-  container.innerHTML = `<header class="page-header"><div><h1>${Kind}</h1><p>${kind === 'decisions' ? 'Choices the project has made, with their context and consequences.' : 'Project instructions, guides and specifications agents read.'}</p></div><div class="page-actions"><button type="button" class="button primary" data-action="new">New ${noun}</button></div></header><div class="toolbar kn-toolbar"><input type="search" placeholder="Search titles, tags and content" aria-label="Search ${kind}"><button type="button" class="button quiet" data-action="refresh">Refresh</button><span class="kn-total"></span><p class="docs-status" role="status" aria-live="polite"></p></div><div class="knowledge-resume"></div><div class="kn-layout" data-layout="wide" data-mode="read"><details class="knowledge-browse kn-browse" open><summary>Browse</summary><nav class="kn-nav" aria-label="${Kind}"></nav></details><details class="knowledge-contents kn-contents" open><summary><span class="kn-label-long">On this page</span><span class="kn-label-short">Contents</span></summary><nav class="kn-toc" aria-label="On this page"></nav></details><div class="kn-main"></div></div>`;
+  container.innerHTML = `<header class="page-header"><div><h1>${Kind}</h1><p>${kind === 'decisions' ? 'Choices the project has made, with their context and consequences.' : 'Project instructions, guides and specifications agents read.'}</p></div><div class="page-actions"><button type="button" class="button primary" data-action="new">New ${noun}</button><div class="refresh-control"></div></div></header><div class="toolbar kn-toolbar"><input type="search" placeholder="Search titles, tags and content" aria-label="Search ${kind}"><span class="kn-total"></span><p class="docs-status" role="status" aria-live="polite"></p></div><div class="knowledge-resume"></div><div class="kn-layout" data-layout="wide" data-mode="read"><details class="knowledge-browse kn-browse" open><summary>Browse</summary><nav class="kn-nav" aria-label="${Kind}"></nav></details><details class="knowledge-contents kn-contents" open><summary><span class="kn-label-long">On this page</span><span class="kn-label-short">Contents</span></summary><nav class="kn-toc" aria-label="On this page"></nav></details><div class="kn-main"></div></div>`;
   const find = s => container.querySelector(s),
     content = find('.kn-main'),
     nav = find('.kn-nav'),
@@ -81,6 +82,13 @@ export function mountKnowledge(
     status = find('.docs-status'),
     search = find('input[type=search]'),
     frame = find('.kn-layout');
+  // A manual refresh also reloads the open record, unless a save is in progress.
+  const refreshControl = createRefreshControl(async () => {
+    if (busy) return;
+    await refresh();
+    if (current && !draft) await open(current.id);
+  });
+  refreshControl.mount(find('.refresh-control'));
   const narrow = window.matchMedia('(max-width: 799px)');
   // Layout follows the reader's own width, so the sidebar state is accounted for.
   function applyLayout(width) {
@@ -415,6 +423,7 @@ export function mountKnowledge(
       }
       hydrateLinks();
       controls();
+      refreshControl.loaded();
       if (!unreadable && !draft) report('');
       if (unreadable)
         report(
@@ -422,7 +431,10 @@ export function mountKnowledge(
           true,
         );
     } catch (error) {
-      if (!destroyed && ticket === listGeneration) report(error.message, true);
+      if (!destroyed && ticket === listGeneration) {
+        report(error.message, true);
+        refreshControl.failed(error);
+      }
     }
   }
   function preview() {
@@ -606,10 +618,6 @@ export function mountKnowledge(
       return;
     }
     switch (target.dataset.action) {
-      case 'refresh':
-        await refresh();
-        if (current && !draft) await open(current.id);
-        break;
       case 'clear-search':
         search.value = '';
         list();
@@ -736,6 +744,7 @@ export function mountKnowledge(
     open,
     destroy() {
       destroyed = true;
+      refreshControl.destroy();
       narrow.removeEventListener('change', mediaLayout);
       resize?.disconnect();
       spy?.disconnect();

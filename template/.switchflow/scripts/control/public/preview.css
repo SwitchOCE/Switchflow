@@ -1,0 +1,103 @@
+/* UAT preview bar: a compact launcher above the guided acceptance checks. */
+.preview-bar {
+  display: grid;
+  gap: var(--space-2);
+}
+.detail-section.preview-bar {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.detail-body > .detail-section.preview-bar + .detail-section {
+  margin-top: var(--space-4);
+}
+.preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.detail-section .preview-head h3 {
+  margin: 0;
+}
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.detail-section > p.preview-note,
+.detail-section > p.preview-command {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.preview-command code,
+.preview-note code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-1);
+  font-size: var(--text-xs);
+}
+.preview-command strong {
+  color: var(--text-1);
+}
+.detail-section > p.preview-problem {
+  color: var(--danger-text);
+}
+.preview-url {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.preview-bar .preview-candidate {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 320px;
+  margin: 0;
+}
+.preview-bar .preview-error {
+  margin: 0;
+}
+.detail-body .preview-bar details.preview-log {
+  padding: 0;
+  border-top: 0;
+}
+.preview-log summary {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.preview-output {
+  max-height: 240px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .preview-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .preview-actions > * {
+    flex: 1 1 auto;
+  }
+}
+.preview-actions .preview-candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
