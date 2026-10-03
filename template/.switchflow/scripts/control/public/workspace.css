@@ -680,3 +680,73 @@
 .detail-dialog.sheet[open] {
   overflow: clip;
 }
+
+/* Command palette (search dialog): anchored high, results scroll inside. */
+#search-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 94vw);
+  max-height: min(640px, 80dvh);
+  margin: 10vh auto auto;
+  padding: 0;
+  overflow: hidden;
+}
+#search-dialog .dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4) 0;
+}
+#search-dialog .dialog-heading h2 {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+#search-dialog > label {
+  display: block;
+  padding: var(--space-2) var(--space-4) 0;
+  font-size: 0;
+}
+#search-dialog #search-query {
+  min-height: 44px;
+  font-size: var(--text-lg);
+}
+#search-dialog .workspace-search-scopes {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+}
+#search-dialog .workspace-search-help,
+#search-dialog #search-status {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  font-size: var(--text-xs);
+}
+#search-dialog .workspace-search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border);
+  gap: 2px;
+}
+.workspace-search-result {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+}
+.workspace-search-result:hover,
+.workspace-search-result.is-selected,
+.workspace-search-result:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+.workspace-search-result.is-command span {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
