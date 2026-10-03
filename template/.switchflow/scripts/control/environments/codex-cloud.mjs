@@ -374,6 +374,11 @@ export function createCodexCloudEnvironment({
 /**
  * A provider-compatible session handle over the adapter. It runs exactly one turn, which is one
  * cloud task; a second turn is refused (no follow-up), as are steering and interrupt.
+ *
+ * Restarts: onHandle(record) receives the handle as plain JSON when the task is submitted, when
+ * its status changes and when its diff was collected (taskId, url, branch, status, `turn` and
+ * `collectedHead`). openCodexCloudSession({ resume: record }) reattaches to the task by its ID,
+ * and resumeTurn() goes on polling it; a diff already collected is not applied twice.
  */
 export async function openCodexCloudSession({
   adapter,
@@ -383,13 +388,114 @@ export async function openCodexCloudSession({
   sandbox: sessionSandbox = 'workspace-write',
   limits = {},
   onEvent = async () => {},
+  onHandle = async () => {},
+  resume = null,
   signal,
   pollMs = (adapter.config?.pollSeconds ?? 60) * 1000,
   git = createGit(),
 }) {
-  let handle = null;
+  let handle = resume ? { ...structuredClone(resume), cwd: cwd ?? resume.cwd } : null;
   let active = null;
   let closed = false;
+  const record = () => onHandle(structuredClone(handle));
+  if (handle) {
+    await onEvent({ kind: 'session.started', provider: 'codex', transport: KIND, threadId: handle.taskId });
+    await onEvent({
+      kind: 'notice',
+      level: 'info',
+      text: `Reconnected to Codex cloud task ${handle.taskId}, which kept running while the service was stopped${handle.url ? `: ${handle.url}` : '.'}`,
+      ...(handle.url ? { url: handle.url } : {}),
+    });
+  }
+
+  /** The one turn: begin() submits the task (or nothing, when reattached), then its status is polled. */
+  async function runTurn(writable, begin) {
+    if (active) throw new Error('A turn is already running in this session');
+    if (closed) throw new Error('This cloud session has closed');
+    active = {};
+    try {
+      await onEvent({ kind: 'turn.started', turnId: handle?.taskId ?? null });
+      await begin();
+      const deadline = Date.now() + (limits.timeoutMs ?? 60 * 60 * 1000);
+      let state = null;
+      while (!['ready', 'applied', 'error'].includes(state?.status)) {
+        if (signal?.aborted || active.cancelled)
+          throw Object.assign(new Error('Stopped waiting for the Codex cloud task.'), {
+            interrupted: !signal?.aborted,
+          });
+        if (Date.now() > deadline)
+          throw new Error('The Codex cloud task did not finish within the turn time limit; it may still be running.');
+        await sleep(pollMs, signal);
+        if (signal?.aborted || active.cancelled) continue;
+        const previous = state?.status;
+        // A failed poll (network, sign-in) is reported and retried until the turn time limit.
+        const polled = await adapter.poll(handle).catch(error => error);
+        if (polled instanceof Error) {
+          await onEvent({
+            kind: 'notice',
+            level: 'warning',
+            text: `Could not read the Codex cloud status: ${oneLine(polled.message, 300)}`,
+          });
+          continue;
+        }
+        state = polled;
+        if (state.status !== previous) {
+          await record();
+          await onEvent({
+            kind: 'notice',
+            level: 'info',
+            text: `Codex cloud task ${state.status}${state.detail ? `: ${oneLine(state.detail, 300)}` : ''}`,
+          });
+        }
+      }
+      if (state.status === 'error') throw new Error(`The Codex cloud task failed: ${state.title || handle.taskId}`);
+      const diff = await adapter.diff(handle);
+      const result = resultFromDiff(diff);
+      if (!result) throw new Error(`The Codex cloud task ended without ${RESULT_FILE}, so it returned no result.`);
+      const files = diffFiles(diff).filter(file => file !== RESULT_FILE);
+      if (!writable) {
+        if (files.length)
+          await onEvent({
+            kind: 'notice',
+            level: 'warning',
+            text: `The read-only Codex cloud task changed ${files.length} file(s); the host discarded them.`,
+          });
+      } else if (handle.collectedHead) {
+        // Collected before a restart: the candidate already has it.
+        if (typeof result.head === 'string') result.head = handle.collectedHead;
+      } else {
+        const collected = await adapter.collect(handle, { cwd, diff });
+        if (!collected.collected)
+          throw new Error(
+            `The Codex cloud diff was not collected: ${collected.reason} The task stays at ${handle.url}.`,
+          );
+        handle.collectedHead = collected.head;
+        await record();
+        await onEvent({
+          kind: 'notice',
+          level: 'info',
+          text: collected.changed
+            ? `Applied the Codex cloud diff (${collected.files.length} file(s)) and committed it at ${collected.head.slice(0, 12)}.`
+            : 'The Codex cloud task changed no files.',
+        });
+        if (typeof result.head === 'string') result.head = collected.head;
+      }
+      Object.assign(handle, { turn: { open: false, writable }, lastResult: result });
+      await record();
+      await onEvent({ kind: 'turn.completed', turnId: handle.taskId, status: 'completed', usage: null });
+      return { turnId: handle.taskId, result, text: '', exitCode: 0 };
+    } catch (error) {
+      if (handle?.turn?.open) {
+        handle.turn = { open: false, writable };
+        await record().catch(() => {});
+      }
+      await onEvent({ kind: 'turn.failed', turnId: handle?.taskId ?? null, error: oneLine(error.message, 2000) });
+      throw error;
+    } finally {
+      active = null;
+    }
+  }
+
   const session = {
     provider: 'codex',
     transport: KIND,
@@ -409,17 +515,16 @@ export async function openCodexCloudSession({
     },
     async startTurn(text, { sandbox } = {}) {
       if (active) throw new Error('A turn is already running in this session');
-      if (closed) throw new Error('This cloud session has closed');
       if (handle)
         throw new Error(
           `Codex cloud has no follow-up turns. Continue in ChatGPT at ${handle.url ?? 'chatgpt.com/codex'}, or delegate a new worker.`,
         );
       const writable = sessionSandbox !== 'read-only' && sandbox !== 'read-only';
-      active = {};
-      try {
-        await onEvent({ kind: 'turn.started', turnId: null });
+      return runTurn(writable, async () => {
         const head = await git.git(cwd, ['rev-parse', 'HEAD']);
         handle = await adapter.submit({ key, task, prompt: text, head, cwd, writable });
+        handle.turn = { open: true, writable };
+        await record();
         await onEvent({ kind: 'session.started', provider: 'codex', transport: KIND, threadId: handle.taskId });
         await onEvent({
           kind: 'notice',
@@ -427,71 +532,13 @@ export async function openCodexCloudSession({
           text: `Codex cloud task ${handle.taskId} submitted from ${handle.branch}${writable ? '' : ' (read-only: its diff is never applied)'}. It cannot be steered or interrupted from here${handle.url ? `: ${handle.url}` : '.'}`,
           ...(handle.url ? { url: handle.url } : {}),
         });
-        const deadline = Date.now() + (limits.timeoutMs ?? 60 * 60 * 1000);
-        let state = null;
-        while (!['ready', 'applied', 'error'].includes(state?.status)) {
-          if (signal?.aborted || active.cancelled)
-            throw Object.assign(new Error('Stopped waiting for the Codex cloud task.'), {
-              interrupted: !signal?.aborted,
-            });
-          if (Date.now() > deadline)
-            throw new Error('The Codex cloud task did not finish within the turn time limit; it may still be running.');
-          await sleep(pollMs, signal);
-          if (signal?.aborted || active.cancelled) continue;
-          const previous = state?.status;
-          // A failed poll (network, sign-in) is reported and retried until the turn time limit.
-          const polled = await adapter.poll(handle).catch(error => error);
-          if (polled instanceof Error) {
-            await onEvent({
-              kind: 'notice',
-              level: 'warning',
-              text: `Could not read the Codex cloud status: ${oneLine(polled.message, 300)}`,
-            });
-            continue;
-          }
-          state = polled;
-          if (state.status !== previous)
-            await onEvent({
-              kind: 'notice',
-              level: 'info',
-              text: `Codex cloud task ${state.status}${state.detail ? `: ${oneLine(state.detail, 300)}` : ''}`,
-            });
-        }
-        if (state.status === 'error') throw new Error(`The Codex cloud task failed: ${state.title || handle.taskId}`);
-        const diff = await adapter.diff(handle);
-        const result = resultFromDiff(diff);
-        if (!result) throw new Error(`The Codex cloud task ended without ${RESULT_FILE}, so it returned no result.`);
-        const files = diffFiles(diff).filter(file => file !== RESULT_FILE);
-        if (!writable) {
-          if (files.length)
-            await onEvent({
-              kind: 'notice',
-              level: 'warning',
-              text: `The read-only Codex cloud task changed ${files.length} file(s); the host discarded them.`,
-            });
-        } else {
-          const collected = await adapter.collect(handle, { cwd, diff });
-          if (!collected.collected)
-            throw new Error(
-              `The Codex cloud diff was not collected: ${collected.reason} The task stays at ${handle.url}.`,
-            );
-          await onEvent({
-            kind: 'notice',
-            level: 'info',
-            text: collected.changed
-              ? `Applied the Codex cloud diff (${collected.files.length} file(s)) and committed it at ${collected.head.slice(0, 12)}.`
-              : 'The Codex cloud task changed no files.',
-          });
-          if (typeof result.head === 'string') result.head = collected.head;
-        }
-        await onEvent({ kind: 'turn.completed', turnId: handle.taskId, status: 'completed', usage: null });
-        return { turnId: handle.taskId, result, text: '', exitCode: 0 };
-      } catch (error) {
-        await onEvent({ kind: 'turn.failed', turnId: handle?.taskId ?? null, error: oneLine(error.message, 2000) });
-        throw error;
-      } finally {
-        active = null;
-      }
+      });
+    },
+    /** After a restart: goes on polling the task that was running when the service stopped. */
+    async resumeTurn() {
+      if (!handle?.turn?.open) throw new Error('No Codex cloud task was running when the service stopped.');
+      const writable = sessionSandbox !== 'read-only' && handle.turn.writable;
+      return runTurn(writable, async () => {});
     },
     async steer() {
       throw new Error('Codex cloud tasks cannot be steered. Continue in ChatGPT, or delegate a new worker.');

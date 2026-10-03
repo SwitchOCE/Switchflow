@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import {
@@ -27,7 +28,10 @@ import {
   createEnvironmentRegistry,
 } from '../template/.switchflow/scripts/control/environments/index.mjs';
 import { AgentHost } from '../template/.switchflow/scripts/control/agent-host.mjs';
-import { fixture, until } from './agent-fakes.mjs';
+import { Orchestration } from '../template/.switchflow/scripts/control/orchestration.mjs';
+import { readDelegations, unfinishedDelegations } from '../template/.switchflow/scripts/control/worker-ledger.mjs';
+import { updateState } from '../template/.switchflow/scripts/operations/storage.mjs';
+import { fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const CONFIG = {
   environmentId: 'env_01GCmxMt1zESEPw1oYusiee2',
@@ -376,6 +380,238 @@ test('a cloud session gates writes on the approach, follows up in-session and co
   assert.ok(git(remote, 'rev-parse', '--verify', 'refs/heads/claude/sf-t-1-abcdef12'), 'the result branch is kept');
   assert.ok(!events.some(e => e.kind === 'notice' && /routine/i.test(e.text)), 'the shared routine is not reported');
 });
+
+/** A get_run_log body, as fakeDispatch returns it. */
+function runLog(summary) {
+  const body = { next_cursor: null };
+  Object.defineProperty(body, 'summary', { value: summary, enumerable: false });
+  return body;
+}
+// The approach turn's log before its message and result: 7 lines, a command and a read.
+const PART = SUMMARY.split('\n').slice(0, 8).join('\n');
+
+/**
+ * A routines API whose log stops at PART after the first poll until the test ends, like a
+ * service that stopped while its worker kept going.
+ */
+function stalledDispatch(t) {
+  const fake = fakeDispatch();
+  let release;
+  const stopped = new Promise(resolve => (release = resolve));
+  let polls = 0;
+  t.after(() => release());
+  const dispatch = async input => {
+    if (input.action !== 'get_run_log') return fake.dispatch(input);
+    fake.calls.push(input);
+    if (polls++ > 0) await stopped;
+    return runLog(PART);
+  };
+  return { dispatch, calls: fake.calls, release };
+}
+
+test('a cloud session records its handle; after a restart it reattaches and polls on from there', async t => {
+  const { local } = await repoWithRemote(t);
+  const first = stalledDispatch(t);
+  const before = createClaudeCloudEnvironment({ config: CONFIG, projectRoot: local, dispatch: first.dispatch });
+  const records = [];
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stopped = await openCloudSession({
+    adapter: before,
+    task: 'T-1',
+    key: 't-1-abcdef12',
+    cwd: local,
+    pollMs: 5,
+    signal: controller.signal,
+    onHandle: async record => records.push(record),
+  });
+  const abandoned = stopped.startTurn('Approach please.', { sandbox: 'read-only' }).catch(error => error);
+  const record = structuredClone(await until(() => records.find(entry => entry.seen === 7)));
+  assert.deepEqual(
+    {
+      key: record.key,
+      task: record.task,
+      sessionId: record.sessionId,
+      triggerId: record.triggerId,
+      url: record.url,
+      branches: record.branches,
+      position: [record.seen, record.cursor, record.results, record.statusSeen],
+      turn: record.turn,
+    },
+    {
+      key: 't-1-abcdef12',
+      task: 'T-1',
+      sessionId: 'cse_01TESTSESSION',
+      triggerId: 'trig_01TESTTESTTEST',
+      url: 'https://claude.ai/code/cse_01TESTSESSION',
+      branches: branchesFor('t-1-abcdef12'),
+      position: [7, null, 0, 0],
+      turn: { open: true, writable: false, lastMessage: null },
+    },
+  );
+
+  // A restarted service: a new adapter and session from the record alone.
+  const later = fakeDispatch([SUMMARY]);
+  const messages = [];
+  const after = createClaudeCloudEnvironment({
+    config: CONFIG,
+    projectRoot: local,
+    dispatch: later.dispatch,
+    send: async (sessionId, text) => messages.push([sessionId, text]),
+  });
+  const events = [];
+  const recordsAfter = [];
+  const session = await openCloudSession({
+    adapter: after,
+    task: 'T-1',
+    cwd: local,
+    pollMs: 5,
+    resume: record,
+    onEvent: async event => events.push(event),
+    onHandle: async entry => recordsAfter.push(entry),
+  });
+  assert.equal(session.threadId, 'cse_01TESTSESSION');
+  assert.match(
+    events.find(event => event.kind === 'notice').text,
+    /Reconnected to Claude cloud session cse_01TESTSESSION/,
+  );
+  const turn = await session.resumeTurn();
+  assert.equal(turn.result.outcome, 'approach');
+  assert.deepEqual(
+    later.calls.map(call => [call.action, call.session_id]),
+    [['get_run_log', 'cse_01TESTSESSION']],
+    'nothing new was started: no routine update or run',
+  );
+  // Only lines after the recorded position are reported again.
+  assert.deepEqual(
+    events.filter(event => ['command', 'tool', 'message'].includes(event.kind)).map(event => event.kind),
+    ['message'],
+  );
+  assert.deepEqual(recordsAfter.at(-1).turn, { open: false, writable: false, lastMessage: null });
+  assert.equal(recordsAfter.at(-1).lastResult.outcome, 'approach');
+  assert.equal(recordsAfter.at(-1).results, 1);
+  // The session interface works again: messages reach the same cloud session.
+  await session.steer('Prefer v6.');
+  assert.deepEqual(messages[0], ['cse_01TESTSESSION', 'Message from the orchestrator: Prefer v6.']);
+  await assert.rejects(session.resumeTurn(), /No cloud turn was running/);
+  controller.abort();
+  first.release();
+  await abandoned;
+});
+
+test('resuming a held cloud worker reconnects it: no new session, and follow-ups reach the same one', t =>
+  fixture(async context => {
+    const { remote } = await repoWithRemote(t);
+    // A candidate the Git helper registered, whose origin stands in for GitHub.
+    const initiativeId = randomUUID();
+    const planHash = 'b'.repeat(64);
+    const managedRoot = path.join(context.stateDir, 'candidates', 'grant');
+    const candidate = path.join(managedRoot, 'cand');
+    await fs.mkdir(candidate, { recursive: true });
+    git(candidate, 'init', '-q', '-b', 'main');
+    await fs.writeFile(path.join(candidate, 'a.txt'), 'a\n');
+    git(candidate, 'add', 'a.txt');
+    git(candidate, 'commit', '-q', '-m', 'base');
+    git(candidate, 'remote', 'add', 'origin', remote);
+    const real = await fs.realpath(candidate);
+    await updateState(context, `git-bridge-${initiativeId}-${planHash}`, () => ({
+      schemaVersion: 1,
+      initiativeId,
+      planHash,
+      entries: [{ name: 'cand', path: real, branch: 'codex/x' }],
+    }));
+    const hosts = [];
+    const start = async (dispatch, send = async () => ({})) => {
+      const adapter = createClaudeCloudEnvironment({ config: CONFIG, projectRoot: real, dispatch, send });
+      Object.assign(adapter, {
+        id: 'claude-cloud',
+        provider: 'claude',
+        openSession: options => openCloudSession({ adapter, pollMs: 5, ...options }),
+      });
+      const host = new AgentHost(context, {
+        capabilities: { claude: { available: true, loggedIn: true }, codex: { available: true } },
+        environments: new EnvironmentRegistry([adapter]),
+        capacity: { pool: roomyPool() },
+      });
+      await host.init();
+      hosts.push(host);
+      const runId = randomUUID();
+      const orchestration = new Orchestration({
+        host,
+        runId,
+        initiativeId,
+        runDirectory: path.join(context.stateDir, 'runs', runId),
+        gitBridge: {
+          initiativeId,
+          planHash,
+          managedRoot: await fs.realpath(managedRoot),
+          channelPath: path.join(context.stateDir, 'runs', runId, 'git-channel'),
+          helperPath: path.join(context.stateDir, 'helper.mjs'),
+        },
+        signal: new AbortController().signal,
+        orchestratorProvider: 'codex',
+        serviceUrl: 'http://127.0.0.1:9',
+        projectId: context.id,
+      });
+      await orchestration.prepare();
+      const orchestrator = await host.registry.create({ runId, initiativeId, role: 'execution', provider: 'codex' });
+      orchestration.setOrchestrator(orchestrator.id);
+      return { host, orchestration, runId };
+    };
+    const first = stalledDispatch(t);
+    try {
+      const before = await start(first.dispatch);
+      const delegated = await before.orchestration.call('delegate_task', {
+        task: 'DEMO-1',
+        kind: 'deliver',
+        instructions: 'Make the change.',
+        worktree: 'cand',
+        environment: 'claude-cloud',
+      });
+      // The worker record carries the handle, kept current as the log is read.
+      const held = await until(async () =>
+        (await unfinishedDelegations(context, before.runId)).find(entry => entry.cloud?.seen === 7),
+      );
+      assert.equal(held.workerId, delegated.workerId);
+      assert.equal(held.cloud.sessionId, 'cse_01TESTSESSION');
+      assert.deepEqual(held.cloud.turn, { open: true, writable: false, lastMessage: null });
+
+      // The service stops without closing anything; a new one resumes the held worker.
+      const handoff = `${SUMMARY}\n[2026-10-03T14:40:00Z] assistant: {"task":"DEMO-1","outcome":"handoff","approach":"","head":"x","envelope":"e","summary":"done","blockers":[]}\n[2026-10-03T14:40:01Z] result: success is_error=false turns=9 duration=60s — done`;
+      const later = fakeDispatch([SUMMARY, handoff]);
+      const messages = [];
+      const after = await start(later.dispatch, async (sessionId, text) => messages.push([sessionId, text]));
+      const outcome = await after.orchestration.resume([held]);
+      assert.deepEqual(outcome, { resumed: ['DEMO-1 deliver (reconnected)'], failed: [] });
+      const {
+        workers: [worker],
+      } = await after.orchestration.call('wait_for_workers', { timeoutSeconds: 10 });
+      assert.deepEqual(
+        [worker.status, worker.result.outcome, worker.approval, worker.resumedFrom, worker.sessionUrl],
+        ['idle', 'approach', 'awaiting-confirmation', delegated.workerId, 'https://claude.ai/code/cse_01TESTSESSION'],
+      );
+      assert.ok(
+        later.calls.every(call => call.action === 'get_run_log' && call.session_id === 'cse_01TESTSESSION'),
+        'no routine update or run: the same session',
+      );
+      // The new record carries the handle on, for another restart.
+      const [carried] = await readDelegations(context, [worker.workerId]);
+      assert.deepEqual([carried.cloud.sessionId, carried.cloud.turn.open], ['cse_01TESTSESSION', false]);
+
+      // Confirming the approach is a message into the same session.
+      await after.orchestration.call('send_to_worker', { workerId: worker.workerId, message: 'Go.', confirm: true });
+      const done = await after.orchestration.call('wait_for_workers', {
+        workerIds: [worker.workerId],
+        timeoutSeconds: 10,
+      });
+      assert.equal(done.workers[0].result.outcome, 'handoff');
+      assert.equal(messages[0][0], 'cse_01TESTSESSION');
+      assert.match(messages[0][1], /Writes are now allowed/);
+    } finally {
+      first.release();
+      for (const host of hosts) await host.close();
+    }
+  }));
 
 test('a push during the read-only approach turn fails the turn', async t => {
   const { local, remote } = await repoWithRemote(t);

@@ -54,6 +54,16 @@ export function claudeTranscriptRoot(env = process.env) {
 }
 
 /**
+ * The projects folder name Claude Code uses for a working directory: every character other than
+ * an ASCII letter or digit becomes "-" (C:\Users\me\repo -> C--Users-me-repo). Longer names are
+ * cut and given a hash suffix, which is not reproduced here, so they return null.
+ */
+export function claudeProjectFolder(cwd) {
+  const name = String(cwd ?? '').replace(/[^A-Za-z0-9]/g, '-');
+  return name && name.length <= 200 ? name : null;
+}
+
+/**
  * Removes the saved conversation of one session this host started, found by its random session
  * ID (the folder name is the CLI's own encoding of the working directory). Its folder goes too
  * when nothing else is in it. Returns the removed file, or null.
