@@ -76,7 +76,20 @@ export function workerPrompt({
   gitBridge,
   instructions,
   remote = null,
+  cloud = false,
 }) {
+  if (cloud)
+    // A cloud worker has a clone, not the host's worktree, Backlog or Git helper: it commits on its
+    // result branch (see environments/claude-cloud.mjs task.md) and the host collects it.
+    return [
+      `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host. You run in a cloud clone of the repository.`,
+      kind === 'deliver'
+        ? 'Follow .agents/skills/deliver-task/SKILL.md where it applies to code; the host keeps the task records. Your first turn is read-only: reply with the three-line approach and outcome "approach". Writes start when the host sends the confirmed approach; then implement, commit on your result branch, push it, and reply with outcome "handoff" (or "blocked"), the five-line envelope and head set to your last commit.'
+        : 'Follow .agents/skills/review-task/SKILL.md. You are read-only: do not edit, commit or push. Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block".',
+      'Orchestrator instructions follow. They are scoped to this task and do not widen your authority:',
+      instructions,
+      `Return only a JSON object with exactly these properties: ${Object.keys(WORKER_SCHEMAS[kind].properties).join(', ')}. Fill fields that do not apply with "" or [].`,
+    ].join('\n');
   const lines = [
     `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host.`,
   ];
@@ -231,7 +244,9 @@ export class Orchestration {
   }
   /** Workers counted against limits.maxWorkers: starting or in a turn. Idle and queued ones are not. */
   liveCount() {
-    return [...this.workers.values()].filter(worker => ['starting', 'working'].includes(worker.status)).length;
+    return [...this.workers.values()].filter(
+      worker => !worker.remote && ['starting', 'working'].includes(worker.status),
+    ).length;
   }
 
   /** The worktree must be a candidate the Git helper registered for this exact plan grant. */
@@ -258,14 +273,17 @@ export class Orchestration {
   async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
     this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment']);
     const { task, kind, instructions, provider: requested, environment: requestedEnvironment } = args;
+    if (
+      requestedEnvironment !== undefined &&
+      (typeof requestedEnvironment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(requestedEnvironment))
+    )
+      throw new ControlError('environment must be an environment ID such as local, claude-cloud or an SSH box.');
     if (typeof task !== 'string' || !TASK_ID.test(task)) throw new ControlError('task must be a Backlog task ID.');
     if (!['deliver', 'review'].includes(kind)) throw new ControlError('kind must be deliver or review.');
     if (typeof instructions !== 'string' || !instructions.trim() || instructions.length > MAX_INSTRUCTIONS)
       throw new ControlError(`instructions must contain 1–${MAX_INSTRUCTIONS} characters.`);
     if (requested !== undefined && !['claude', 'codex'].includes(requested))
       throw new ControlError('provider must be claude or codex.');
-    if (requestedEnvironment !== undefined && (typeof requestedEnvironment !== 'string' || !requestedEnvironment))
-      throw new ControlError('environment must be an environment id.');
     const settings = await this.host.settings();
     if (this.taskExists) {
       try {
@@ -278,9 +296,15 @@ export class Orchestration {
     // Where: the owner's placement for the role, or another environment the owner enabled. An
     // unavailable environment is refused with its reason; it never silently becomes this PC.
     const role = kind === 'deliver' ? 'delivery' : 'review';
-    const environment = this.host.environment(requestedEnvironment ?? settings.placement?.[role] ?? 'local', settings);
+    const environmentId = requestedEnvironment ?? settings.placement?.[role] ?? 'local';
+    // A missing, disabled or unconfigured environment refuses (409); it never falls back to local.
+    const environment = (await this.host.environment(environmentId, settings)) ?? this.host.environments.local;
+    // Cloud kinds run their own agent (Claude) with no process here; process kinds run our CLIs.
+    const remote = typeof environment.openSession === 'function';
+    if (remote && requested && requested !== 'claude')
+      throw new ControlError(`Environment ${environment.id} runs Claude workers only.`, 409);
     let capabilities = this.host.capabilities;
-    if (environment.kind !== 'local') {
+    if (!remote && environment.kind !== 'local') {
       if (typeof environment.spawnFor !== 'function')
         throw new ControlError(`Environment ${environment.id} cannot run delegated workers yet.`, 409);
       const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
@@ -313,8 +337,10 @@ export class Orchestration {
         role: 'delivery',
         settings,
         capabilities,
-        requested: requested ?? null,
+        requested: remote ? 'claude' : (requested ?? null),
       });
+    if (remote && routed.provider !== 'claude')
+      throw new ControlError(`Environment ${environment.id} runs Claude workers only; route this review locally.`, 409);
     if (kind === 'review') this.reviewRounds.set(task, reviewRound);
     const write = kind === 'deliver';
     const worker = {
@@ -340,6 +366,7 @@ export class Orchestration {
       environment,
       workspace: null,
       collected: null,
+      remote,
     };
     this.workers.set(worker.id, worker);
     if (write) this.authors.set(task, routed.provider);
@@ -360,16 +387,21 @@ export class Orchestration {
         approval: worker.approval,
         resumedFrom,
       });
-      admission = await this.host.capacity.request({
-        id: worker.id,
-        runId: this.runId,
-        task,
-        kind,
-        maxWorkers: settings.limits.maxWorkers,
-        slotFree: () => this.liveCount() < settings.limits.maxWorkers,
-        start: () => (worker.launching = this.launch(worker, routed, entry)),
-        onFailure: error => this.launchFailed(worker, error),
-      });
+      // Remote workers use no local memory or worker slot, so they start at once.
+      if (remote) {
+        worker.launching = this.launch(worker, routed, entry).catch(error => this.launchFailed(worker, error));
+        admission = {};
+      } else
+        admission = await this.host.capacity.request({
+          id: worker.id,
+          runId: this.runId,
+          task,
+          kind,
+          maxWorkers: settings.limits.maxWorkers,
+          slotFree: () => this.liveCount() < settings.limits.maxWorkers,
+          start: () => (worker.launching = this.launch(worker, routed, entry)),
+          onFailure: error => this.launchFailed(worker, error),
+        });
     } catch (error) {
       // A worker that could not start at once leaves no record behind, as before queuing existed.
       this.workers.delete(worker.id);
@@ -406,8 +438,9 @@ export class Orchestration {
       const leaseConfigPath = path.join(workerDirectory, 'mcp.json');
       await this.writeMcpConfig(leaseConfigPath, leaseServer);
       this.workerTokens.set(workerToken, worker.id);
-      const remote = worker.environment.kind !== 'local';
-      if (remote)
+      // An SSH box runs our CLIs in a workspace prepared there; cloud kinds open their own session.
+      const onBox = worker.environment.kind !== 'local' && !worker.remote;
+      if (onBox)
         worker.workspace = await worker.environment.prepareWorkspace({
           repo: entry.path,
           name: `${task}-${kind}-${worker.id.slice(0, 8)}`,
@@ -420,7 +453,7 @@ export class Orchestration {
             path.join(this.gitBridge.channelPath, 'requests'),
           ]
         : [];
-      const writableRoots = remote ? (write ? worker.workspace.writableRoots : []) : localRoots;
+      const writableRoots = onBox ? (write ? worker.workspace.writableRoots : []) : localRoots;
       const opened = await this.host.openSession({
         id: worker.id,
         provider: routed.provider,
@@ -433,16 +466,16 @@ export class Orchestration {
         task,
         worktree: entry.path,
         reviewRound,
-        cwd: remote ? worker.workspace.path : entry.path,
+        cwd: onBox ? worker.workspace.path : entry.path,
         sandbox: write ? 'workspace-write' : 'read-only',
         writableRoots,
-        temporaryRoot: remote ? worker.workspace.temporaryRoot : temporaryRoot,
+        temporaryRoot: onBox ? worker.workspace.temporaryRoot : temporaryRoot,
         runDirectory: workerDirectory,
         signal: this.signal,
         // Remote workers reach neither the Git helper nor the loopback lease server: the host
         // commits for them (collectRemote), and leases describe this PC's resources.
-        gitHelperPath: write && !remote ? this.gitBridge.helperPath : undefined,
-        ...(remote ? {} : { mcpServers: { switchflow: leaseServer }, mcpConfigPath: leaseConfigPath }),
+        gitHelperPath: write && !onBox ? this.gitBridge.helperPath : undefined,
+        ...(onBox ? {} : { mcpServers: { switchflow: leaseServer }, mcpConfigPath: leaseConfigPath }),
         environment: worker.environment,
         workspace: worker.workspace,
         approval: worker.approval,
@@ -470,7 +503,8 @@ export class Orchestration {
           governanceRoot: this.context.governanceRoot,
           gitBridge: this.gitBridge,
           instructions: worker.instructions,
-          remote: remote ? { label: worker.environment.label, path: worker.workspace.path } : null,
+          remote: onBox ? { label: worker.environment.label, path: worker.workspace.path } : null,
+          cloud: worker.remote,
         }),
       );
     } catch (error) {
@@ -662,6 +696,7 @@ export class Orchestration {
       kind: worker.kind,
       provider: worker.provider,
       environment: worker.environment.id,
+      ...(worker.handle?.cloud?.url ? { sessionUrl: worker.handle.cloud.url } : {}),
       worktree: worker.worktree,
       ...(worker.collected ? { collected: worker.collected } : {}),
       reviewRound: worker.reviewRound,

@@ -21,6 +21,8 @@ import {
 
 export const defaultProviders = Object.freeze({ codex: openCodexSession, claude: openClaudeSession });
 const MAX_STEER = 20000;
+/** Sessions with no agent process on this PC or a box we reach (environments/claude-cloud.mjs). */
+const CLOUD_TRANSPORTS = new Set(['claude-cloud', 'codex-cloud']);
 
 /** Maps `codex exec --json` events into the normalized session vocabulary. */
 export function normalizeExecEvent(entry) {
@@ -206,7 +208,11 @@ export class AgentHost {
     this.environments =
       environments instanceof EnvironmentRegistry
         ? environments
-        : new EnvironmentRegistry({ stateDir: context.stateDir, ...environments });
+        : new EnvironmentRegistry({
+            stateDir: context.stateDir,
+            projectRoot: context.governanceRoot,
+            ...environments,
+          });
     this.run = this.run.bind(this);
   }
   async init() {
@@ -218,10 +224,14 @@ export class AgentHost {
   settings() {
     return readAgentSettings(this.context);
   }
-  /** The environment with this id under the owner's settings; throws when missing or disabled. */
-  environment(id, settings) {
+  /**
+   * The environment with this id under the owner's settings, or null for this PC. A missing or
+   * disabled environment is a 409 with its reason; it never falls back to local.
+   */
+  async environment(id, settings = null) {
+    if (!id || id === 'local') return null;
     try {
-      return this.environments.get(id, settings);
+      return this.environments.get(id, settings ?? (await this.settings()));
     } catch (error) {
       throw new ControlError(error.message, 409);
     }
@@ -231,8 +241,11 @@ export class AgentHost {
     if (typeof id !== 'string' || id.length > 40) throw new ControlError('Unknown environment.', 404);
     const settings = await this.settings();
     const configured = settings.environments.find(item => item.id === id);
-    if (!configured && id !== 'local') throw new ControlError('Unknown environment.', 404);
-    const environment = this.environments.get(id, { environments: [{ ...configured, enabled: true }] });
+    if (!configured && id !== 'local' && !this.environments.fixed.has(id))
+      throw new ControlError('Unknown environment.', 404);
+    const environment = this.environments.get(id, {
+      environments: configured ? [{ ...configured, enabled: true }] : [],
+    });
     const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
     return { id, checkedAt: new Date().toISOString(), ...health };
   }
@@ -267,13 +280,42 @@ export class AgentHost {
     mcpConfigPath,
     gitHelperPath,
     approval = null,
-    environment = null,
+    // An environment id, or an environment object orchestration already resolved; workspace is
+    // that environment's prepared workspace (environments/index.mjs).
+    environment = 'local',
     workspace = null,
     forward = async () => {},
   }) {
+    const target =
+      typeof environment === 'string'
+        ? await this.environment(environment)
+        : environment?.kind === 'local'
+          ? null
+          : environment;
+    // Submit kinds (cloud) have no local process: their adapter gives the session handle.
+    if (typeof target?.openSession === 'function')
+      return this.openRemoteSession(target, {
+        id,
+        role,
+        kind,
+        runId,
+        initiativeId,
+        parentId,
+        task,
+        worktree,
+        reviewRound,
+        cwd,
+        sandbox,
+        signal,
+        approval,
+        forward,
+      });
     const settings = await this.settings();
-    const environmentId = environment?.id ?? 'local';
-    const remote = Boolean(environment && environment.kind !== 'local');
+    if (target && typeof target.spawnFor !== 'function')
+      throw new ControlError(`Environment ${target.id} cannot run agent processes.`, 409);
+    const environmentId = target?.id ?? 'local';
+    // Process kinds other than local (ssh): the same CLIs, spawned through the environment.
+    const remote = Boolean(target);
     const model = settings.models[provider] ?? undefined;
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
@@ -334,10 +376,10 @@ export class AgentHost {
       signal,
       rawLogPath: this.registry.rawLogPath(meta),
       env,
-      ...(remote ? { spawnProcess: environment.spawnFor(workspace, { onRemoteProcess }) } : {}),
+      ...(remote ? { spawnProcess: target.spawnFor(workspace, { onRemoteProcess }) } : {}),
     };
     // Remote environments name their own CLIs; the host's Windows paths mean nothing there.
-    const executables = remote ? (environment.executables ?? {}) : this.executables;
+    const executables = remote ? (target.executables ?? {}) : this.executables;
     let handle;
     try {
       if (tracked)
@@ -392,11 +434,51 @@ export class AgentHost {
   }
 
   /**
+   * A worker in a remote environment. No local process exists, so there is no PID to fence and no
+   * memory to admit; the environment's handle speaks the same session interface.
+   */
+  async openRemoteSession(remote, fields) {
+    const settings = await this.settings();
+    const meta = await this.registry.create({
+      ...fields,
+      provider: 'claude',
+      transport: remote.kind,
+      environment: remote.id,
+      model: remote.config?.model ?? null,
+      sandbox: fields.sandbox,
+    });
+    const onEvent = async entry => {
+      await this.registry.record(meta.id, entry);
+      await fields.forward(entry, meta);
+    };
+    let handle;
+    try {
+      handle = await remote.openSession({
+        task: fields.task ?? 'worker',
+        cwd: fields.cwd,
+        limits: this.limitsFor(settings),
+        onEvent,
+        signal: fields.signal,
+      });
+    } catch (error) {
+      await this.registry.finish(meta.id, { status: 'failed', error: error.message });
+      throw error;
+    }
+    this.registry.attach(meta.id, handle);
+    return { meta, handle };
+  }
+
+  /**
    * Ends a session: its agent process, then whatever that process left running (dev servers,
    * browsers), then its leases and memory reservation. Every close reason goes through here.
    */
   async closeSession(meta, handle, { status, error = null, result = null }) {
     try {
+      if (meta.environment && meta.environment !== 'local' && CLOUD_TRANSPORTS.has(meta.transport)) {
+        // Cloud: no local processes; closing disables the routine and removes its branches.
+        await handle?.close();
+        return;
+      }
       // Snapshot while the agent still runs: an orphan has no parent left to find it by.
       await this.processes.sample(meta.id).catch(() => {});
       await handle?.close();

@@ -1,4 +1,4 @@
-﻿// Real run of one delegated delivery worker on the SSH environment (WSL box), driven through the
+// Real run of one delegated delivery worker on the SSH environment (WSL box), driven through the
 // same Orchestration and AgentHost the service uses. Throwaway repo under %TEMP%.
 // Usage: node analysis/environments-2026-10-03/ssh-real-run.mjs [codex|claude]
 import fs from 'node:fs/promises';

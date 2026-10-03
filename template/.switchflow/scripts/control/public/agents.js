@@ -878,7 +878,11 @@ export function mountAgents(
         el(
           'span',
           'muted',
-          `${environment.kind} · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot}${environment.enabled === false ? ' · disabled' : ''}`,
+          `${
+            environment.kind === 'ssh'
+              ? `ssh · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot}`
+              : `${environment.kind} · ${environment.repository || environment.environmentId || ''}`
+          }${environment.enabled === false ? ' · disabled' : ''}`,
         ),
       );
       const result = environmentTests[environment.id];
@@ -932,7 +936,8 @@ export function mountAgents(
         environmentEditing = null;
         renderRouting();
       });
-      tools.append(test, editButton, remove);
+      // Only SSH environments are edited here; others keep their fields and can be tested or removed.
+      tools.append(test, ...(environment.kind === 'ssh' ? [editButton] : []), remove);
       item.append(text, tools);
       list.append(item);
     });

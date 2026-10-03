@@ -23,7 +23,7 @@ export const TOOLS = [
         environment: {
           type: 'string',
           description:
-            'Optional override of where the worker runs: "local" or an environment id the owner enabled. Defaults to the owner placement for the role. An unavailable environment is refused with its reason, never replaced by this PC.',
+            'Optional override of where the worker runs: "local", an SSH box, or a cloud environment such as "claude-cloud", if the owner configured and enabled it. Defaults to the owner placement for the role. SSH workers stream and steer like local ones; cloud workers skip memory admission, start at once and report through polling (about a minute of lag). An unconfigured or unavailable environment is refused with its reason, never replaced by this PC.',
         },
       },
       required: ['task', 'kind', 'instructions', 'worktree'],

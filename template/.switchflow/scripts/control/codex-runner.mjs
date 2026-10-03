@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -44,9 +45,16 @@ export function isRunProcessAlive(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
     return error.code !== 'ESRCH';
+  }
+  // Linux still signals an exited process that nobody reaped, as under a container init that never waits.
+  if (process.platform !== 'linux') return true;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2)[0] !== 'Z';
+  } catch (error) {
+    return error.code !== 'ENOENT';
   }
 }
 

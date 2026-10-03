@@ -76,12 +76,12 @@ export class AgentSessionRegistry {
       kind: fields.kind ?? 'stage',
       provider: fields.provider,
       transport: fields.transport ?? null,
+      // Where the agent runs (environments/index.mjs): local, or a remote environment ID.
+      environment: fields.environment ?? 'local',
       model: fields.model ?? null,
       threadId: null,
       task: fields.task ?? null,
       worktree: fields.worktree ?? null,
-      // Where it runs (environments/index.mjs): "local", or an owner-configured environment id.
-      environment: fields.environment ?? 'local',
       sandbox: fields.sandbox ?? null,
       reviewRound: fields.reviewRound ?? null,
       // Delivery workers only: drafting, awaiting-confirmation or confirmed (see orchestration.mjs).
