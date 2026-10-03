@@ -529,3 +529,154 @@
     padding-inline: var(--space-4);
   }
 }
+
+/* Guided UAT: a full checklist with a running tally. */
+#uat-checks {
+  display: grid;
+  gap: var(--space-3);
+}
+.uat-progress {
+  position: sticky;
+  top: calc(-1 * var(--space-5));
+  z-index: 2;
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) 0;
+  border: 0;
+  background: var(--surface);
+}
+.uat-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.uat-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.uat-bar span[data-tone='done'] {
+  --status: var(--status-done);
+}
+.uat-bar span[data-tone='blocked'] {
+  --status: var(--status-blocked);
+}
+.uat-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.uat-check {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.uat-check[data-result='passed'] {
+  border-left-color: var(--status-done);
+}
+.uat-check[data-result='failed'] {
+  border-left-color: var(--status-blocked);
+  background: color-mix(in srgb, var(--danger-soft) 55%, var(--surface));
+}
+.uat-check-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: start;
+}
+.uat-check-text {
+  min-width: 0;
+  font-size: var(--text-md);
+}
+.uat-check-text > * {
+  margin-top: 0;
+}
+.uat-choice {
+  display: inline-flex;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.uat-option {
+  position: relative;
+  display: inline-flex;
+  margin: 0;
+  cursor: pointer;
+}
+.uat-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.uat-option span {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.uat-option input:focus-visible + span {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.uat-option input:checked + span {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: var(--shadow-1);
+}
+.option-passed input:checked + span {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.option-failed input:checked + span {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.uat-notes {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+.detail-body .uat-notes > summary {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.uat-notes label {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+.uat-submit {
+  position: sticky;
+  bottom: calc(-1 * var(--space-6));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.uat-submit-note {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+@media (max-width: 760px) {
+  .uat-check-top {
+    grid-template-columns: 1fr;
+  }
+}
+/* The sheet frame never scrolls; scrollIntoView and restored positions act on its body. */
+.detail-dialog.sheet[open] {
+  overflow: clip;
+}

@@ -23,7 +23,7 @@ Comparator research is in `analysis/ui-review-2026-09-22/REPORT.md`, covering As
 - **Spacing scale:** 4, 8, 12, 16, 24, 32, 48 (`--space-1`…`--space-7`). Page padding is 32. Gaps are 24 between sections, 16 inside panels, and 8 between related controls.
 - **Type scale:** 12, 13, 14 (body), 16, 20, 24 (page title). Use weights 400, 600 and 700 only. Secondary text uses `--text-2`; tertiary and meta text use `--text-3`.
 - **Density:** rows 36–44px; buttons 32px; inputs 34px. Wide screens show more, not bigger.
-- **Status is shown, not written.** Use `.status-dot` or `.status-pill` with `data-status="ready|in progress|review|blocked|done"` (lower-case). Use `.progress` with `<span style="width:x%;--status:…">` segments for progress.
+- **Status is shown, not written.** Use `.status-dot` or `.status-pill` with `data-status="ready|in progress|review|blocked|done"` (lower-case). Use `.progress` with `<span>` segments for progress; set widths with CSSOM (`span.style.width = …`, `span.style.setProperty("--status", …)`). The production CSP is `style-src 'self'`, so `style="…"` in HTML strings or `setAttribute("style", …)` is silently blocked (the fixture server does not send CSP, so you will not see it locally).
 - **Copy:** short and plain. State facts and the next action. Never write disclaimers such as "this does not establish authority" or "display order is not execution priority". Say it once in docs, if anywhere.
 - **Empty states:** `.empty` with a one-line explanation and the creation action where one exists.
 

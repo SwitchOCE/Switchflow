@@ -350,7 +350,7 @@ function setBusy() {
   $('#project-select').disabled = busy || nativeWrites > 0;
   $('#add-project').disabled = busy || nativeWrites > 0;
   for (const node of document.querySelectorAll('#detail-content button[data-action], #create-submit'))
-    node.disabled = busy;
+    node.disabled = busy || node.dataset.blocked === 'true';
 }
 function actionButton(label, action, payload, kind = 'primary') {
   const node = button(label, () => act(action, typeof payload === 'function' ? payload() : payload), kind);
@@ -720,101 +720,122 @@ function renderUat(item, body) {
     el(
       'p',
       'gate-note',
-      'Try each step in the delivered product. Record what you observe; agent test results alone do not count as your acceptance.',
+      'Try each check in the delivered product and record what you saw. Agent test results do not count as your acceptance.',
     ),
   );
-  const scenario = el('select');
-  scenario.setAttribute('aria-label', 'Acceptance scenario');
-  normalized.forEach((check, index) => {
-    const option = el('option', '', `${index + 1}. ${check.title || check.text || check.id}`);
-    option.value = index;
-    scenario.append(option);
-  });
-  const firstPending = normalized.findIndex(
-    check => (drafts.get(item.id)?.[`uat-status-${check.id}`] ?? check.status ?? 'pending') === 'pending',
-  );
-  scenario.value = String(Math.max(0, firstPending));
-  const showScenario = index => {
-    scenario.value = String(index);
-    [...form.querySelectorAll('.uat-step')].forEach((step, i) => (step.hidden = i !== Number(scenario.value)));
-  };
-  scenario.addEventListener('change', () => showScenario(scenario.value));
-  form.append(scenario);
   const progress = el('div', 'uat-progress');
   progress.setAttribute('role', 'status');
   form.append(progress);
-  const updateProgress = () => {
-    const selects = [...form.querySelectorAll('.uat-step select')];
-    const remaining = selects.filter(n => n.value === 'pending');
-    progress.replaceChildren(
-      el(
-        'strong',
-        '',
-        `${selects.length - remaining.length} of ${normalized.length} checked · ${remaining.length} remaining · ${selects.filter(n => n.value === 'failed').length} need rework`,
-      ),
-      el('p', 'muted', 'Changes are kept in this browser session until you submit a verdict.'),
-    );
-    if (remaining.length)
-      progress.append(
-        button('Next unchecked', () => {
-          showScenario(selects.indexOf(remaining[0]));
-          remaining[0].closest('.uat-step').scrollIntoView({ block: 'start' });
-          remaining[0].focus({ preventScroll: true });
-        }),
-      );
-  };
-  normalized.forEach((check, index) => {
-    const block = el('div', 'uat-step');
-    block.append(uatInstruction(item, check, index + 1));
-    if (check.instructions || check.expected) block.append(renderValue(check.instructions || check.expected));
-    const label = el('label', '', 'Your result');
-    const select = el('select');
-    select.name = `uat-status-${check.id}`;
-    for (const [value, text] of [
-      ['pending', 'Not checked yet'],
-      ['passed', 'Passed'],
-      ['failed', 'Needs rework'],
-    ]) {
-      const option = el('option', '', text);
-      option.value = value;
-      select.append(option);
-    }
-    select.value = drafts.get(item.id)?.[select.name] ?? check.status ?? 'pending';
-    select.addEventListener('change', () => {
-      remember(select.name, select.value);
-      updateProgress();
-    });
-    label.append(select);
-    block.append(label);
-    const notes = inputField(`uat-notes-${check.id}`, 'Notes (optional)', check.notes || '');
-    notes.input.maxLength = 12000;
-    block.append(notes.label);
-    form.append(block);
-  });
-  showScenario(scenario.value);
-  updateProgress();
-  const stepNavigation = el('div', 'detail-actions');
-  stepNavigation.append(
-    button('Previous check', () => showScenario(Math.max(0, Number(scenario.value) - 1))),
-    button('Next check', () => showScenario(Math.min(normalized.length - 1, Number(scenario.value) + 1))),
-  );
-  form.append(stepNavigation);
+  const list = el('ol', 'uat-list');
+  form.append(list);
+  const statusOf = check => form.elements.namedItem(`uat-status-${check.id}`)?.value || 'pending';
   const submit = el('button', 'button primary', 'Accept delivered outcome');
   submit.type = 'submit';
   submit.dataset.action = 'accept-uat';
-  form.append(submit);
+  const submitNote = el('span', 'uat-submit-note');
+  const updateProgress = () => {
+    const statuses = normalized.map(statusOf);
+    const passed = statuses.filter(v => v === 'passed').length;
+    const failed = statuses.filter(v => v === 'failed').length;
+    const remaining = statuses.length - passed - failed;
+    const bar = el('div', 'progress uat-bar');
+    for (const [count, tone] of [
+      [passed, 'done'],
+      [failed, 'blocked'],
+    ])
+      if (count) {
+        const part = el('span');
+        part.dataset.tone = tone;
+        part.dataset.share = String(Math.round((100 * count) / statuses.length));
+        part.style.width = `${(100 * count) / statuses.length}%`;
+        bar.append(part);
+      }
+    const summary = el('div', 'uat-summary');
+    summary.append(
+      el('strong', '', `${passed + failed} of ${statuses.length} checked`),
+      el(
+        'span',
+        'muted',
+        [failed && `${failed} need rework`, remaining && `${remaining} to go`].filter(Boolean).join(' · ') ||
+          'All checked',
+      ),
+    );
+    const head = el('div', 'uat-progress-head');
+    head.append(summary);
+    const nextIndex = statuses.indexOf('pending');
+    if (nextIndex >= 0)
+      head.append(
+        button('Next unchecked →', () => {
+          const row = list.children[nextIndex];
+          row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          row.querySelector('input[type="radio"]')?.focus({ preventScroll: true });
+        }),
+      );
+    progress.replaceChildren(head, bar);
+    for (const [index, row] of [...list.children].entries()) row.dataset.result = statuses[index];
+    submit.dataset.blocked = String(passed !== statuses.length);
+    submit.disabled = busy || passed !== statuses.length;
+    submitNote.textContent =
+      passed === statuses.length
+        ? 'Every check passed. Accepting completes this initiative.'
+        : failed
+          ? 'Some checks need rework. Describe what to change below and request rework.'
+          : 'Accept once every check has passed. Your progress is kept in this browser.';
+  };
+  normalized.forEach((check, index) => {
+    const row = el('li', 'uat-check');
+    const top = el('div', 'uat-check-top');
+    const text = el('div', 'uat-check-text');
+    text.append(uatInstruction(item, check, index + 1));
+    if (check.instructions || check.expected) text.append(renderValue(check.instructions || check.expected));
+    const choice = el('fieldset', 'uat-choice');
+    choice.append(el('legend', 'sr-only', `Result for check ${index + 1}`));
+    const current = drafts.get(item.id)?.[`uat-status-${check.id}`] ?? check.status ?? 'pending';
+    for (const [value, label] of [
+      ['pending', 'Not checked'],
+      ['passed', 'Pass'],
+      ['failed', 'Needs rework'],
+    ]) {
+      const option = el('label', `uat-option option-${value}`);
+      const radio = el('input');
+      radio.type = 'radio';
+      radio.name = `uat-status-${check.id}`;
+      radio.value = value;
+      radio.checked = current === value;
+      radio.addEventListener('change', () => {
+        remember(radio.name, value);
+        if (value === 'failed') notes.open = true;
+        updateProgress();
+      });
+      option.append(radio, el('span', '', label));
+      choice.append(option);
+    }
+    top.append(text, choice);
+    const notes = el('details', 'uat-notes');
+    const field = inputField(`uat-notes-${check.id}`, 'What you observed', check.notes || '');
+    field.input.maxLength = 12000;
+    field.input.rows = 3;
+    notes.append(
+      el('summary', '', check.notes || drafts.get(item.id)?.[`uat-notes-${check.id}`] ? 'Notes' : 'Add notes'),
+      field.label,
+    );
+    notes.open = current === 'failed' || !!(check.notes || drafts.get(item.id)?.[`uat-notes-${check.id}`]);
+    row.append(top, notes);
+    list.append(row);
+  });
+  const footer = el('div', 'uat-submit');
+  footer.append(submitNote, submit);
+  form.append(footer);
+  updateProgress();
   form.addEventListener('submit', event => {
     event.preventDefault();
     const results = normalized.map(check => ({
       id: check.id,
-      status: form.elements.namedItem(`uat-status-${check.id}`).value,
+      status: statusOf(check),
       notes: form.elements.namedItem(`uat-notes-${check.id}`).value.trim(),
     }));
     if (results.some(result => result.status !== 'passed')) {
-      showError(
-        'Mark every acceptance check as passed, or describe the changes needed below and request rework.',
-        $('#detail-error'),
-      );
+      showError('Mark every check as passed, or describe the changes needed and request rework.', $('#detail-error'));
       $('#detail-error').scrollIntoView({ block: 'nearest' });
       return;
     }
@@ -988,10 +1009,14 @@ function renderActivity(item) {
     return row;
   });
 }
+// The sheet keeps its header and decision footer fixed; only the body scrolls.
+function detailScroller() {
+  return $('#detail-content > .detail-body') || $('#detail-dialog');
+}
 function renderDetail() {
   const item = current();
   if (!item) return;
-  const previousScroll = $('#detail-dialog').scrollTop;
+  const previousScroll = detailScroller().scrollTop;
   const previousFocus = $('#detail-dialog').contains(document.activeElement) ? document.activeElement : null;
   const previousFocusId = previousFocus?.id;
   const previousAction = previousFocus?.dataset?.action;
@@ -1258,7 +1283,7 @@ function renderDetail() {
       ? [...container.querySelectorAll('[data-action]')].find(node => node.dataset.action === previousAction)
       : null;
   if (focusTarget && !focusTarget.disabled) focusTarget.focus({ preventScroll: true });
-  $('#detail-dialog').scrollTop = previousScroll;
+  detailScroller().scrollTop = previousScroll;
 }
 function openDetail(id, trigger) {
   selectedId = id;
@@ -1266,7 +1291,7 @@ function openDetail(id, trigger) {
   $('#detail-content').replaceChildren();
   renderDetail();
   $('#detail-dialog').showModal();
-  $('#detail-dialog').scrollTop = 0;
+  detailScroller().scrollTop = 0;
 }
 function closeDetail() {
   $('#detail-dialog').close();
@@ -1405,7 +1430,7 @@ async function openTask(id, trigger = document.activeElement) {
     url: location.href,
     scroll: window.scrollY,
     initiative: selectedId,
-    initiativeScroll: $('#detail-dialog').scrollTop,
+    initiativeScroll: detailScroller().scrollTop,
     trigger,
   };
   if ($('#detail-dialog').open) closeDetail();
@@ -1429,7 +1454,7 @@ function taskClosed() {
     window.scrollTo(0, origin.scroll);
     if (origin.initiative && state?.initiatives?.some(i => i.id === origin.initiative)) {
       openDetail(origin.initiative, origin.trigger);
-      $('#detail-dialog').scrollTop = origin.initiativeScroll;
+      detailScroller().scrollTop = origin.initiativeScroll;
     } else if (origin.trigger?.isConnected) origin.trigger.focus({ preventScroll: true });
   });
 }
@@ -1725,7 +1750,7 @@ async function followLocation() {
       state?.initiatives?.some(i => i.id === priorOrigin.initiative)
     ) {
       openDetail(priorOrigin.initiative, priorOrigin.trigger);
-      $('#detail-dialog').scrollTop = priorOrigin.initiativeScroll;
+      detailScroller().scrollTop = priorOrigin.initiativeScroll;
     }
   }
   followingRoute = false;
