@@ -123,8 +123,9 @@ Deviations from the design above:
 
 Known gaps:
 
-- Worker processes are not part of the restart PID fence; only the orchestrator's PID is recorded in `activeRun`. After a crash, a worker could outlive the service.
-- Not exercised live: a Codex orchestrator calling the MCP tools (approval `never` should allow them; unverified), `turn/interrupt` and Claude's interrupt on a live turn, Codex approval requests, a real Claude reviewer.
+- Resolved (SF-27): worker processes are now part of the restart fence; see `docs/browser-control.md`, Recovery.
+- Exercised live on 2026-10-03 (`smoke/real-runs-2026-10-03.md`): a Codex orchestrator calling the MCP tools (it needed `default_tools_approval_mode = "approve"`, now set), owner steer and interrupt over HTTP on both providers. Still not exercised live: Codex approval requests, a real Claude reviewer.
+- A Claude delivery worker edited its file during its approach turn, before the orchestrator confirmed. The host does not enforce approach-before-edit; a read-only approach turn would need a second process.
 - Sandboxes restrict writes, not reads. In the end-to-end smoke the Codex worker could not find skills in the throwaway repo and read skill files from the owner's other Codex worktrees. The exec runner has the same exposure today.
 - Claude delivery workers can run only Switchflow wrappers and read-only Git, so project tests run through `operations.mjs check`. Widen the allowlist per project if that proves too narrow.
 - Owner steering is recorded after delivery; if the turn ends in the same instant, the next run may see the steer again as new input.

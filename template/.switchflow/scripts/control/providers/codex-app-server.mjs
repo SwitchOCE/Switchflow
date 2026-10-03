@@ -101,6 +101,10 @@ export function threadStartParams({
       enabled: true,
       startup_timeout_sec: 30,
       tool_timeout_sec: 120,
+      // Under approvalPolicy "never", Codex refuses any MCP tool it would otherwise ask about (every
+      // tool without readOnlyHint). Host-supplied servers enforce their own guardrails, so their
+      // tools are pre-approved; user servers stay disabled above.
+      default_tools_approval_mode: 'approve',
     };
   }
   const config = {

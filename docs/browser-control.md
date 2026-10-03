@@ -150,7 +150,7 @@ Returns 202:
 
 ### Orchestrator and workers
 
-During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
+During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config with `default_tools_approval_mode = "approve"`, because under approval policy `never` Codex refuses any MCP tool it would otherwise ask about. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -214,7 +214,7 @@ The hold lists each process (provider, stage or worker kind, task, PID) in `acti
 - `recover-run` with `confirmedStopped: true` releases a hold whose remaining entries are unverified or unknown. It is refused while a verified process is still running.
 - Any other action is refused while the hold remains; once every recorded process has stopped, the next action releases it.
 
-The service does not stop these processes on its own at startup. Recovery runs whenever a project attaches, possibly without the owner present, and acts on state written by a previous service; stopping is irreversible and the owner may want to inspect the worker's work first. When the service dies its agents' stdin closes; idle Codex app-server and Claude CLI processes exit on that (checked 2026-10-03), so the hold usually clears by itself once any running turn ends. Start-time verification makes a stop request safe against PID reuse; it costs one PowerShell `Get-Process` call (about 0.3 s) per live PID, only during recovery.
+The service does not stop these processes on its own at startup. Recovery runs whenever a project attaches, possibly without the owner present, and acts on state written by a previous service; stopping is irreversible and the owner may want to inspect the worker's work first. When the service dies its agents' stdin closes. In live checks on Windows (2026-10-03), Codex app-server and Claude CLI exited within about 1.5 s of that even mid-turn, and Codex took its running shell command with it, so a hold on a live worker is the exception: a hung process, or one whose identity cannot be confirmed. Start-time verification makes a stop request safe against PID reuse; it costs one PowerShell `Get-Process` call (about 0.3 s) per live PID, only during recovery.
 
 Native Backlog and MCP editing timeouts and invalid transport responses retain their request and write-admission lock until the owned child emits closure. Sending a termination signal alone does not establish that the writer stopped. If termination cannot be confirmed, the request remains pending and new writes remain fenced; inspect and stop that exact child before recovery. No replacement child starts while its predecessor is uncertain.
 
