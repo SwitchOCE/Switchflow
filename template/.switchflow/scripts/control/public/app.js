@@ -326,6 +326,7 @@ async function act(action, payload = {}) {
   if (!item || busy) return;
   const errorTarget = $('#detail-error');
   showError('', errorTarget);
+  const retesting = action === 'retry' && item.status === 'blocked' && item.environmentHold?.environments?.length;
   busy = true;
   setBusy();
   try {
@@ -348,7 +349,8 @@ async function act(action, payload = {}) {
     if (['scope-change', 'request-rework'].includes(action)) clearUatDraft(item.id);
     await refresh(true);
     $('#live-status').textContent = connected
-      ? actionSaved[action] || 'Saved.'
+      ? (retesting ? 'Testing the environments again. Delivery starts if they are ready.' : actionSaved[action]) ||
+        'Saved.'
       : 'Project action saved, but the latest state could not be loaded. Refresh before taking another action.';
   } catch (error) {
     if (error.status === 409) await refresh(true);
@@ -1363,6 +1365,41 @@ function renderDetail() {
     );
     actions.append(actionButton(`Resume ${count === 1 ? 'held worker' : `${count} held workers`}`, 'resume-workers'));
   }
+  // Delivery held before it started: an environment its placement uses is not ready.
+  const environmentHold =
+    !recoveryHold &&
+    item.stage === 'delivery' &&
+    item.status === 'blocked' &&
+    Array.isArray(item.environmentHold?.environments) &&
+    item.environmentHold.environments.length
+      ? item.environmentHold
+      : null;
+  if (environmentHold) {
+    const hold = el('div', 'recovery-form environment-hold');
+    const list = el('ul', 'recovery-processes');
+    for (const entry of environmentHold.environments) {
+      const row = el('li');
+      const pill = el('span', 'status-pill', 'Not ready');
+      pill.dataset.status = 'blocked';
+      row.append(pill, el('strong', '', entry.label || entry.id), el('span', 'muted', entry.reason || 'Not ready.'));
+      list.append(row);
+    }
+    const open = el('button', 'text-link', 'Open where workers run');
+    open.type = 'button';
+    open.addEventListener('click', () => {
+      $('#detail-dialog').close();
+      showView('agents');
+    });
+    const note = el(
+      'p',
+      'gate-note',
+      `Delivery has not started. Switchflow does not fall back to this PC. Checked ${when(environmentHold.checkedAt)}. `,
+    );
+    note.append(open);
+    hold.append(list, note);
+    decision.append(hold);
+    actions.append(actionButton('Test again', 'retry'));
+  }
   const normalGate = !isRunning(item) && !['failed', 'cancelled', 'blocked', 'complete'].includes(item.status);
   if (
     normalGate &&
@@ -1402,7 +1439,7 @@ function renderDetail() {
   }
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
     actions.append(actionButton('Start intake →', 'start'));
-  if (!recoveryHold && ['failed', 'cancelled', 'blocked'].includes(item.status))
+  if (!recoveryHold && !environmentHold && ['failed', 'cancelled', 'blocked'].includes(item.status))
     actions.append(
       actionButton('Retry from the current checkpoint', 'retry', undefined, heldWorkers.length ? 'quiet' : 'primary'),
     );

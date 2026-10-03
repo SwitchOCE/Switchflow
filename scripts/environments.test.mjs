@@ -27,6 +27,7 @@ import {
 } from '../template/.switchflow/scripts/control/environments/ssh.mjs';
 import { ControlEngine } from '../template/.switchflow/scripts/control/engine.mjs';
 import { createInitiative } from '../template/.switchflow/scripts/control/lifecycle.mjs';
+import { PAUSED_REASON } from '../template/.switchflow/scripts/control/capacity.mjs';
 import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
 import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
@@ -195,6 +196,27 @@ test('owner settings hold environments and placement; placement must name an ena
     () => applySettingsPatch(base, { environments: [codexCloud], placement: { delivery: 'codex' } }),
     /reviews only/,
   );
+  // What the Agents view's Codex cloud form sends: the opt-in is required, unknown fields refused.
+  const fromForm = applySettingsPatch(base, {
+    environments: [{ ...codexCloud, label: 'Codex cloud', pollSeconds: 120, enabled: true }],
+  }).environments[0];
+  assert.deepEqual(
+    [fromForm.kind, fromForm.remote, fromForm.push, fromForm.pollSeconds, fromForm.experimental],
+    ['codex-cloud', 'origin', true, 120, true],
+  );
+  assert.throws(
+    () => applySettingsPatch(base, { environments: [{ ...codexCloud, experimental: false }] }),
+    /experimental/,
+  );
+  assert.throws(() => applySettingsPatch(base, { environments: [{ ...codexCloud, model: 'x' }] }), /model/);
+  assert.throws(
+    () => applySettingsPatch(base, { environments: [{ ...codexCloud, provider: 'claude' }] }),
+    /codex workers only/,
+  );
+  // Pause local workers: a boolean owner setting, off by default.
+  assert.equal(base.pauseLocalWorkers, false);
+  assert.equal(applySettingsPatch(base, { pauseLocalWorkers: true }).pauseLocalWorkers, true);
+  assert.throws(() => applySettingsPatch(base, { pauseLocalWorkers: 'yes' }), /true or false/);
   // Removing a placed environment is refused rather than silently moving work to this PC.
   assert.throws(() => applySettingsPatch(saved, { environments: [] }), /not a configured environment/);
   assert.throws(() => applySettingsPatch(base, { environments: [sshConfig(file), sshConfig(file)] }), /unique/);
@@ -716,4 +738,119 @@ test('a remote PID fences a restart even after its ssh client is gone, until the
       expectedRevision: state.initiatives[0].revision,
     });
     assert.equal((await restarted.read()).activeRun, null);
+  }));
+
+test('pausing local workers leaves workers placed on another environment alone', t =>
+  fixture(async context => {
+    const box = fakeEnvironment();
+    const { host, orchestration } = await orchestrationWith(context, t, box);
+    await host.updateSettings({ pauseLocalWorkers: true });
+    const delegate = environment =>
+      orchestration.call('delegate_task', {
+        task: 'DEMO-1',
+        kind: 'deliver',
+        instructions: 'x',
+        worktree: 'cand',
+        ...(environment ? { environment } : {}),
+      });
+    const remote = await delegate();
+    assert.deepEqual([remote.environment, remote.status], ['box', 'working']);
+    const local = await delegate('local');
+    assert.deepEqual([local.environment, local.status, local.queue.reason], ['local', 'queued', PAUSED_REASON]);
+  }));
+
+test('delivery holds with the reason when a placed environment is not ready, and starts once it is', t =>
+  fixture(async context => {
+    const box = { healthy: false, checks: 0 };
+    const host = new AgentHost(context, {
+      capabilities: both,
+      capacity: { pool: roomyPool() },
+      environments: {
+        factories: {
+          ssh: config => ({
+            id: config.id,
+            kind: 'ssh',
+            label: config.label,
+            capabilities: { stream: true, steer: true, interrupt: true, followUp: true, result: 'remote-branch' },
+            async health() {
+              box.checks++;
+              return box.healthy ? { ok: true, reason: null } : { ok: false, reason: 'Connection refused.' };
+            },
+          }),
+        },
+      },
+    });
+    await host.init();
+    t.after(() => host.close());
+    // Placed only on this PC: nothing to check.
+    assert.deepEqual((await host.readiness()).environments, []);
+    const { file } = await keyFile(t);
+    await host.updateSettings({
+      environments: [sshConfig(file)],
+      placement: { delivery: 'box', review: 'box' },
+    });
+    const readiness = await host.readiness();
+    assert.equal(readiness.ok, false);
+    assert.deepEqual(readiness.environments, [
+      { id: 'box', label: 'Test box', roles: ['delivery', 'review'], ok: false, reason: 'Connection refused.' },
+    ]);
+
+    const item = createInitiative({ title: 'Deliver', request: 'Deliver the plan', start: false });
+    Object.assign(item, {
+      stage: 'delivery',
+      status: 'idle',
+      pending: true,
+      approvedPlan: { tasks: [], hash: 'p', scopeHash: 's', baseHead: 'abc', gitGrantHash: planHash },
+    });
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item],
+      activeRun: null,
+    }));
+    const runs = [];
+    const engine = new ControlEngine(context, {
+      protocol,
+      runner: async options => {
+        runs.push(options);
+        throw new Error('fixture stop');
+      },
+      preflight: () => host.readiness(),
+      bridgeFactory: async () => ({
+        descriptor: { helperPath: 'h', channelPath: 'c', managedRoot: 'm' },
+        close: async () => {},
+      }),
+    });
+    t.after(() => engine.close());
+    host.bind(engine);
+    engine.schedule();
+    const held = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'blocked' && current;
+    });
+    assert.equal(runs.length, 0, 'no run starts, and nothing falls back to this PC');
+    assert.equal(held.pending, false);
+    assert.deepEqual(
+      held.environmentHold.environments.map(entry => [entry.id, entry.reason]),
+      [['box', 'Connection refused.']],
+    );
+    assert.match(held.nextAction, /waiting for where its workers run/);
+    assert.match(held.events.at(-1).message, /Test box is not ready \(Connection refused\.\).*does not fall back/);
+
+    // "Test again" is a retry: still unhealthy holds again; healthy starts delivery.
+    await engine.action(item.id, { action: 'retry', expectedRevision: held.revision });
+    const again = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'blocked' && current.revision > held.revision + 1 && current;
+    });
+    assert.equal(runs.length, 0);
+    box.healthy = true;
+    await engine.action(item.id, { action: 'retry', expectedRevision: again.revision });
+    await until(() => runs.length === 1);
+    const started = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'failed' && current;
+    });
+    assert.equal(started.environmentHold, null);
+    assert.ok(box.checks >= 4);
   }));
