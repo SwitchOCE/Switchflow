@@ -792,9 +792,24 @@
     min-height: 44px;
   }
 }
-/* A gate note's Details toggle exists for phones only; wider screens show the whole note. */
-.gate-note-toggle {
+/* Gate notes lead with their decision sentence; the rest waits behind Details at every width. */
+.decision-region .gate-note-more {
   display: none;
+}
+.decision-region .gate-note.expanded .gate-note-more {
+  display: inline;
+}
+/* Wide sheets: what to decide on the left, the buttons beside it, so the footer stays one band. */
+#detail-content {
+  container-type: inline-size;
+}
+@container (min-width: 620px) {
+  .decision-region-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--space-5);
+    align-items: center;
+  }
 }
 
 /* More options: the feedback routes beyond the current decision. */
@@ -921,4 +936,37 @@
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+.decision-region-grid > .detail-actions {
+  justify-content: flex-end;
+}
+@container (min-width: 620px) {
+  .decision-region-grid > * {
+    grid-column: 1;
+  }
+  .decision-region-grid > .detail-actions {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    align-self: center;
+    flex-wrap: nowrap;
+    margin-top: 0;
+  }
+  .decision-region-grid > :is(.request-changes, .recovery-form) {
+    grid-column: 1 / -1;
+  }
+  .decision-region-grid .next-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    margin: 0;
+  }
+  .decision-region-grid .next-action .eyebrow {
+    margin: 0;
+  }
+}
+/* While writing changes, the approval's notes step aside with its buttons. */
+.decision-region:has(> .request-changes:not([hidden])) > .gate-note {
+  display: none;
 }

@@ -1235,6 +1235,7 @@ function renderDetail() {
   header.append(meta, heading);
   const decision = el('section', 'decision-region');
   decision.setAttribute('aria-label', 'Current decision');
+  decision.classList.add('decision-region-grid');
   const body = el('div', 'detail-body');
   const recoveryHold = state.activeRun?.status === 'interrupted' && state.activeRun?.initiativeId === item.id;
   const next = el('div', 'next-action');
