@@ -29,6 +29,12 @@
  *   collect(workspace, { into, message }) -> Promise<{ changed, head }>
  *       Commits the worker's changes there and fast-forwards the local candidate `into` via git.
  *   cleanup(workspace) -> Promise<void>;  close() stops anything the environment started itself.
+ *   exec(argv, { timeoutMs }) -> Promise<{ code, stdout, stderr }> (ssh): one command there, used
+ *       for a worker's Docker Compose cleanup (worker-resources.mjs).
+ *
+ * Any owner config may also declare `leases`, the environment's own lease pool ({ name: count |
+ * { count, maxMinutes } }, no gating): delegate_task takes those for workers placed there. This
+ * PC's leases (.switchflow/capacity.json) describe only this PC.
  *
  * Submit kinds (claude-cloud, codex-cloud) have no local process and provide
  *   submit / poll / collect / cancel / cleanup (see environments/claude-cloud.mjs) and
@@ -40,6 +46,7 @@
  * deps = { stateDir, projectRoot }. Configs are owner settings stored service-side
  * (agent-settings.mjs `environments`), never in the agent-writable checkout, and hold no secrets.
  */
+import { validateLeasePool } from '../capacity.mjs';
 import { createLocalEnvironment } from './local.mjs';
 import { createSshEnvironment, validateSshConfig } from './ssh.mjs';
 import { createClaudeCloudEnvironment, openCloudSession, validateCloudConfig } from './claude-cloud.mjs';
@@ -129,7 +136,17 @@ export function validateEnvironmentConfig(config) {
     throw new Error('Environment label must be 1–60 characters.');
   const enabled = config.enabled ?? true;
   if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false.');
-  return { ...kind.validate(config), id: config.id, kind: config.kind, label: label.trim(), enabled };
+  // Any kind may declare its own lease pool: leases taken at delegation for workers placed there.
+  const { leases, ...rest } = config;
+  const pool = leases === undefined ? null : validateLeasePool(leases, { gating: false });
+  return {
+    ...kind.validate(rest),
+    id: config.id,
+    kind: config.kind,
+    label: label.trim(),
+    enabled,
+    ...(pool ? { leases: pool } : {}),
+  };
 }
 
 const sameConfig = (a, b) => JSON.stringify(a) === JSON.stringify(b);

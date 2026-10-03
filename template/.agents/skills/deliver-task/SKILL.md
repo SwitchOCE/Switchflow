@@ -37,7 +37,7 @@ Use focused task evidence. Apply the phase gate from `doc-04` and the project pr
 
 Do not re-run a suite that has not been invalidated by a change since its last run.
 
-When the `acquire_lease` tool is present, hold the `gate` lease while running the full test, lint or build gate and the `e2e` lease while running end-to-end tests, and release each as soon as its run ends; focused tests need none. Take a declared lease (`list_leases`) before using any other shared resource, such as a Docker stack or fixed ports, never a hand-made lock file. A refused lease says why; call again to keep waiting. Stop dev servers and browsers you start before you hand off.
+When the `acquire_lease` tool is present, hold the `gate` lease while running the full test, lint or build gate and the `e2e` lease while running end-to-end tests, and release each as soon as its run ends; focused tests need none. Take a declared lease (`list_leases`) before using any other shared resource, such as a Docker stack or fixed ports, never a hand-made lock file. A refused lease says why; call again to keep waiting. Without the tool (a remote worker), the host already holds the leases your dispatch names. When `SWITCHFLOW_PORT_BASE` is set, use only ports from your block as the project maps them, and let `COMPOSE_PROJECT_NAME` name your compose stack (no `-p`). Stop dev servers and browsers you start before you hand off.
 
 ## Check what review usually blocks
 

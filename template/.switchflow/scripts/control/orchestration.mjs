@@ -7,6 +7,7 @@ import { ControlError } from './lifecycle.mjs';
 import { resolveProvider } from './agent-settings.mjs';
 import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
 import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
+import { CAPACITY_CONFIG } from './capacity.mjs';
 import { DEFAULT_MAX_WORKERS as DEFAULT_BOX_WORKERS } from './environments/ssh.mjs';
 
 const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
@@ -16,6 +17,7 @@ const MAX_INSTRUCTIONS = 50000;
 /** The admission lane of an environment: "local" for this PC, otherwise the environment's id. */
 const laneOf = environment => (!environment || environment.kind === 'local' ? 'local' : environment.id);
 const SUITE_TTL_MINUTES = 30;
+const MAX_DELEGATED_LEASES = 8;
 
 /** Instructions for a worker re-delegated after a service restart. */
 export function resumeInstructions(entry) {
@@ -278,8 +280,16 @@ export class Orchestration {
    * otherwise it is queued (status "queued") and starts by itself, first in first out.
    */
   async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
-    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment']);
+    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment', 'leases']);
     const { task, kind, instructions, provider: requested, environment: requestedEnvironment } = args;
+    const leaseNames = args.leases ?? [];
+    if (
+      !Array.isArray(leaseNames) ||
+      leaseNames.length > MAX_DELEGATED_LEASES ||
+      leaseNames.some(name => typeof name !== 'string' || name.length > 64) ||
+      new Set(leaseNames).size !== leaseNames.length
+    )
+      throw new ControlError(`leases must be a list of at most ${MAX_DELEGATED_LEASES} different lease names.`);
     if (
       requestedEnvironment !== undefined &&
       (typeof requestedEnvironment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(requestedEnvironment))
@@ -317,6 +327,21 @@ export class Orchestration {
         `Environment ${environment.id} runs one fire-and-forget task with no approach turn, and delivery workers need the approach gate. Place delivery locally, on an SSH box or on Claude cloud; ${environment.id} takes reviews only.`,
         409,
       );
+    // Leases named here are taken for the worker before it starts, from the pool of the machine
+    // it runs on: this PC's profile, or the environment's own declared leases.
+    const lane = laneOf(environment);
+    const profile = await this.host.capacity.profile();
+    const pool = this.leasePool(lane, profile, settings, environment);
+    const unknown = leaseNames.find(name => !pool[name]);
+    if (unknown !== undefined) {
+      const declared = Object.keys(pool).join(', ') || 'none';
+      throw new ControlError(
+        lane === 'local'
+          ? `Unknown lease "${unknown}" on this PC. It declares: ${declared} (${CAPACITY_CONFIG}).`
+          : `Unknown lease "${unknown}" on environment ${environment.id}. It declares: ${declared}. An environment's leases are set in its owner settings; this PC's leases do not cover it.`,
+        404,
+      );
+    }
     let capabilities = this.host.capabilities;
     if (!remote && environment.kind !== 'local') {
       if (typeof environment.spawnFor !== 'function')
@@ -384,6 +409,7 @@ export class Orchestration {
       workspace: null,
       collected: null,
       remote,
+      leases: leaseNames,
     };
     this.workers.set(worker.id, worker);
     if (write) this.authors.set(task, routed.provider);
@@ -403,22 +429,30 @@ export class Orchestration {
         status: 'queued',
         approval: worker.approval,
         resumedFrom,
+        ...(leaseNames.length ? { leases: leaseNames } : {}),
       });
-      // Cloud workers use no local memory or worker slot, so they start at once.
-      if (remote) {
+      // Cloud workers use no local memory or worker slot, so they start at once unless they wait for leases.
+      if (remote && !leaseNames.length) {
         worker.launching = this.launch(worker, routed, entry).catch(error => this.launchFailed(worker, error));
         admission = {};
       } else {
         // Workers on an SSH box use none of this PC's memory and queue against the box's own limit.
-        const lane = laneOf(environment);
-        const limit = lane === 'local' ? settings.limits.maxWorkers : (environment.maxWorkers ?? DEFAULT_BOX_WORKERS);
+        const limit = remote
+          ? Infinity
+          : lane === 'local'
+            ? settings.limits.maxWorkers
+            : (environment.maxWorkers ?? DEFAULT_BOX_WORKERS);
+        // Taken in the admission step itself, so a block or lease cannot go to two workers.
+        await this.host.capacity.ensureLoaded();
+        if (!remote) await this.host.resources.ensureLoaded();
         admission = await this.host.capacity.request({
           id: worker.id,
           runId: this.runId,
           task,
           kind,
           maxWorkers: limit,
-          slotFree: () => this.liveCount(lane) < limit,
+          slotFree: () => remote || this.liveCount(lane) < limit,
+          claim: () => this.claim(worker, { lane, names: leaseNames, resources: pool, profile }),
           start: () => (worker.launching = this.launch(worker, routed, entry)),
           onFailure: error => this.launchFailed(worker, error),
           ...(lane === 'local'
@@ -442,6 +476,33 @@ export class Orchestration {
       fallback: routed.fallback,
       ...(admission.note ? { capacityNote: admission.note } : {}),
     };
+  }
+
+  /** The leases a lane can grant: this PC's profile, or an environment's declared pool. */
+  leasePool(lane, profile, settings, environment) {
+    if (lane === 'local') return profile.leases;
+    return settings.environments?.find(config => config.id === lane)?.leases ?? environment?.config?.leases ?? {};
+  }
+  /**
+   * What a worker needs from its start, taken by admission all or none: a port block where it runs
+   * (process environments) and the leases named at delegation. Returns null, or why it waits.
+   */
+  claim(worker, { lane, names, resources, profile }) {
+    if (!worker.remote) {
+      const reason = this.host.resources.claim(worker.id, {
+        runId: this.runId,
+        environment: lane,
+        ports: profile.ports,
+      });
+      if (reason) return reason;
+    }
+    if (!names.length) return null;
+    const reason = this.host.capacity.takeLeases(
+      { names, pool: lane, resources, holder: worker.id, runId: this.runId, task: worker.task, kind: worker.kind },
+      profile,
+    );
+    if (reason && !worker.remote) this.host.resources.unclaim(worker.id);
+    return reason;
   }
 
   /** Opens an admitted worker's session and starts its first turn. */
@@ -538,7 +599,12 @@ export class Orchestration {
     } catch (error) {
       // A worker that never opened must not leave a usable token behind.
       if (workerToken && !worker.handle) this.workerTokens.delete(workerToken);
-      if (!worker.handle) await this.cleanupRemote(worker);
+      if (!worker.handle) {
+        // What admission claimed for it goes back: its port block and the leases named at delegation.
+        this.host.resources.unclaim(worker.id);
+        await this.host.capacity.releaseHolder(worker.id).catch(() => {});
+        await this.cleanupRemote(worker);
+      }
       throw error;
     }
   }
@@ -566,6 +632,7 @@ export class Orchestration {
             ...(entry.kind === 'deliver' && entry.provider ? { provider: entry.provider } : {}),
             // Same environment as before; a removed or unhealthy one is refused with its reason.
             ...(entry.environment && entry.environment !== 'local' ? { environment: entry.environment } : {}),
+            ...(Array.isArray(entry.leases) && entry.leases.length ? { leases: entry.leases } : {}),
           },
           'orchestrator',
           { resumedFrom: entry.workerId },
@@ -718,6 +785,7 @@ export class Orchestration {
   summary(worker) {
     const meta = this.host.registry.get(worker.id)?.meta ?? worker.meta ?? {};
     const queue = worker.status === 'queued' ? this.host.capacity.queueInfo(worker.id) : null;
+    const held = FINISHED.has(worker.status) ? null : this.host.resources.of(worker.id);
     return {
       workerId: worker.id,
       task: worker.task,
@@ -730,6 +798,9 @@ export class Orchestration {
       reviewRound: worker.reviewRound,
       status: worker.status,
       ...(queue ? { queue } : {}),
+      ...(worker.leases.length ? { leases: worker.leases } : {}),
+      ...(held?.ports ? { ports: held.ports } : {}),
+      ...(held ? { composeProject: held.compose } : {}),
       approval: worker.approval,
       writable: worker.kind === 'deliver' && worker.approval === APPROVAL.confirmed,
       ...(worker.approval === APPROVAL.awaiting && worker.status === 'idle' ? { note: AWAITING_NOTE } : {}),
@@ -808,7 +879,14 @@ export class Orchestration {
   }
   async list_leases(args) {
     this.fields(args, []);
-    return this.host.capacity.listLeases();
+    // Environments' own pools too, so the orchestrator can name them in delegate_task leases.
+    const settings = await this.host.settings();
+    const pools = Object.fromEntries(
+      (settings.environments ?? [])
+        .filter(config => config.enabled !== false && config.leases && Object.keys(config.leases).length)
+        .map(config => [config.id, config.leases]),
+    );
+    return this.host.capacity.listLeases({ pools });
   }
   /** Compatibility: the suite lock is the lease "suite". */
   async acquire_suite_lock(args, principal) {

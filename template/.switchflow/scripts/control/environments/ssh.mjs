@@ -506,6 +506,14 @@ export function createSshEnvironment(
       };
     },
     killRemote,
+    /**
+     * Runs one command on the box from / (so no stray compose file is picked up), argv quoted word
+     * by word. Resolves { code, stdout, stderr }. The host's compose cleanup uses it.
+     */
+    async exec(argv, { timeoutMs = 120000 } = {}) {
+      await wake();
+      return ssh(['sh', '-c', 'cd / && exec "$@"', 'switchflow', ...argv.map(String)], { timeoutMs });
+    },
     /** Stops the keepAwake command if this environment started it. */
     close() {
       holders = 0;
