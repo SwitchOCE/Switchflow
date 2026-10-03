@@ -27,7 +27,8 @@ export function intakeResult(stage = 'intake') {
  */
 export function fakeProvider(name, log = [], respond = null) {
   return async options => {
-    const opened = { name, options, steers: [] };
+    // turns: [{ text, sandbox }]; sandbox is the per-turn override (undefined: the session's own).
+    const opened = { name, options, steers: [], turns: [] };
     log.push(opened);
     let active = null;
     let closed = false;
@@ -43,15 +44,17 @@ export function fakeProvider(name, log = [], respond = null) {
       get closed() {
         return closed;
       },
-      async startTurn(text, { outputSchema } = {}) {
+      async startTurn(text, { outputSchema, sandbox } = {}) {
         if (active) throw new Error('busy');
+        if (options.sandbox === 'read-only' && sandbox && sandbox !== 'read-only') throw new Error('widened');
         const id = randomUUID();
         opened.prompt ??= text;
+        opened.turns.push({ text, sandbox });
         opened.outputSchema = outputSchema;
         await emit({ kind: 'turn.started', turnId: id });
         await emit({ kind: 'message', text: `${name} is working`, final: false });
         return new Promise((resolve, reject) => {
-          active = { id, resolve, reject };
+          active = { id, resolve, reject, sandbox };
           const cancel = () => {
             active = null;
             reject(new Error('Agent session cancelled'));
@@ -69,7 +72,7 @@ export function fakeProvider(name, log = [], respond = null) {
       finish(text) {
         const turn = active;
         active = null;
-        const result = respond ? respond(text, options) : intakeResult();
+        const result = respond ? respond(text, options, turn.sandbox ?? options.sandbox) : intakeResult();
         void emit({ kind: 'message', text: 'done', final: true })
           .then(() => emit({ kind: 'turn.completed', turnId: turn.id, status: 'completed', usage: { totalTokens: 3 } }))
           .then(() => turn.resolve({ turnId: turn.id, result, text: JSON.stringify(result) }));

@@ -792,6 +792,112 @@
     min-height: 44px;
   }
 }
+/* Gate notes lead with their decision sentence; the rest waits behind Details at every width. */
+.decision-region .gate-note-more {
+  display: none;
+}
+.decision-region .gate-note.expanded .gate-note-more {
+  display: inline;
+}
+/* Wide sheets: what to decide on the left, the buttons beside it, so the footer stays one band. */
+#detail-content {
+  container-type: inline-size;
+}
+@container (min-width: 620px) {
+  .decision-region-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--space-5);
+    align-items: center;
+  }
+}
+
+/* More options: the feedback routes beyond the current decision. */
+.more-options {
+  display: grid;
+  gap: var(--space-4);
+}
+.more-option > p.muted {
+  margin: var(--space-1) 0 0;
+}
+.more-option > form {
+  margin-top: var(--space-3);
+}
+
+/* Phones: the sheet's header and decision footer give the body most of the height. */
+@media (max-width: 760px) {
+  #detail-content > .detail-header {
+    position: relative;
+    padding: var(--space-2) var(--space-4) var(--space-2);
+  }
+  .detail-header .card-meta {
+    margin-bottom: 2px;
+  }
+  /* Close sits in the corner, so the title row is only as tall as the title. */
+  #detail-content .detail-header .dialog-heading {
+    padding-right: 40px;
+  }
+  #detail-close {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-3);
+  }
+  .detail-header h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: var(--text-lg);
+  }
+  .evidence-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    margin-top: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .evidence-nav .button {
+    flex: 1 0 auto;
+    min-height: 28px;
+    padding: 2px 10px;
+  }
+  .decision-region {
+    padding: var(--space-2) var(--space-4) var(--space-3);
+  }
+  .decision-region .gate-note {
+    margin: 0;
+  }
+  .decision-region .gate-note-more {
+    display: none;
+  }
+  .decision-region .gate-note.expanded .gate-note-more {
+    display: inline;
+  }
+  .decision-region .gate-note-toggle {
+    display: inline;
+  }
+  /* Notes without Details keep their first line; the lead sentence carries the decision. */
+  .decision-region > p.gate-note:not(:has(.gate-note-toggle)),
+  .decision-region .request-changes > p.gate-note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+  }
+  .decision-region .detail-actions {
+    flex-wrap: nowrap;
+    margin-top: var(--space-2);
+  }
+  .decision-region .detail-actions > .button {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+  }
+  .decision-region .wide-only {
+    display: none;
+  }
+}
 
 /* Overview: the single next step, above the counts. */
 .overview-next {
@@ -830,4 +936,37 @@
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+.decision-region-grid > .detail-actions {
+  justify-content: flex-end;
+}
+@container (min-width: 620px) {
+  .decision-region-grid > * {
+    grid-column: 1;
+  }
+  .decision-region-grid > .detail-actions {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    align-self: center;
+    flex-wrap: nowrap;
+    margin-top: 0;
+  }
+  .decision-region-grid > :is(.request-changes, .recovery-form) {
+    grid-column: 1 / -1;
+  }
+  .decision-region-grid .next-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    margin: 0;
+  }
+  .decision-region-grid .next-action .eyebrow {
+    margin: 0;
+  }
+}
+/* While writing changes, the approval's notes step aside with its buttons. */
+.decision-region:has(> .request-changes:not([hidden])) > .gate-note {
+  display: none;
 }

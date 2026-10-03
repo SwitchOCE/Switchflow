@@ -910,6 +910,8 @@ export function createMilestonePanel({
       if (dirty) setState('Unsaved changes · kept in this tab', 'dirty');
       else setState(isNew ? 'Not created yet.' : 'No changes yet.');
       discard.disabled = !dirty || busy;
+      // Discard appears once there is something to discard.
+      discard.hidden = !dirty;
     };
     form.addEventListener('input', () => {
       preserve();

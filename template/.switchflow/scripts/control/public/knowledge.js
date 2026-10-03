@@ -477,6 +477,9 @@ export function mountKnowledge(
     if (heading) heading.textContent = draft.title.trim() || `Untitled ${noun}`;
     if (changed()) saveState('Unsaved changes · kept in this tab');
     else saveState('No changes yet', '');
+    // Discard appears once there is something to discard.
+    const discard = find('[data-action="discard"]');
+    if (discard) discard.hidden = !changed();
   }
   async function compare() {
     if (!draft?.id) return true;

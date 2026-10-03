@@ -115,7 +115,7 @@ export function taskEditor({
   const capital = value => (value ? String(value)[0].toUpperCase() + String(value).slice(1) : 'None');
   const commentTotal = (task.comments || []).length;
   const kind = draft ? 'draft task' : 'task';
-  dialog.innerHTML = `<form class="sf-sheet"><header class="sf-sheet-head"><div class="sf-sheet-bar"><div class="sf-sheet-ident"><span class="card-id">${e(task.id || `New ${kind}`)}</span>${draft && task.id ? '<span class="chip">Draft</span>' : ''}${task.id ? `<span class="status-pill" data-status="${e(statusKey(task.status))}">${e(task.status || 'No status')}</span>` : ''}</div><div class="sf-sheet-actions"><button type="button" class="button quiet button-small" data-edit>${icons.edit}Edit</button><button type="button" class="icon-button" data-expand aria-pressed="false" aria-label="Expand" title="Expand">${icons.expand}</button><button type="button" class="icon-button" data-close aria-label="Close task" title="Close">×</button></div></div><h2 id="sf-task-title">${e(task.title || `Create ${kind}`)}</h2><div class="segmented sf-task-detail-tabs" role="group" aria-label="Task content"><button type="button" data-task-tab="details" aria-pressed="true">Details</button><button type="button" data-task-tab="discussion" aria-pressed="false">Discussion <span class="count">${commentTotal}</span></button></div></header><div class="sf-sheet-body"><div class="sf-editor-message" role="status"></div><div class="sf-conflict" hidden></div><div class="sf-task-reading"></div><fieldset class="sf-task-writing"><legend class="sf-sr">Edit ${kind}</legend><div class="sf-detail-layout"><div class="sf-detail-main"><label class="sf-field sf-title-field"><span class="sf-field-label">Title</span><textarea required rows="1" name="title" data-grow="title" placeholder="Name the outcome">${e(task.title || '')}</textarea></label>${field('description', 'Description', task.description, 'long')}${narratives
+  dialog.innerHTML = `<form class="sf-sheet"><header class="sf-sheet-head"><div class="sf-sheet-bar"><div class="sf-sheet-ident"><span class="card-id">${e(task.id || `New ${kind}`)}</span>${draft && task.id ? '<span class="chip">Draft</span>' : ''}${task.id ? `<span class="status-pill" data-status="${e(statusKey(task.status))}">${e(task.status || 'No status')}</span>` : ''}</div><div class="sf-sheet-actions"><button type="button" class="button quiet button-small" data-edit>${icons.edit}Edit</button><button type="button" class="icon-button" data-expand aria-pressed="false" aria-label="Expand" title="Expand">${icons.expand}</button><button type="button" class="icon-button" data-close aria-label="Close task" title="Close">×</button></div></div><h2 id="sf-task-title">${e(task.title || `New ${kind}`)}</h2><div class="segmented sf-task-detail-tabs" role="group" aria-label="Task content"><button type="button" data-task-tab="details" aria-pressed="true">Details</button><button type="button" data-task-tab="discussion" aria-pressed="false">Discussion <span class="count">${commentTotal}</span></button></div></header><div class="sf-sheet-body"><div class="sf-editor-message" role="status"></div><div class="sf-conflict" hidden></div><div class="sf-task-reading"></div><fieldset class="sf-task-writing"><legend class="sf-sr">Edit ${kind}</legend><div class="sf-detail-layout"><div class="sf-detail-main"><label class="sf-field sf-title-field"><span class="sf-field-label">Title</span><textarea required rows="1" name="title" data-grow="title" placeholder="Name the outcome">${e(task.title || '')}</textarea></label>${field('description', 'Description', task.description, 'long')}${narratives
     .slice(1)
     .map(
       ([name, label]) =>
@@ -222,6 +222,7 @@ export function taskEditor({
   }
   syncChecks();
   const initialValues = values();
+  const changed = () => JSON.stringify(values()) !== JSON.stringify(initialValues);
   function restore(snapshot) {
     for (const el of form.elements)
       if (el.name) {
@@ -495,9 +496,7 @@ export function taskEditor({
     if (!editing) return '';
     if (busy) return 'Saving…';
     if (conflict) return 'The saved task changed. Compare before saving; your edits are kept in this tab.';
-    return JSON.stringify(values()) === JSON.stringify(initialValues)
-      ? 'No changes yet.'
-      : 'Unsaved changes · kept in this tab until you save or discard.';
+    return changed() ? 'Unsaved changes · kept in this tab until you save or discard.' : 'No changes yet.';
   }
   function sync() {
     form.querySelector('.sf-task-reading').hidden = editing || activity;
@@ -514,7 +513,8 @@ export function taskEditor({
     form.querySelector('[data-edit]').hidden = editing;
     form.querySelector('[data-edit]').disabled = !writable();
     form.querySelectorAll('[data-add-content]').forEach(b => (b.hidden = !writable()));
-    form.querySelector('[data-discard]').hidden = !editing;
+    // Discard appears once there is something to discard.
+    form.querySelector('[data-discard]').hidden = !editing || !changed();
     form.querySelector('[data-cancel]').hidden = !editing;
     form.querySelector('[data-cancel]').disabled = busy;
     form.querySelector('[data-compare]').hidden =

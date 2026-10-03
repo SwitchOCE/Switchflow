@@ -303,11 +303,11 @@ export async function createControlServer({
           documentation: 'documents',
           decisions: 'decisions',
           drafts: 'drafts',
-          statistics: 'statistics',
+          statistics: 'insights',
           settings: 'settings',
-          switchflow: 'board',
+          switchflow: 'overview',
         };
-        const query = new URLSearchParams({ project: previousPage[1], view: views[section] || 'board' });
+        const query = new URLSearchParams({ project: previousPage[1], view: views[section] || 'overview' });
         if (record && section === 'tasks') query.set('task', record);
         if (record && ['documentation', 'decisions'].includes(section))
           query.set(

@@ -7,12 +7,13 @@ import { assertSafePath, digest, readState, stable, updateState } from '../opera
 import { candidateGrant, candidateLocation, verifyCandidateCheckout } from './artifacts.mjs';
 import { isRunProcessAlive } from './codex-runner.mjs';
 import { ControlError } from './lifecycle.mjs';
+import { formatListener, isLoopbackAddress, previewListeners } from './preview-network.mjs';
 
 // The UAT preview runs the delivered candidate with the owner's own permissions, outside any
 // agent sandbox. Its command therefore comes only from owner-edited configuration, is shown
 // before it runs, and must match the exact command the owner saw (see docs/browser-control.md).
 export const PREVIEW_CONFIG = '.switchflow/preview.json';
-const CONFIG_KEYS = ['schemaVersion', 'command', 'args', 'cwd', 'port', 'env'];
+const CONFIG_KEYS = ['schemaVersion', 'command', 'args', 'cwd', 'port', 'env', 'allowNetwork'];
 const MAX_CONFIG_BYTES = 16 * 1024;
 const MAX_LINES = 200;
 const SHOWN_LINES = 40;
@@ -30,7 +31,7 @@ export function validatePreviewConfig(value) {
   const unknown = Object.keys(value).filter(key => !CONFIG_KEYS.includes(key));
   if (unknown.length) throw invalid(`unsupported field ${unknown[0]}.`);
   if (value.schemaVersion !== 1) throw invalid('schemaVersion must be 1.');
-  const { command, args = [], cwd = '', port = null, env = {} } = value;
+  const { command, args = [], cwd = '', port = null, env = {}, allowNetwork = false } = value;
   if (
     typeof command !== 'string' ||
     !command ||
@@ -69,9 +70,19 @@ export function validatePreviewConfig(value) {
       unsafeText.test(entry)
     )
       throw invalid(`env.${key} must be a single-line string with a plain variable name.`);
-  const normalized = { command, args: [...args], cwd, port, env: { ...env } };
+  if (typeof allowNetwork !== 'boolean') throw invalid('allowNetwork must be true or false.');
+  // allowNetwork is part of the reviewed command. It joins the hash only when set, so existing hashes stay valid.
+  const normalized = {
+    command,
+    args: [...args],
+    cwd,
+    port,
+    env: { ...env },
+    ...(allowNetwork ? { allowNetwork } : {}),
+  };
   return {
     ...normalized,
+    allowNetwork,
     display: [command, ...args].map(quote).join(' '),
     hash: digest(stable(normalized)),
   };
@@ -275,8 +286,11 @@ export class PreviewManager {
       processAlive = isRunProcessAlive,
       resolveCommand = resolveExecutable,
       probePort = portAccepts,
+      listListeners = previewListeners,
       pollMs = 500,
       stopTimeoutMs = 10000,
+      networkCheckMs = 30000,
+      networkRetryMs = 2000,
     } = {},
   ) {
     Object.assign(this, {
@@ -288,8 +302,11 @@ export class PreviewManager {
       processAlive,
       resolveCommand,
       probePort,
+      listListeners,
       pollMs,
       stopTimeoutMs,
+      networkCheckMs,
+      networkRetryMs,
     });
     this.queue = Promise.resolve();
     this.current = null;
@@ -332,6 +349,7 @@ export class PreviewManager {
       startedAt: record.startedAt,
       exitCode: record.exitCode,
       reason: record.reason,
+      network: record.network,
       logs: record.logs.slice(-SHOWN_LINES),
       ...notice,
     };
@@ -366,6 +384,7 @@ export class PreviewManager {
             cwd: config.cwd,
             port: config.port,
             env: Object.keys(config.env),
+            allowNetwork: config.allowNetwork,
           }
         : null,
       eligible: !reason,
@@ -441,6 +460,9 @@ export class PreviewManager {
         head: location.head,
         command: config.display,
         port: config.port,
+        allowNetwork: config.allowNetwork,
+        network: null,
+        abort: new AbortController(),
         state: 'starting',
         url: null,
         logs: [],
@@ -500,10 +522,8 @@ export class PreviewManager {
       if (record.url || record.state !== 'starting') return;
       const match = LOOPBACK_URL.exec(clean);
       const port = match && Number(match[1] || (match[0].startsWith('https') ? 443 : 80));
-      if (match && port > 0 && port < 65536 && (!record.port || record.port === port)) {
-        record.url = match[0].replace(/[.,;:)\]]+$/, '');
-        record.state = 'running';
-      }
+      if (match && port > 0 && port < 65536 && (!record.port || record.port === port))
+        this.running(record, match[0].replace(/[.,;:)\]]+$/, ''));
     };
     for (const stream of [child.stdout, child.stderr].filter(Boolean)) {
       const decoder = new StringDecoder('utf8');
@@ -534,10 +554,8 @@ export class PreviewManager {
         if (probing || record.state !== 'starting') return;
         probing = true;
         try {
-          if ((await this.probePort(record.port)) && record.state === 'starting' && !record.url) {
-            record.url = `http://localhost:${record.port}/`;
-            record.state = 'running';
-          }
+          if ((await this.probePort(record.port)) && record.state === 'starting' && !record.url)
+            this.running(record, `http://localhost:${record.port}/`);
         } finally {
           probing = false;
         }
@@ -545,10 +563,65 @@ export class PreviewManager {
       record.timer.unref?.();
     }
   }
+  running(record, url) {
+    record.url = url;
+    record.state = 'running';
+    record.network = { state: 'checking', exposed: [], allowed: record.allowNetwork, error: null };
+    record.emptyChecks = 0;
+    void this.checkNetwork(record);
+  }
+  /**
+   * Reads where the preview's process tree listens: once when it is running, then every networkCheckMs.
+   * A listener other devices can reach stops the preview unless the owner set allowNetwork.
+   * A failed check is reported and never stops or blocks the preview.
+   */
+  async checkNetwork(record) {
+    if (record.done || record.stopping || record.checking || !record.pid) return;
+    record.checking = true;
+    let found;
+    let failure;
+    try {
+      found = await this.listListeners(record.pid, { signal: record.abort.signal });
+    } catch (error) {
+      failure = error;
+    } finally {
+      record.checking = false;
+    }
+    if (record.done || record.stopping) return;
+    let next = this.networkCheckMs;
+    const network = { state: 'local', exposed: [], allowed: record.allowNetwork, error: null };
+    if (failure) Object.assign(network, { state: 'unknown', error: String(failure.message).split(/\r?\n/)[0] });
+    else if (!found.length) {
+      // The program may not have bound its port yet, or a helper outside its tree (such as Docker) owns it.
+      record.emptyChecks += 1;
+      if (record.emptyChecks < 3) [network.state, next] = ['checking', this.networkRetryMs];
+      else
+        Object.assign(network, {
+          state: 'unknown',
+          error: "No listening port was found among the preview's processes.",
+        });
+    } else {
+      network.exposed = [...new Set(found.filter(entry => !isLoopbackAddress(entry.address)).map(formatListener))];
+      if (network.exposed.length) network.state = 'exposed';
+    }
+    record.network = network;
+    if (network.state === 'exposed' && !record.allowNetwork) {
+      const reason = `Stopped because it was listening on your network (${network.exposed.join(', ')}), where other devices could reach it.`;
+      await this.serial(() => (this.current === record && !record.stopping ? this.stopNow(null, reason) : null)).catch(
+        () => {},
+      );
+      return;
+    }
+    clearTimeout(record.networkTimer);
+    record.networkTimer = setTimeout(() => void this.checkNetwork(record), next);
+    record.networkTimer.unref?.();
+  }
   exited(record, code, signal) {
     if (record.done) return;
     record.done = true;
     clearInterval(record.timer);
+    clearTimeout(record.networkTimer);
+    record.abort?.abort();
     record.exitCode = code;
     if (record.stopping) record.state = 'stopped';
     else if (record.error) {

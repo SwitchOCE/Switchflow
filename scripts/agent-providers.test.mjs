@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -97,7 +97,12 @@ const mode = process.env.FAKE_MODE || 'normal';
 const record = value => fs.appendFileSync(log, JSON.stringify(value) + '\n');
 const args = process.argv.slice(2);
 record({ argv: args });
-const session = args[args.indexOf('--session-id') + 1];
+const session = args[args.indexOf(args.includes('--resume') ? '--resume' : '--session-id') + 1];
+if (!args.includes('--no-session-persistence')) {
+  const folder = require('path').join(process.env.FAKE_TRANSCRIPTS, 'C--fake-cwd');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(require('path').join(folder, session + '.jsonl'), '{}');
+}
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 let started = false;
 let queue = [];
@@ -166,6 +171,7 @@ async function fixture(t, script, mode = 'normal') {
   return {
     root,
     events,
+    children,
     lines: async () =>
       (await readFile(log, 'utf8'))
         .split('\n')
@@ -179,10 +185,11 @@ async function fixture(t, script, mode = 'normal') {
         events.push(event);
       },
       rawLogPath: path.join(root, 'raw', 'session.jsonl'),
+      transcriptRoot: path.join(root, 'transcripts'),
       spawnProcess: (_exe, args, options) => {
         const child = spawn(process.execPath, [scriptPath, ...args], {
           ...options,
-          env: { ...options.env, FAKE_LOG: log, FAKE_MODE: mode },
+          env: { ...options.env, FAKE_LOG: log, FAKE_MODE: mode, FAKE_TRANSCRIPTS: path.join(root, 'transcripts') },
         });
         children.push(child);
         return child;
@@ -404,4 +411,88 @@ test('Claude errors, interrupts and sign-in failures are not treated as success'
   assert.ok(signedOut.events.some(event => event.kind === 'turn.failed'));
   await failing.close();
   await assert.rejects(openClaudeSession({ ...options, executable: null }), /not installed/);
+});
+
+test('Codex narrows one turn to read-only and sends the session policy on the next', async t => {
+  const { options, lines } = await fixture(t, fakeCodex);
+  const session = await openCodexSession(options);
+  await session.startTurn('approach: finish now', { outputSchema: schema, sandbox: 'read-only' });
+  await session.startTurn('confirmed: finish now', { outputSchema: schema });
+  await session.close();
+  const turns = (await lines()).filter(message => message.method === 'turn/start').map(m => m.params);
+  assert.deepEqual(turns[0].sandboxPolicy, { type: 'readOnly', networkAccess: false });
+  assert.equal(turns[1].sandboxPolicy.type, 'workspaceWrite');
+  assert.deepEqual(turns[1].sandboxPolicy.writableRoots, [...options.writableRoots, options.temporaryRoot]);
+  assert.ok(turns.every(turn => turn.approvalPolicy === 'never'));
+  const reviewer = await fixture(t, fakeCodex);
+  const readOnly = await openCodexSession({ ...reviewer.options, sandbox: 'read-only' });
+  await assert.rejects(readOnly.startTurn('finish now', { sandbox: 'workspace-write' }), /cannot widen/);
+  await readOnly.close();
+});
+
+test('Claude runs a read-only turn in a saved process and resumes it with write tools', async t => {
+  const { options, events, lines, children } = await fixture(t, fakeClaude);
+  const pids = [];
+  const session = await openClaudeSession({
+    ...options,
+    executable: 'claude.exe',
+    onProcess: async pid => {
+      pids.push(pid);
+    },
+  });
+  const approach = await session.startTurn('plan it', { outputSchema: schema, sandbox: 'read-only' });
+  assert.deepEqual(approach.result, { answer: 'plan it' });
+  // A second read-only turn reuses the same process.
+  await session.startTurn('plan it again', { outputSchema: schema, sandbox: 'read-only' });
+  assert.equal(children.length, 1);
+  const confirmed = await session.startTurn('build it', { outputSchema: schema });
+  assert.deepEqual(confirmed.result, { answer: 'build it' });
+  await assert.rejects(
+    session.startTurn('look again', { outputSchema: schema, sandbox: 'read-only' }),
+    /cannot narrow/,
+  );
+  const transcript = path.join(options.transcriptRoot, 'C--fake-cwd', `${session.threadId}.jsonl`);
+  assert.equal((await readFile(transcript, 'utf8')).length > 0, true);
+  await session.close();
+  // The saved approach conversation is removed with the session, and its empty folder with it.
+  await assert.rejects(readFile(transcript), { code: 'ENOENT' });
+  await assert.rejects(readdir(path.dirname(transcript)), { code: 'ENOENT' });
+  assert.equal(children.length, 2);
+  // The read-only process ended before the writable one received any input.
+  assert.notEqual(children[0].exitCode ?? children[0].signalCode, null);
+  assert.deepEqual(pids, [children[0].pid, null, children[1].pid]);
+  const sent = await lines();
+  const [readOnly, writable] = sent.filter(entry => entry.argv).map(entry => entry.argv);
+  const flag = (argv, name) => argv[argv.indexOf(name) + 1];
+  assert.equal(flag(readOnly, '--session-id'), session.threadId);
+  assert.ok(!readOnly.includes('--no-session-persistence'));
+  assert.ok(!flag(readOnly, '--tools').split(',').includes('Edit'));
+  assert.equal(flag(readOnly, '--permission-mode'), 'dontAsk');
+  assert.ok(!readOnly.includes('--add-dir'));
+  assert.ok(!readOnly.includes('--resume'));
+  assert.equal(flag(writable, '--resume'), session.threadId);
+  assert.ok(!writable.includes('--session-id'));
+  assert.ok(writable.includes('--no-session-persistence'));
+  assert.ok(flag(writable, '--tools').split(',').includes('Edit'));
+  assert.equal(flag(writable, '--permission-mode'), 'acceptEdits');
+  assert.ok(writable.includes('--add-dir'));
+  assert.deepEqual(JSON.parse(flag(writable, '--json-schema')), schema);
+  const started = events.filter(event => event.kind === 'session.started');
+  assert.deepEqual(
+    started.map(event => [event.threadId, event.resumed ?? false]),
+    [
+      [session.threadId, false],
+      [session.threadId, true],
+    ],
+  );
+  assert.ok(!events.some(event => event.kind === 'turn.failed'));
+  const reviewer = await fixture(t, fakeClaude);
+  const readOnlySession = await openClaudeSession({
+    ...reviewer.options,
+    sandbox: 'read-only',
+    executable: 'claude.exe',
+  });
+  await assert.rejects(readOnlySession.startTurn('x', { sandbox: 'workspace-write' }), /cannot widen/);
+  await readOnlySession.close();
+  assert.equal(reviewer.children.length, 0);
 });

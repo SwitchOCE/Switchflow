@@ -235,6 +235,10 @@ test('Switchflow pages, legacy links, project assets and every write method reta
     assert.equal(redirect.searchParams.get('project'), contexts[1].id);
     assert.equal(redirect.searchParams.get('view'), 'tasks');
     assert.equal(redirect.searchParams.get('task'), 'SAME-1');
+    const legacyStatistics = await fetch(`${app.url}/projects/${contexts[1].id}/backlog/statistics`, {
+      redirect: 'manual',
+    });
+    assert.equal(new URL(legacyStatistics.headers.get('location'), app.url).searchParams.get('view'), 'insights');
     assert.equal((await fetch(app.url + '/?project=' + '0'.repeat(64))).status, 404);
     const control = await fetch(`${app.url}/control?project=${contexts[1].id}&embedded=1`);
     assert.equal(control.headers.get('x-frame-options'), 'DENY');

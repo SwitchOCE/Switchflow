@@ -38,6 +38,7 @@ Configure it once in `.switchflow/preview.json` in the primary checkout, next to
 | `cwd` | Folder inside the candidate to run in, with forward slashes. Optional; defaults to the candidate root. |
 | `port` | Optional. The preview counts as running once this loopback port accepts connections, and is refused if the port is already busy. Without it, the first `http://localhost`, `127.0.0.1` or `[::1]` address the program prints is used. |
 | `env` | Optional extra variables. Do not put secrets here; the file is committed. |
+| `allowNetwork` | Optional, `true` or `false` (default). Set `true` only if the preview must be reachable from other devices; see **Network listeners** below. |
 
 **Who decides the command.** Only this owner-edited file supplies the command; it is read from the primary checkout, never from the candidate. Agents may propose a command in their delivery evidence, but it runs only after you put it in this file. Agents can write the governance checkout for Backlog work, so the file alone is not a security boundary: the bar always shows the exact command, Start sends the hash of the command you saw, and the service refuses to start if the file changed since. Every start is an explicit click. A missing or invalid file shows how to configure it.
 
@@ -45,7 +46,9 @@ Configure it once in `.switchflow/preview.json` in the primary checkout, next to
 
 **How it runs.** No shell is used. On Windows, `npm` and `npx` run as Node with npm's own CLI script; other `.cmd` or `.bat` wrappers are refused with a message to name the program they wrap. Program lookup uses absolute `PATH` entries only, never the candidate folder. The program receives your environment plus `HOST=127.0.0.1`, `BROWSER=none`, `PORT` when configured, and then `env`. The service cannot force a program to bind loopback only; configure that in its arguments as above. The bar links only to loopback addresses. It shows the latest 40 output lines (ANSI colours removed); output stays in memory and is not saved.
 
-**Lifecycle.** One preview runs per project. Stop ends it whichever initiative started it. The service stops it, including its child processes (`taskkill /T /F` on Windows, the process group elsewhere), when you accept the delivery, request rework or change scope, when the initiative otherwise leaves UAT, and when the service shuts down. Starting requires the initiative to be waiting for your UAT decision with no agent working on it, and the board disables Start while any agent is active or queued, like other edits. A crash shows the exit code and last output; Start again retries.
+**Network listeners.** Because a program can ignore `HOST`, the service checks where the preview actually listens: once it is running, then every 30 seconds while it runs. It collects the preview's whole process tree (a dev server usually runs as a grandchild of npm) and reads that tree's TCP listeners: on Windows with one PowerShell call (`Win32_Process` parent walk and `Get-NetTCPConnection -State Listen`), elsewhere with `ps` and `lsof`, or `ss` when `lsof` is missing. Any listener outside loopback (`0.0.0.0`, `::` or a LAN address) means other devices on your network can reach delivered, unaccepted code running with your permissions. By default the service then **stops the preview** and the bar says which address it used and how to fix it, usually by adding `--host 127.0.0.1` to `args` (after `--` for npm scripts). Stopping is the default because the risk is silent and the fix is one argument; a warning alone would leave the program reachable while you work through the checklist. If you need other devices to reach it, for example to try it on a phone, set `"allowNetwork": true`: the preview keeps running and the bar shows a standing warning with the address. Like the command, this field is part of the reviewed configuration, so changing it requires starting again from the board. Each check is bounded (10 seconds), never delays Start or Stop, and is cancelled when the preview stops. If the listeners cannot be read, or none is found in the tree after three quick tries (for example when Docker owns the port), the bar says it couldn't verify the listening address and the preview keeps running.
+
+**Lifecycle.** One preview runs per project. Stop ends it whichever initiative started it. The service stops it, including its child processes (`taskkill /T /F` on Windows, the process group elsewhere), when you accept the delivery, request rework or change scope, when the initiative otherwise leaves UAT, and when the service shuts down. Starting requires the initiative to be waiting for your UAT decision with no agent working on it, and the board disables Start while any agent is active or queued, like other edits. A crash shows the exit code and last output; Start again retries. While a preview runs, the sticky checklist header repeats a compact "Preview running · Open ↗" (or the network warning) so the link stays in reach as you scroll.
 
 **After a restart.** The service records the preview's process ID and start time in `<stateDir>/preview.json`, outside every agent write grant. On startup, if that process is still alive and its operating-system start time matches the record, the service stops its tree, because it is the previous session's own child. A live process that cannot be confirmed (for example a reused process ID) is left alone, and the bar says so. Unlike an agent run, a leftover preview does not fence other work.
 
@@ -167,11 +170,12 @@ Poll with `after=nextAfter`. Every event has `seq`, `at` and `kind`:
 
 Text fields are capped at 20,000 characters. Shell output and hidden reasoning are not included.
 
-**`POST /agents/<sessionId>/steer`** takes `{ "message": "<1–20000 characters>", "mode": "steer" | "queue" }`; `mode` is optional and defaults to `steer`. No other fields.
+**`POST /agents/<sessionId>/steer`** takes `{ "message": "<1–20000 characters>", "mode": "steer" | "queue", "confirm": true | false }`; `mode` is optional and defaults to `steer`, `confirm` defaults to `false`. No other fields.
 
 - `steer` reaches a running turn mid-turn: Codex through `turn/steer` with the active turn ID, Claude as a user message with `priority: "next"`, read at its next tool boundary.
 - `queue` holds the message until the current turn ends. A worker then runs it as its next turn (several queued messages are joined in order). A stage agent has no next turn in this run, so a queued message becomes an ordinary owner update for the next checkpoint.
 - An idle worker receives the message as a follow-up turn in either mode.
+- `confirm: true` approves a delivery worker's returned approach and starts its first writable turn with the message (see the approach gate under [Orchestrator and workers](#orchestrator-and-workers)). It needs an idle delivery worker whose `approval` is `awaiting-confirmation`; otherwise 409 says why (no approach yet, a turn is running, already confirmed, or not a delivery worker).
 
 Returns 202:
 
@@ -179,7 +183,7 @@ Returns 202:
 { "ok": true, "sessionId": "<uuid>", "mode": "steer", "turnId": "<id or null>" }
 ```
 
-`mode` is the effective mode: `steer`, `queue` or `followup`. The session's `steer` event carries the same `mode`. Returns 400 for an unknown mode, and 409 when the session is not live, has no running turn, or uses `exec` with `mode: "steer"`. Owner messages are appended to the initiative's message history as `{ "type": "steer", "message", "sessionId", "runId", "role", "provider", "mode", "at" }` (type `update` for a message queued to a stage agent) with a `steer` activity event, so they survive restarts. A steer delivered to a run is not repeated as new input to the next run.
+`mode` is the effective mode: `steer`, `queue` or `followup`. The session's `steer` event carries the same `mode`, and `confirm: true` when it confirmed an approach. For a delivery worker the reply adds `confirmed` (this message confirmed the approach) and `writable` (the worker may now write); while writes are still locked it also carries a `note` saying so. Returns 400 for an unknown mode, and 409 when the session is not live, has no running turn, or uses `exec` with `mode: "steer"`. Owner messages are appended to the initiative's message history as `{ "type": "steer", "message", "sessionId", "runId", "role", "provider", "mode", "at" }` (type `update` for a message queued to a stage agent) with a `steer` activity event, so they survive restarts. A steer delivered to a run is not repeated as new input to the next run.
 
 **`POST /agents/<sessionId>/interrupt`** takes `{}` or no body and returns 202 `{ "sessionId": "<uuid>", "interrupted": true }`, or 409 when no turn is running. Interrupting a stage agent ends that run as failed with "The owner interrupted this agent. Add an update or retry." Interrupting a worker leaves it `idle` for its orchestrator.
 
@@ -191,9 +195,9 @@ During Execution, the orchestrator session (either provider) gets a `switchflow`
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status`, `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback` |
+| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status`, `approval`, `writable`, `note` (only while an approach awaits confirmation), `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback` |
 | `worker_status` | optional `workerId` | `{ workers: [summary] }` |
-| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`) | `{ ok, sessionId, mode, turnId }` as for owner steering |
+| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`), optional `confirm` (boolean) | `{ ok, sessionId, mode, turnId }` as for owner steering; for a delivery worker also `confirmed` and `writable` |
 | `interrupt_worker` | `workerId` | `{ workerId, interrupted }` |
 | `wait_for_workers` | optional `workerIds`, `timeoutSeconds` (1–50, default 30) | `{ timedOut, workers: [summary] }`; returns when a listed worker finishes a turn the orchestrator has not seen, or none is running |
 | `acquire_suite_lock` | optional `timeoutSeconds` (1–50) | `{ acquired: true, expiresAt }` or `{ acquired: false, heldBy }` |
@@ -203,10 +207,24 @@ The host enforces:
 
 - The worktree must be a candidate the Git helper registered for this initiative's plan grant, and the task must exist in Backlog.
 - At most `limits.maxWorkers` workers run at once.
-- Delivery workers get `workspace-write` with the candidate, governance root, operations, scratch and Git request inbox as writable roots. Their first turn returns the three-line approach; the orchestrator confirms it with `send_to_worker`.
+- Delivery workers get `workspace-write` with the candidate, governance root, operations, scratch and Git request inbox as writable roots, but only after their approach is confirmed (the approach gate below).
 - Reviewers are `read-only`, use a different provider from the task's latest author (the orchestrator's provider when it delivered directly), and return their verdict comment for the orchestrator to record. A blocked review is not retried on the author's provider.
 - At most `limits.maxReviewRounds` reviews per task in a run; the next is refused with "Escalate to the owner."
 - The run's cancel or scope change aborts every worker. Workers appear in `GET /agents` with `parentId` set to the orchestrator and `kind` `deliver` or `review`. Owner steering and interrupts work on them too.
+
+**Approach gate.** A delivery worker's turns are read-only until its approach is confirmed. Its summary and session carry `approval`:
+
+| `approval` | Meaning |
+| --- | --- |
+| `drafting` | Approach turn running, or the last read-only turn returned no approach (`outcome` other than `approach`) |
+| `awaiting-confirmation` | Idle with an approach (`result.outcome` `approach`); still read-only. The Agents view shows "Approach ready · waiting for confirmation" |
+| `confirmed` | Confirmed by the orchestrator (`send_to_worker` with `confirm: true`) or the owner (steer with `confirm: true`); every later turn may write |
+
+A message without `confirm` to an unconfirmed worker runs another read-only turn, for example to correct the approach. Confirmation records a `notice` event naming who confirmed. Reviewers have `approval: null` and stay read-only. The host enforces the read-only turn per provider:
+
+- Codex app-server: `turn/start` carries `sandboxPolicy: { "type": "readOnly", "networkAccess": false }` for the approach turn and the worker's write policy afterwards. App-server applies a turn's policy to later turns too, so every turn sends its policy.
+- `codex exec`: the approach run uses `--sandbox read-only` with no writable roots; the confirmed turn is `codex exec resume <thread>` with `workspace-write`.
+- Claude CLI: tools and permission rules are fixed per process, so the approach runs in a process with the reviewer's set (Read, Grep, Glob and read-only Bash rules, `dontAsk`, no `--add-dir`) and session persistence on. Confirmation ends that process (stdin closed, its PID cleared from the restart fence) and starts one with `--resume <session>` and the write set; its PID is recorded before it receives input. The saved conversation (`~/.claude/projects/<folder>/<session>.jsonl`, or under `CLAUDE_CONFIG_DIR`) is deleted when the session closes.
 
 The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
 
@@ -237,7 +255,7 @@ Scratch's default write-only use is a role boundary, not an operating-system ACL
 
 A normal cancel stops the owned process tree and records the interruption. Restart never treats an interrupted process as completed. Retry is an explicit action after recovery, not automatic replay of uncertain work.
 
-The restart fence covers every agent process of the active run: the stage agent and each delegated worker or reviewer. A worker gets a durable entry in `control.json` (`activeRun.workers`: session, kind, provider, task, PID, time recorded) before its provider starts, and its PID is written as soon as the process exists: Codex app-server before its handshake, Claude CLI before its first input, `codex exec` at each turn's start. A cleanly closed worker's entry is removed. On restart each recorded process is classified:
+The restart fence covers every agent process of the active run: the stage agent and each delegated worker or reviewer. A worker gets a durable entry in `control.json` (`activeRun.workers`: session, kind, provider, task, PID, time recorded) before its provider starts, and its PID is written as soon as the process exists: Codex app-server before its handshake, Claude CLI before its first input (again for the process that resumes a confirmed approach), `codex exec` at each turn's start. A cleanly closed worker's entry is removed. On restart each recorded process is classified:
 
 | State | Meaning | Effect |
 | --- | --- | --- |

@@ -13,8 +13,16 @@ import {
   suggestCandidate,
   validatePreviewConfig,
 } from '../template/.switchflow/scripts/control/preview.mjs';
+import {
+  descendantPids,
+  isLoopbackAddress,
+  parseLsof,
+  parseSs,
+  parseWindowsListing,
+  previewListeners,
+} from '../template/.switchflow/scripts/control/preview-network.mjs';
 import { createControlServer } from '../template/.switchflow/scripts/control/server.mjs';
-import { previewLink, previewView } from '../template/.switchflow/scripts/control/public/preview.js';
+import { networkView, previewLink, previewView } from '../template/.switchflow/scripts/control/public/preview.js';
 import { digest, readState, resolveProject, updateState } from '../template/.switchflow/scripts/operations/storage.mjs';
 
 const git = (cwd, args) =>
@@ -91,8 +99,8 @@ function fakeProcesses() {
   return { spawn, killTree, calls, killed };
 }
 
-async function until(fn, label = 'condition') {
-  const deadline = Date.now() + 5000;
+async function until(fn, label = 'condition', timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await fn();
     if (value) return value;
@@ -110,8 +118,10 @@ function manager(f, processes, options = {}) {
     probePort: async () => false,
     processAlive: () => false,
     processStartedAt: async () => null,
+    listListeners: async pid => [{ pid, port: 5173, address: '127.0.0.1' }],
     pollMs: 10,
     stopTimeoutMs: 1000,
+    networkRetryMs: 10,
     ...options,
   });
 }
@@ -127,9 +137,16 @@ test('preview configuration accepts an exact program and rejects shells, travers
   });
   assert.equal(config.display, 'npm run dev -- --host 127.0.0.1 "two words"');
   assert.match(config.hash, /^[a-f0-9]{64}$/);
+  const plain = validatePreviewConfig({ schemaVersion: 1, command: 'npm', args: ['run', 'dev'] });
+  assert.equal(plain.hash, validatePreviewConfig({ args: ['run', 'dev'], command: 'npm', schemaVersion: 1 }).hash);
+  // Allowing network listeners is part of the reviewed command; leaving it false keeps the old hash.
+  assert.equal(plain.allowNetwork, false);
+  const open = validatePreviewConfig({ schemaVersion: 1, command: 'npm', args: ['run', 'dev'], allowNetwork: true });
+  assert.equal(open.allowNetwork, true);
+  assert.notEqual(open.hash, plain.hash);
   assert.equal(
-    validatePreviewConfig({ schemaVersion: 1, command: 'npm', args: ['run', 'dev'] }).hash,
-    validatePreviewConfig({ args: ['run', 'dev'], command: 'npm', schemaVersion: 1 }).hash,
+    validatePreviewConfig({ schemaVersion: 1, command: 'npm', args: ['run', 'dev'], allowNetwork: false }).hash,
+    plain.hash,
   );
   for (const [value, pattern] of [
     [{ schemaVersion: 1, command: 'npm run dev' }, /command must be/],
@@ -141,6 +158,7 @@ test('preview configuration accepts an exact program and rejects shells, travers
     [{ schemaVersion: 1, command: 'npm', port: 70000 }, /port must be/],
     [{ schemaVersion: 1, command: 'npm', env: { 'BAD-NAME': 'x' } }, /env\.BAD-NAME/],
     [{ schemaVersion: 1, command: 'npm', shell: true }, /unsupported field shell/],
+    [{ schemaVersion: 1, command: 'npm', allowNetwork: 'yes' }, /allowNetwork must be true or false/],
     [{ command: 'npm' }, /schemaVersion must be 1/],
   ])
     assert.throws(() => validatePreviewConfig(value), pattern);
@@ -355,6 +373,233 @@ test('a real local server starts shell-free, answers on its reported URL and its
     }
   }, 'stopped process');
   await preview.close();
+});
+
+test('listener detection walks the preview process tree and tells loopback from network addresses', async () => {
+  for (const address of ['127.0.0.1', '127.4.5.6', '::1', '[::1]', '::ffff:127.0.0.1', '127.0.0.1%lo'])
+    assert.equal(isLoopbackAddress(address), true, address);
+  for (const address of ['0.0.0.0', '::', '[::]', '*', '192.168.1.5', 'fe80::1', '::ffff:0.0.0.0', '127.example'])
+    assert.equal(isLoopbackAddress(address), false, address);
+
+  // npm (100) -> cmd (101) -> vite (102); 103 claims 101 as parent but predates it: a reused parent ID.
+  const listing = [
+    'P 100 50 1000',
+    'P 101 100 1100',
+    'P 102 101 1200',
+    'P 103 101 900',
+    'P 200 50 1000',
+    'P 0 0 0',
+    'L 102 5173 0.0.0.0',
+    'L 102 5174 ::1',
+    'L 103 9000 0.0.0.0',
+    'L 200 8080 0.0.0.0',
+    'noise',
+  ].join('\r\n');
+  const { processes, listeners } = parseWindowsListing(listing);
+  assert.equal(processes.length, 6);
+  assert.deepEqual([...descendantPids(100, processes)].sort(), [100, 101, 102]);
+  const calls = [];
+  const run = async (file, args, options) => {
+    calls.push({ file, args, options });
+    return listing;
+  };
+  assert.deepEqual(await previewListeners(100, { platform: 'win32', run }), listeners.slice(0, 2));
+  assert.equal(calls[0].file, 'powershell.exe');
+  assert.ok(calls[0].args.includes('-EncodedCommand'));
+  assert.equal(calls[0].options.timeout, 10000);
+  await assert.rejects(previewListeners(100, { platform: 'win32', run: async () => '' }), /process list was empty/);
+  await assert.rejects(previewListeners(0, { platform: 'win32', run }), /no process ID/);
+
+  assert.deepEqual(parseLsof('p102\nf20\nn*:5173\nf21\nn127.0.0.1:5174\np103\nf3\nn[::]:9000\n'), [
+    { pid: 102, address: '*', port: 5173 },
+    { pid: 102, address: '127.0.0.1', port: 5174 },
+    { pid: 103, address: '[::]', port: 9000 },
+  ]);
+  assert.deepEqual(
+    parseSs(
+      'LISTEN 0 511 0.0.0.0:5173 0.0.0.0:* users:(("node",pid=102,fd=20))\nLISTEN 0 4096 127.0.0.1%lo:53 0.0.0.0:*\n',
+    ),
+    [{ pid: 102, address: '0.0.0.0', port: 5173 }],
+  );
+  // Elsewhere: ps for the tree, lsof for listeners, ss when lsof is missing, and lsof's "nothing found" exit.
+  const ps = '  100  50\n  101 100\n  102 101\n  200  50\n';
+  const unix = lsof => async (file, args) => {
+    if (file === 'ps') return ps;
+    if (file === 'lsof') return lsof(args);
+    return 'LISTEN 0 511 *:5173 *:* users:(("node",pid=102,fd=20))\nLISTEN 0 511 *:8080 *:* users:(("x",pid=200,fd=3))';
+  };
+  assert.deepEqual(
+    await previewListeners(100, {
+      platform: 'linux',
+      run: unix(args => {
+        assert.equal(args[args.indexOf('-p') + 1], '100,101,102');
+        return 'p102\nn[::]:5173\n';
+      }),
+    }),
+    [{ pid: 102, address: '[::]', port: 5173 }],
+  );
+  const missing = Object.assign(new Error('spawn lsof ENOENT'), { code: 'ENOENT' });
+  assert.deepEqual(
+    await previewListeners(100, {
+      platform: 'linux',
+      run: unix(() => {
+        throw missing;
+      }),
+    }),
+    [{ pid: 102, address: '*', port: 5173 }],
+  );
+  const none = Object.assign(new Error('exit 1'), { code: 1, stdout: '' });
+  assert.deepEqual(
+    await previewListeners(100, {
+      platform: 'darwin',
+      run: unix(() => {
+        throw none;
+      }),
+    }),
+    [],
+  );
+});
+
+async function runningPreview(t, config, listListeners, options = {}) {
+  const f = await fixture(t, { schemaVersion: 1, command: 'npm', args: ['run', 'dev'], ...config });
+  const processes = fakeProcesses();
+  const preview = manager(f, processes, { listListeners, ...options });
+  t.after(() => preview.close());
+  const { command } = await preview.status(f.item.id);
+  await preview.start(f.item.id, { commandHash: command.hash });
+  processes.calls[0].child.stdout.write('Local: http://localhost:5173/\n');
+  return { f, preview, processes, command };
+}
+
+test('a preview listening on the network is stopped unless the owner allowed it', async t => {
+  const exposedOn = async pid => [
+    { pid, port: 5173, address: '0.0.0.0' },
+    { pid, port: 5173, address: '::' },
+    { pid, port: 24678, address: '127.0.0.1' },
+  ];
+  const blocked = await runningPreview(t, {}, exposedOn);
+  const stopped = await until(async () => {
+    const value = (await blocked.preview.status(blocked.f.item.id)).runtime;
+    return value.state === 'stopped' && value;
+  }, 'network stop');
+  assert.equal(
+    stopped.reason,
+    'Stopped because it was listening on your network (0.0.0.0:5173, [::]:5173), where other devices could reach it.',
+  );
+  assert.deepEqual(stopped.network, {
+    state: 'exposed',
+    exposed: ['0.0.0.0:5173', '[::]:5173'],
+    allowed: false,
+    error: null,
+  });
+  assert.deepEqual(blocked.processes.killed, [blocked.processes.calls[0].child.pid]);
+  assert.deepEqual(networkView(stopped), {
+    state: 'exposed',
+    exposed: ['0.0.0.0:5173', '[::]:5173'],
+    allowed: false,
+    stopped: true,
+  });
+
+  let checks = 0;
+  const allowed = await runningPreview(
+    t,
+    { allowNetwork: true },
+    async pid => {
+      checks++;
+      return exposedOn(pid);
+    },
+    { networkCheckMs: 10 },
+  );
+  assert.equal(allowed.command.allowNetwork, true);
+  // It keeps running and is checked again while it runs.
+  await until(() => checks >= 3, 'repeated checks');
+  const runtime = (await allowed.preview.status(allowed.f.item.id)).runtime;
+  assert.equal(runtime.state, 'running');
+  assert.equal(runtime.network.state, 'exposed');
+  assert.equal(runtime.network.allowed, true);
+  assert.deepEqual(allowed.processes.killed, []);
+  assert.equal(networkView(runtime).stopped, false);
+  assert.equal(previewView({ configured: true, eligible: true, runtime }, allowed.f.item.id).network.state, 'exposed');
+  await allowed.preview.stop();
+  const after = checks;
+  // Stopping ends the checks: a stopped preview is never checked again.
+  await allowed.preview.checkNetwork(allowed.preview.last);
+  assert.equal(checks, after);
+});
+
+test('a listener check that fails or finds nothing is reported without stopping the preview', async t => {
+  const failing = await runningPreview(t, {}, async () => {
+    throw new Error('Get-NetTCPConnection is not available\nat line 7');
+  });
+  const unknown = await until(async () => {
+    const value = (await failing.preview.status(failing.f.item.id)).runtime;
+    return value.network?.state === 'unknown' && value;
+  }, 'unknown network');
+  assert.equal(unknown.state, 'running');
+  assert.equal(unknown.network.error, 'Get-NetTCPConnection is not available');
+  assert.deepEqual(networkView(unknown), { state: 'unknown', error: 'Get-NetTCPConnection is not available' });
+  assert.deepEqual(failing.processes.killed, []);
+
+  // A hung check never blocks Stop: stopping cancels it.
+  let aborted = false;
+  const hung = await runningPreview(t, {}, (pid, { signal }) => {
+    signal.addEventListener('abort', () => (aborted = true));
+    return new Promise(() => {});
+  });
+  await until(async () => (await hung.preview.status(hung.f.item.id)).runtime.state === 'running', 'running');
+  assert.equal((await hung.preview.stop()).state, 'stopped');
+  assert.equal(aborted, true);
+
+  let empty = 0;
+  const quiet = await runningPreview(t, {}, async () => {
+    empty++;
+    return [];
+  });
+  const none = await until(async () => {
+    const value = (await quiet.preview.status(quiet.f.item.id)).runtime;
+    return value.network?.state === 'unknown' && value;
+  }, 'no listener');
+  assert.equal(empty, 3);
+  assert.match(none.network.error, /No listening port was found/);
+  assert.equal(none.state, 'running');
+});
+
+test('the real listener check stops a server bound to every interface and keeps a loopback one', async t => {
+  const server = host =>
+    `require('http').createServer((q,s)=>s.end('ok')).listen(0,'${host}',function(){console.log('Local: http://localhost:'+this.address().port+'/')})`;
+  for (const [host, expected] of [
+    ['0.0.0.0', 'exposed'],
+    ['127.0.0.1', 'local'],
+  ]) {
+    const f = await fixture(t, { schemaVersion: 1, command: 'node', args: ['-e', server(host)] });
+    const preview = new PreviewManager(f.context, { engine: { read: async () => structuredClone(f.state) } });
+    t.after(() => preview.close());
+    const { command } = await preview.status(f.item.id);
+    await preview.start(f.item.id, { commandHash: command.hash });
+    const runtime = await until(
+      async () => {
+        const value = (await preview.status(f.item.id)).runtime;
+        const checked = value.network && value.network.state !== 'checking';
+        return checked && (value.network.state !== 'exposed' || value.state === 'stopped') && value;
+      },
+      `${host} listener check`,
+      60000,
+    );
+    assert.equal(runtime.network.state, expected, runtime.network.error || '');
+    if (expected === 'exposed') {
+      assert.equal(runtime.state, 'stopped');
+      assert.match(runtime.network.exposed[0], /^0\.0\.0\.0:\d+$/);
+      await until(() => {
+        try {
+          process.kill(runtime.pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      }, 'stopped process');
+    } else assert.equal(runtime.state, 'running');
+    await preview.close();
+  }
 });
 
 test('restart stops a recorded preview only when it is still the same process', async t => {

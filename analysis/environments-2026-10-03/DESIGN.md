@@ -1,0 +1,56 @@
+# Agent environments: design
+
+Status: proposed, 2026-10-03. Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
+
+## The problem, from the Cockatrice parity run
+
+- **Memory is the binding limit, not CPU.** Ten parallel Opus workers on this 32 GB PC produced five JavaScript heap out-of-memory crashes in sixteen minutes (Vitest defaults to about 18 workers each), then the Claude app crashed. One agent's full gate peaks near 6 GB, so about five gates fill the machine. The orchestrator fell back to five agents and `--maxWorkers=2` by hand.
+- **Disk adds up.** Each worktree is about 565 MB, nearly all of it its own `node_modules`; 18 worktrees took 9.4 GB and 1.3 M files.
+- **Shared resources were coordinated by hand.** One Docker stack and fixed ports meant e2e runs queued on a `mkdir` lock for up to 30 minutes, and leftover WebKit processes hung Playwright for two hours before anyone noticed.
+- **Recovery and waiting cost the owner.** Ten agents were resumed one by one after the crash; the orchestrator posted 41 "Still running." turns.
+- **Going remote was slow and leaky.** Setting up the cloud side took about three hours, forced a public fork (reversing a local-only decision), and `isolation: "remote"` silently ran locally.
+
+## Two layers
+
+### 1. Local capacity management (no new environment, no money)
+
+Switchflow already owns worker spawning, worktrees and a restart fence, so it can stop the machine being overcommitted:
+
+- **Memory admission.** A project profile declares a per-worker budget (for example 1.5 GB idle, 6 GB while gating). `delegate_task` admits a worker only when the budget fits the machine's free memory with headroom; otherwise it queues and says so. The orchestrator sees "queued: needs 6 GB, 4 GB free".
+- **Gate slots.** Heavy steps (full test gate, e2e) take a named slot. Slot counts come from the profile (`gate: 2`, `e2e: 1`). This generalises today's suite lock.
+- **Leases, not locks.** Every slot and shared resource (Docker stack, a port range) is a lease with an owner, a time limit and automatic release when the worker ends, crashes or overruns. No more hand-made `mkdir` locks.
+- **Test-worker caps.** The profile sets environment variables the host injects into every worker (`VITEST_MAX_WORKERS`, `JEST_WORKERS`, `NODE_OPTIONS=--max-old-space-size=…`), so caps don't depend on each agent remembering.
+- **Process cleanup.** When a worker's session closes, the host kills the rest of its process tree (dev servers, browsers), using the SF-27 tree-kill path.
+- **Shared dependencies (optional, per project).** Install into worktrees from a shared store (pnpm store, or hard-linked `node_modules` when the lockfile matches) so a worktree costs megabytes, not 565 MB.
+- **One-step recovery.** The worker registry already survives restarts; add "resume all held workers" after the owner confirms the fence.
+
+### 2. Environments: where a worker runs
+
+Provider (Claude or Codex) stays the choice of *who*; environment becomes the choice of *where*. Each environment adapter declares its capabilities, and Switchflow never pretends a missing one exists.
+
+| Environment | How it runs | Stream / steer / interrupt | Results come back as | Billing | Code leaves the PC to |
+|---|---|---|---|---|---|
+| **Local** (today) | CLIs on this PC | yes / yes / yes | local worktree | subscriptions | nowhere |
+| **SSH box** (home server, VPS, codespace) | the same CLIs over `ssh` stdio, worktrees on the box | yes / yes / yes | branch pushed to a git remote both sides reach (the box itself can be that remote) | subscriptions + the box | your box only |
+| **Claude self-hosted environment** (`claude --environment ccpool_…`) | Anthropic-controlled session executing on your box | to verify | to verify | subscription | your box (conversation via Anthropic, as today) |
+| **Claude Code cloud** (`claude --cloud`, claude.ai/code) | Anthropic sandbox, GitHub repo | to verify (attach, teleport exist) | `claude/*` branch on GitHub | subscription | GitHub + Anthropic |
+| **Claude Managed Agents** (API) | Anthropic sandbox, programmable environments | yes / yes / yes (events API) | branch on GitHub | API key, per token | GitHub + Anthropic |
+| **Codex cloud** | OpenAI VM per task | no / no / no (submit, poll, diff, apply) | diff applied into a local worktree | ChatGPT allowance (cloud costs more) | GitHub + OpenAI |
+
+Adapter contract: `health()`, `capabilities`, `prepare(workspace)`, `start(task)` → session (or `submit` for fire-and-forget), `collect()` into a local candidate worktree via git, `cleanup()`, `usage()`. The orchestration bridge, reviews and the approach gate stay host-side, so remote workers are reviewed and merged locally exactly like local ones.
+
+**Placement.** Per project: which environments are allowed (the owner's privacy decision). Per role or per task: a preferred environment, with rules such as "heavy gate → SSH box", "e2e needing the locally built image → local". If the preferred environment is unavailable the task waits and says why; it never silently falls back to local.
+
+## Phases
+
+1. **Local capacity management** (above). No decisions needed; removes the crash class seen in the trial.
+2. **Environment abstraction + SSH box.** Move process spawning behind a local environment adapter with no behaviour change, then add SSH. Full capabilities; code stays on hardware the owner controls; no GitHub requirement (the box can host the git remote).
+3. **Claude subscription cloud.** Probe `--cloud`, attach, teleport and self-hosted `--environment` on a throwaway private repo, then build the adapter for whatever is controllable.
+4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling).
+5. **Managed Agents API** only if per-token billing is wanted.
+
+## Decisions for the owner
+
+1. Which remote target to build after phase 1: an SSH box you control, Claude's subscription cloud, or both.
+2. Whether project code may go to GitHub (private repository with the Claude GitHub App) for cloud workers, or must stay on hardware you control.
+3. If an SSH box: an existing machine, or a rented one. The trial's gate needs about 6 GB per worker, so a box for three parallel gates wants 24 GB or more.

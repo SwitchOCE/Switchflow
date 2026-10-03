@@ -528,7 +528,7 @@ main {
 }
 @media (min-width: 1800px) {
   main > section,
-  main > #workspace-board {
+  main > #workspace-overview {
     max-width: 1680px;
   }
 }

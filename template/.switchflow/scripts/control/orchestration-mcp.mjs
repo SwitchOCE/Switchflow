@@ -27,17 +27,27 @@ export const TOOLS = [
   },
   {
     name: 'worker_status',
-    description: 'State, last message, usage and structured result of one worker, or all workers of this run.',
+    description:
+      'State, approach gate (approval: drafting, awaiting-confirmation or confirmed; writable), last message, usage and structured result of one worker, or all workers of this run.',
     inputSchema: { type: 'object', properties: { workerId }, additionalProperties: false },
     annotations: { readOnlyHint: true },
   },
   {
     name: 'send_to_worker',
     description:
-      'Send a message to a worker. mode "steer" (default) reaches a running turn mid-turn; "queue" holds it until the current turn ends and sends it as the next turn. An idle worker starts a follow-up turn either way (use this to confirm an approach or return review findings to the author).',
+      'Send a message to a worker. mode "steer" (default) reaches a running turn mid-turn; "queue" holds it until the current turn ends and sends it as the next turn. An idle worker starts a follow-up turn either way (use this to return review findings to the author). A delivery worker is read-only until you confirm its returned approach: set confirm true to approve it and unlock writes for its follow-up turn; without confirm the worker stays read-only (use that to correct the approach). The reply says whether it confirmed and whether the worker can now write.',
     inputSchema: {
       type: 'object',
-      properties: { workerId, message: { type: 'string' }, mode: { type: 'string', enum: ['steer', 'queue'] } },
+      properties: {
+        workerId,
+        message: { type: 'string' },
+        mode: { type: 'string', enum: ['steer', 'queue'] },
+        confirm: {
+          type: 'boolean',
+          description:
+            'true approves the approach of a delivery worker whose status shows approval "awaiting-confirmation" and unlocks its writes.',
+        },
+      },
       required: ['workerId', 'message'],
       additionalProperties: false,
     },

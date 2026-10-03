@@ -22,8 +22,9 @@ const mcpScript = fileURLToPath(
   new URL('../template/.switchflow/scripts/control/orchestration-mcp.mjs', import.meta.url),
 );
 
-// Delivery workers hand off; reviewers block until told the fix landed, then accept.
-function respond(text, options) {
+// Delivery workers return an approach from a read-only turn and hand off from a writable one;
+// reviewers block until told the fix landed, then accept.
+function respond(text, options, sandbox) {
   if (options.sandbox === 'read-only')
     return {
       task: 'DEMO-1',
@@ -35,7 +36,7 @@ function respond(text, options) {
     };
   return {
     task: 'DEMO-1',
-    outcome: /approach/i.test(text) && !/confirmed/i.test(text) ? 'approach' : 'handoff',
+    outcome: sandbox === 'read-only' ? (/NO-APPROACH/.test(text) ? 'blocked' : 'approach') : 'handoff',
     approach: 'files / approach / stop',
     head: 'abc',
     envelope: 'task: DEMO-1',
@@ -191,29 +192,78 @@ test('delegate, steer, review return, round cap and cancel stay inside host guar
     assert.equal(listed.kind, 'deliver');
     assert.equal(listed.role, 'delivery');
 
-    // Steer mid-turn, then wait for the approach.
-    assert.equal(
-      (await call('send_to_worker', { workerId: delivered.workerId, message: 'Approach FINISH-NOW' })).mode,
-      'steer',
+    // The approach turn is read-only although the session may write; nothing confirms it yet.
+    assert.equal(delivered.approval, 'drafting');
+    assert.equal(delivered.writable, false);
+    assert.equal(deliverSession.turns[0].sandbox, 'read-only');
+    assert.equal(listed.approval, 'drafting');
+    await refuse(
+      call('send_to_worker', { workerId: delivered.workerId, message: 'Go', confirm: true }),
+      409,
+      /not returned an approach yet/,
     );
+    await refuse(
+      call('send_to_worker', { workerId: delivered.workerId, message: 'Go', confirm: 'yes' }),
+      400,
+      /confirm must be true or false/,
+    );
+
+    // Steer mid-turn, then wait for the approach.
+    const steered = await call('send_to_worker', { workerId: delivered.workerId, message: 'Approach FINISH-NOW' });
+    assert.equal(steered.mode, 'steer');
+    assert.equal(steered.confirmed, false);
+    assert.equal(steered.writable, false);
     let waited = await call('wait_for_workers', { workerIds: [delivered.workerId], timeoutSeconds: 5 });
     assert.equal(waited.timedOut, false);
     assert.equal(waited.workers[0].status, 'idle');
     assert.equal(waited.workers[0].result.outcome, 'approach');
-    // Confirm the approach: a follow-up turn on the same thread.
-    assert.equal(
-      (await call('send_to_worker', { workerId: delivered.workerId, message: 'Confirmed. FINISH-NOW' })).mode,
-      'followup',
-    );
+    assert.equal(waited.workers[0].approval, 'awaiting-confirmation');
+    assert.equal(waited.workers[0].writable, false);
+    assert.match(waited.workers[0].note, /confirm:true/);
+    assert.equal((await host.registry.find(delivered.workerId)).approval, 'awaiting-confirmation');
+
+    // A message without confirm corrects the approach: another read-only turn, writes stay locked.
+    const corrected = await call('send_to_worker', {
+      workerId: delivered.workerId,
+      message: 'Use a smaller change. Approach again. FINISH-NOW',
+    });
+    assert.deepEqual([corrected.mode, corrected.confirmed, corrected.writable], ['followup', false, false]);
+    assert.match(corrected.note, /Writes stay locked/);
+    waited = await call('wait_for_workers', { workerIds: [delivered.workerId], timeoutSeconds: 5 });
+    assert.equal(waited.workers[0].approval, 'awaiting-confirmation');
+    assert.equal(deliverSession.turns[1].sandbox, 'read-only');
+
+    // Confirm the approach: the follow-up turn on the same thread may write.
+    const confirmed = await call('send_to_worker', {
+      workerId: delivered.workerId,
+      message: 'Confirmed. FINISH-NOW',
+      confirm: true,
+    });
+    assert.deepEqual([confirmed.mode, confirmed.confirmed, confirmed.writable], ['followup', true, true]);
+    assert.equal(deliverSession.turns[2].sandbox, undefined);
     waited = await call('wait_for_workers', { timeoutSeconds: 5 });
     assert.equal(waited.workers[0].result.outcome, 'handoff');
+    assert.equal(waited.workers[0].approval, 'confirmed');
+    assert.equal(waited.workers[0].writable, true);
+    assert.equal(waited.workers[0].note, undefined);
+    await refuse(
+      call('send_to_worker', { workerId: delivered.workerId, message: 'Again', confirm: true }),
+      409,
+      /already confirmed/,
+    );
     assert.deepEqual(deliverSession.steers, ['Approach FINISH-NOW']);
-    const steerEvents = (await host.events(delivered.workerId, 0, 500)).events.filter(e => e.kind === 'steer');
+    const deliverEvents = (await host.events(delivered.workerId, 0, 500)).events;
+    const steerEvents = deliverEvents.filter(e => e.kind === 'steer');
     assert.equal(steerEvents[0].by, 'orchestrator');
     assert.deepEqual(
-      steerEvents.map(e => e.mode),
-      ['steer', 'followup'],
+      steerEvents.map(e => [e.mode, e.confirm ?? false]),
+      [
+        ['steer', false],
+        ['followup', false],
+        ['followup', true],
+      ],
     );
+    assert.ok(deliverEvents.some(e => e.kind === 'notice' && /confirmed by orchestrator/.test(e.text)));
 
     // Review: read-only and a different provider from the author.
     await refuse(
@@ -231,6 +281,14 @@ test('delegate, steer, review return, round cap and cancel stay inside host guar
     assert.equal(review1.reviewRound, 1);
     assert.equal(log.at(-1).options.sandbox, 'read-only');
     assert.deepEqual(log.at(-1).options.writableRoots, []);
+    // Reviews have no approach gate.
+    assert.equal(review1.approval, null);
+    assert.equal(review1.writable, false);
+    await refuse(
+      call('send_to_worker', { workerId: review1.workerId, message: 'Go', confirm: true }),
+      409,
+      /Only a delegated delivery worker/,
+    );
     waited = await call('wait_for_workers', { workerIds: [review1.workerId], timeoutSeconds: 5 });
     assert.equal(waited.workers[0].status, 'completed');
     assert.equal(waited.workers[0].result.verdict, 'block');
@@ -356,6 +414,66 @@ test('queued messages run as the next turn, and the suite lock admits one worker
     await orchestration.close();
     assert.equal(host.suiteLock, null);
     assert.equal(orchestration.authorize(workerToken), null);
+  }));
+
+test('only a confirmed approach unlocks writes; the owner can confirm too', () =>
+  fixture(async context => {
+    const { host, log, runId, controller, gitBridge, orchestrator, initiativeId } = await setup(context);
+    const orchestration = await new Orchestration({
+      host,
+      runId,
+      initiativeId,
+      runDirectory: path.join(context.stateDir, 'runs', runId),
+      gitBridge,
+      signal: controller.signal,
+      orchestratorProvider: 'claude',
+      serviceUrl: 'http://127.0.0.1:9',
+      projectId: context.id,
+    }).prepare();
+    orchestration.setOrchestrator(orchestrator.id);
+    const call = (tool, args) => orchestration.call(tool, args);
+    const refuse = (promise, pattern) =>
+      assert.rejects(promise, error => error.status === 409 && pattern.test(error.message));
+    const worker = await call('delegate_task', {
+      task: 'DEMO-1',
+      kind: 'deliver',
+      instructions: 'NO-APPROACH FINISH-NOW',
+      worktree: 'cand',
+    });
+    const session = log[0];
+    // A read-only turn that returns no approach leaves nothing to confirm.
+    let [status] = (await call('wait_for_workers', { timeoutSeconds: 5 })).workers;
+    assert.equal(status.result.outcome, 'blocked');
+    assert.equal(status.approval, 'drafting');
+    await refuse(host.steer(worker.workerId, { message: 'Go', confirm: true }), /not returned an approach/);
+
+    // A correction without confirm runs read-only; confirming while it runs is refused.
+    await call('send_to_worker', { workerId: worker.workerId, message: 'Return your approach.' });
+    await until(() => session.handle.activeTurnId);
+    await refuse(
+      call('send_to_worker', { workerId: worker.workerId, message: 'Go', confirm: true }),
+      /not returned an approach yet/,
+    );
+    await call('send_to_worker', { workerId: worker.workerId, message: 'FINISH-NOW' });
+    [status] = (await call('wait_for_workers', { timeoutSeconds: 5 })).workers;
+    assert.equal(status.approval, 'awaiting-confirmation');
+    assert.deepEqual(
+      session.turns.map(turn => turn.sandbox),
+      ['read-only', 'read-only'],
+    );
+
+    // The owner confirms from the browser; the steer and history say so.
+    await assert.rejects(host.steer(worker.workerId, { message: 'Go', confirm: 1 }), /confirm must be true or false/);
+    const confirmed = await host.steer(worker.workerId, { message: 'Approved. FINISH-NOW', confirm: true });
+    assert.deepEqual([confirmed.mode, confirmed.confirmed, confirmed.writable], ['followup', true, true]);
+    assert.equal(session.turns[2].sandbox, undefined);
+    [status] = (await call('wait_for_workers', { timeoutSeconds: 5 })).workers;
+    assert.equal(status.result.outcome, 'handoff');
+    const events = (await host.events(worker.workerId, 0, 500)).events;
+    assert.ok(events.some(e => e.kind === 'steer' && e.by === 'owner' && e.confirm === true));
+    assert.ok(events.some(e => e.kind === 'notice' && /confirmed by owner/.test(e.text)));
+    controller.abort();
+    await orchestration.close();
   }));
 
 test('review needs the other provider; without it the host refuses instead of self-review', () =>

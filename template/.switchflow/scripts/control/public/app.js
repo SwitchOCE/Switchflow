@@ -10,12 +10,12 @@ import { mountAgents } from './agents.js';
 import { mountKnowledge } from './knowledge.js';
 import { mountTasks } from './tasks.js';
 import { mountInsights } from './insights.js';
-import { createNativeClient, workspaceLocation } from './workspace-client.js';
+import { createNativeClient, workspaceLocation, workspaceViews, viewAliases } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
 import { createRefreshControl } from './refresh-control.js';
-import { createPreviewBar } from './preview.js';
+import { createPreviewBar, createPreviewStatus } from './preview.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'You approve the scope'],
@@ -45,6 +45,8 @@ let drafts = new Map();
 let taskDrafts = new Map();
 let uatGenerations = new Map();
 let changesOpenFor = null;
+// More options forms the owner opened, as `${initiativeId}:${fieldId}`.
+const optionsOpen = new Set();
 const projectDrafts = new Map();
 const milestoneDrafts = new Map();
 function savePageDrafts() {
@@ -87,21 +89,9 @@ let selectedProjectId = null;
 let projectEpoch = 0;
 let sharedToken = '';
 let projectList = [];
-const views = [
-  'board',
-  'initiatives',
-  'agents',
-  'tasks',
-  'milestones',
-  'documents',
-  'decisions',
-  'drafts',
-  'statistics',
-  'skills',
-  'settings',
-];
+const views = workspaceViews;
 // Views rendered by app.js itself rather than by a mounted panel.
-const shellViews = ['board', 'initiatives'];
+const shellViews = ['overview', 'initiatives'];
 function setConnection(text, kind = '') {
   const node = $('#connection');
   node.className = `connection ${kind}`.trim();
@@ -352,6 +342,8 @@ async function act(action, payload = {}) {
     if (action === 'request-rework') delete drafts.get(item.id)?.['rework-feedback'];
     if (action === 'request-changes') delete drafts.get(item.id)?.['change-request'];
     if (['request-changes', 'request-rework'].includes(action)) changesOpenFor = null;
+    if (action === 'update') optionsOpen.delete(`${item.id}:project-update`);
+    if (action === 'scope-change') optionsOpen.delete(`${item.id}:scope-change`);
     if (['scope-change', 'request-rework'].includes(action)) clearUatDraft(item.id);
     await refresh(true);
     $('#live-status').textContent = connected
@@ -380,6 +372,32 @@ function actionButton(label, action, payload, kind = 'primary') {
   const node = button(label, () => act(action, typeof payload === 'function' ? payload() : payload), kind);
   node.dataset.action = action;
   return node;
+}
+/** An approval whose label drops its second half on phones, so the footer keeps one row. */
+function approveButton(lead, rest, action) {
+  const node = actionButton('', action);
+  const label = el('span', '', lead);
+  label.append(el('span', 'wide-only', rest), ' →');
+  node.append(label);
+  return node;
+}
+/** A gate note that phones show as its first sentence, with the rest behind Details. */
+function gateNote(lead, rest = [], className = '') {
+  const note = el('p', `gate-note ${className}`.trim());
+  note.append(el('span', '', lead));
+  if (!rest.length) return note;
+  const more = el('span', 'gate-note-more');
+  more.append(' ', ...rest);
+  const toggle = el('button', 'text-link gate-note-toggle', 'Details');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.addEventListener('click', () => {
+    const open = note.classList.toggle('expanded');
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.textContent = open ? 'Less' : 'Details';
+  });
+  note.append(more, ' ', toggle);
+  return note;
 }
 function renderBoard() {
   const board = $('#board');
@@ -786,6 +804,8 @@ function renderUat(item, body, verdict) {
   const progress = el('div', 'uat-progress');
   progress.setAttribute('role', 'status');
   form.append(progress);
+  // Keeps the preview link in reach while the bar above scrolls away.
+  const previewStatus = createPreviewStatus(item.id);
   const list = el('ol', 'uat-list');
   form.append(list);
   const statusOf = check => form.elements.namedItem(`uat-status-${check.id}`)?.value || 'pending';
@@ -822,7 +842,7 @@ function renderUat(item, body, verdict) {
       ),
     );
     const head = el('div', 'uat-progress-head');
-    head.append(summary);
+    head.append(summary, previewStatus);
     const nextIndex = statuses.indexOf('pending');
     if (nextIndex >= 0)
       head.append(
@@ -1002,6 +1022,55 @@ function renderInputAction(title, id, label, action, payloadKey, help, kind = 'q
   });
   return form;
 }
+// Feedback beyond the current decision: one disclosure, each route saying when to use it.
+function moreOptions(item) {
+  const list = el('div', 'more-options');
+  let anyOpen = false;
+  for (const [id, title, use, form] of [
+    [
+      'project-update',
+      'Add a project update',
+      'For new information the agent should know on its next run. The approved scope stays as it is.',
+      () =>
+        renderInputAction('Save update', 'project-update', 'Information the agent should know', 'update', 'message'),
+    ],
+    [
+      'scope-change',
+      'Propose a scope change',
+      'For a different outcome or new constraints. Stops any active run and returns the initiative to intake for your review.',
+      () =>
+        renderInputAction(
+          'Submit scope change',
+          'scope-change',
+          'Describe the new or changed outcome',
+          'scope-change',
+          'request',
+        ),
+    ],
+  ]) {
+    const key = `${item.id}:${id}`;
+    const row = el('section', 'more-option');
+    const panel = form();
+    // Unsent words are never hidden behind the button.
+    const open = optionsOpen.has(key) || !!drafts.get(item.id)?.[id]?.trim();
+    panel.hidden = !open;
+    anyOpen ||= open;
+    const toggle = button(`${title}…`, () => {
+      panel.hidden = !panel.hidden;
+      if (panel.hidden) optionsOpen.delete(key);
+      else optionsOpen.add(key);
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      if (!panel.hidden) panel.querySelector('textarea')?.focus();
+    });
+    toggle.setAttribute('aria-expanded', String(open));
+    row.append(toggle, el('p', 'muted', use), panel);
+    list.append(row);
+  }
+  const node = detail('More options', list);
+  node.classList.add('more-options-disclosure');
+  if (anyOpen) node.open = true;
+  return node;
+}
 function renderTasks(item) {
   const container = el('div');
   const tasks = initiativeTasks(item, state.tasks || []);
@@ -1166,6 +1235,7 @@ function renderDetail() {
   header.append(meta, heading);
   const decision = el('section', 'decision-region');
   decision.setAttribute('aria-label', 'Current decision');
+  decision.classList.add('decision-region-grid');
   const body = el('div', 'detail-body');
   const recoveryHold = state.activeRun?.status === 'interrupted' && state.activeRun?.initiativeId === item.id;
   const next = el('div', 'next-action');
@@ -1276,9 +1346,9 @@ function renderDetail() {
     item.scope &&
     !item.questions?.length
   ) {
-    decision.append(el('p', 'gate-note', 'Approving prepares a plan. Delivery still needs your plan approval.'));
+    decision.append(gateNote('Approving prepares a plan.', ['Delivery still needs your plan approval.']));
     requestChanges(decision, actions, { kind: 'scope' });
-    actions.append(actionButton('Approve scope & prepare plan →', 'approve-scope'));
+    actions.append(approveButton('Approve scope', ' & prepare plan', 'approve-scope'));
   }
   if (
     normalGate &&
@@ -1289,12 +1359,7 @@ function renderDetail() {
     (!Array.isArray(item.plan) || item.plan.length)
   ) {
     const routing = routingSummary();
-    const note = el(
-      'p',
-      'gate-note routing-note',
-      `Approving starts delivery and brings the result back for UAT.${routing ? ` ${routing} ` : ''}`,
-    );
-    decision.append(note);
+    const rest = [];
     if (routing) {
       const change = el('button', 'text-link', 'Change routing');
       change.type = 'button';
@@ -1302,10 +1367,13 @@ function renderDetail() {
         $('#detail-dialog').close();
         showView('agents');
       });
-      note.append(change);
+      rest.push(` ${routing} `, change);
     }
+    decision.append(
+      gateNote('Approving starts delivery.', ['The result comes back to you for UAT.', ...rest], 'routing-note'),
+    );
     requestChanges(decision, actions, { kind: 'plan' });
-    actions.append(actionButton('Approve plan & start delivery →', 'approve-plan'));
+    actions.append(approveButton('Approve plan', ' & start delivery', 'approve-plan'));
   }
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
     actions.append(actionButton('Start intake →', 'start'));
@@ -1382,32 +1450,7 @@ function renderDetail() {
     );
   body.append(activity);
   body.append(detail('Delivery tasks', renderTasks(item)));
-  body.append(
-    detail(
-      'Add a project update',
-      renderInputAction(
-        'Save update',
-        'project-update',
-        'Information the agent should know',
-        'update',
-        'message',
-        'Updates are recorded for the next resumed run. Use a scope change when the approved outcome or constraints need to change.',
-      ),
-    ),
-  );
-  body.append(
-    detail(
-      'Propose a scope change',
-      renderInputAction(
-        'Submit scope change',
-        'scope-change',
-        'Describe the new or changed outcome',
-        'scope-change',
-        'request',
-        'This ends any active run and returns the initiative to intake. The changed scope and plan need your review before delivery resumes.',
-      ),
-    ),
-  );
+  body.append(moreOptions(item));
   const navigation = el('nav', 'evidence-nav');
   navigation.setAttribute('aria-label', 'Initiative evidence');
   for (const [label, match] of [
@@ -1603,7 +1646,7 @@ $('#create-form').addEventListener('submit', async event => {
 });
 $('#filter').addEventListener('input', renderBoard);
 // Overview and Initiatives both show the shell state, so each header gets a control over the same load.
-const shellRefresh = ['#workspace-board', '#workspace-initiatives'].map(section => {
+const shellRefresh = ['#workspace-overview', '#workspace-initiatives'].map(section => {
   const control = createRefreshControl(() => refresh(true));
   $(`${section} .page-actions`).append(control.create());
   return control;
@@ -1777,7 +1820,7 @@ function updateTitle() {
   document.title = [initiative || record, view, state?.project?.name, 'Switchflow'].filter(Boolean).join(' · ');
 }
 function showView(view, updateLocation = true) {
-  activeView = views.includes(view) ? view : 'board';
+  activeView = views.includes(view) ? view : 'overview';
   updateTitle();
   if (matchMedia('(max-width:760px)').matches) setDrawer(false);
   $('.skip-link').href = `#workspace-${activeView}`;
@@ -1878,7 +1921,7 @@ function showView(view, updateLocation = true) {
     });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
-  else panel = mountInsights(container, { ...options, kind: viewName });
+  else panel = mountInsights(container, { ...options, kind: viewName === 'insights' ? 'statistics' : viewName });
   panels.set(viewName, panel);
   panelRefreshedAt = Date.now();
   return panel;
@@ -1939,7 +1982,17 @@ async function followLocation() {
     followingRoute = false;
   }
 }
+// Old bookmarks (view=board, view=statistics) open the renamed view, and the address bar follows.
+function canonicalizeLocation() {
+  const url = new URL(location.href);
+  const alias = viewAliases[url.searchParams.get('view')];
+  if (!alias) return;
+  url.searchParams.set('view', alias);
+  history.replaceState(history.state, '', url);
+}
+canonicalizeLocation();
 async function followRoute() {
+  canonicalizeLocation();
   const route = workspaceLocation(location.href);
   if (busy || nativeWrites) {
     writeLocation({ view: activeView }, true);
@@ -2004,7 +2057,7 @@ for (const tab of document.querySelectorAll('[data-view]'))
   });
 $('.brand').addEventListener('click', event => {
   event.preventDefault();
-  showView('board');
+  showView('overview');
 });
 $('#add-project').addEventListener('click', () => {
   showError('', $('#project-error'));
@@ -2202,7 +2255,7 @@ mountSearch({
       run: () => $(`#workspace-${activeView} .refresh-control-button`)?.click(),
     },
     {
-      label: 'Create task',
+      label: 'New task',
       hint: 'Tasks',
       run: async () => {
         const panel = showView('tasks');
@@ -2217,8 +2270,8 @@ mountSearch({
     },
   ],
   navigate: async item => {
-    if (item.view === 'board') {
-      showView('board');
+    if (item.view === 'overview') {
+      showView('overview');
       openDetail(item.id, $('#workspace-search'));
     } else {
       const panel = showView(item.view);
