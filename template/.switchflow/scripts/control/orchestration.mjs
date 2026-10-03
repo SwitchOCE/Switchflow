@@ -299,10 +299,17 @@ export class Orchestration {
     const environmentId = requestedEnvironment ?? settings.placement?.[role] ?? 'local';
     // A missing, disabled or unconfigured environment refuses (409); it never falls back to local.
     const environment = (await this.host.environment(environmentId, settings)) ?? this.host.environments.local;
-    // Cloud kinds run their own agent (Claude) with no process here; process kinds run our CLIs.
+    // Cloud kinds run their own agent (Claude or Codex) with no process here; process kinds run our CLIs.
     const remote = typeof environment.openSession === 'function';
-    if (remote && requested && requested !== 'claude')
-      throw new ControlError(`Environment ${environment.id} runs Claude workers only.`, 409);
+    const cloudProvider = remote ? (environment.provider ?? 'claude') : null;
+    if (remote && requested && requested !== cloudProvider)
+      throw new ControlError(`Environment ${environment.id} runs ${cloudProvider} workers only.`, 409);
+    // Every delivery worker has the approach gate; a kind with no read-only first turn cannot deliver.
+    if (kind === 'deliver' && environment.capabilities?.approachGate === false)
+      throw new ControlError(
+        `Environment ${environment.id} runs one fire-and-forget task with no approach turn, and delivery workers need the approach gate. Place delivery locally, on an SSH box or on Claude cloud; ${environment.id} takes reviews only.`,
+        409,
+      );
     let capabilities = this.host.capabilities;
     if (!remote && environment.kind !== 'local') {
       if (typeof environment.spawnFor !== 'function')
@@ -337,10 +344,13 @@ export class Orchestration {
         role: 'delivery',
         settings,
         capabilities,
-        requested: remote ? 'claude' : (requested ?? null),
+        requested: remote ? cloudProvider : (requested ?? null),
       });
-    if (remote && routed.provider !== 'claude')
-      throw new ControlError(`Environment ${environment.id} runs Claude workers only; route this review locally.`, 409);
+    if (remote && routed.provider !== cloudProvider)
+      throw new ControlError(
+        `Environment ${environment.id} runs ${cloudProvider} workers only; route this review elsewhere.`,
+        409,
+      );
     if (kind === 'review') this.reviewRounds.set(task, reviewRound);
     const write = kind === 'deliver';
     const worker = {

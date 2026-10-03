@@ -1,6 +1,6 @@
 # Agent environments: design
 
-Status: proposed, 2026-10-03. Phase 1 built 2026-10-04 (see Phases). Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
+Status: proposed, 2026-10-03. Phases 1–4 built 2026-10-04 (see Phases). Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
 
 ## The problem, from the Cockatrice parity run
 
@@ -58,7 +58,10 @@ Adapter contract: `health()`, `capabilities`, `prepare(workspace)`, `start(task)
    - Agents view: "Where workers run" with Test connection, SSH add/edit and "Runs on"; sessions show their environment.
    - Found in the real run: WSL stops an idle distro even with ssh sessions open, hence `keepAwake`.
 3. **Claude subscription cloud.** **Status: adapter built 2026-10-04** (`environments/claude-cloud.mjs`, documented in `docs/browser-control.md` "Claude cloud workers"). Probe results with Claude Code 2.1.288: `claude -p --cloud "<task>"` is refused (new cloud sessions are interactive only); a headless `claude -p --tools RemoteTrigger` turn drives the routines API with the CLI's sign-in (create, update, run, list_runs, get_run_log; no delete); `claude -p --cloud <session_id>` delivers follow-ups into a routine session in about 2 s; a routine's `allowed_tools` does not restrict the session, so the approach turn is read-only by instruction plus a host push check. Self-hosted `--environment ccpool_…` was not probed.
-4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling).
+4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling). **Status: adapter built 2026-10-04** (`environments/codex-cloud.mjs`, documented in `docs/browser-control.md` "Codex cloud workers"). It was checked against the codex-cli 0.153.4 help and the cloud-tasks source; no task was submitted.
+   - Opt-in per entry (`experimental: true`). It submits with `codex cloud exec --env --branch sf-task/<key>` (the host pushes under the owner's `push` grant), polls `codex cloud status`, and reads `codex cloud diff`. The host applies the diff with `git apply --check` first and commits it in the clean candidate.
+   - No CLI command returns the worker's messages, so its JSON reply travels in the diff as `.switchflow-result.json`, which is never applied.
+   - No approach turn (`approachGate: false`), so `delegate_task` refuses delivery there. Reviews run read-only on every turn, and their diffs are never applied. A Claude provider is refused on codex-cloud, and a Codex provider on claude-cloud.
 5. **Managed Agents API** only if per-token billing is wanted.
 
 ## Decisions for the owner
