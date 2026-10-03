@@ -716,6 +716,7 @@ export class AgentHost {
       );
     this.capacity.close();
     this.processes.close();
+    this.environments.close();
   }
 
   async ensureDirectory(...parts) {

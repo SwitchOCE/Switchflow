@@ -85,6 +85,8 @@ function fakeSsh({ answer = () => ({ code: 0, stdout: '', stderr: '' }) } = {}) 
       child.killed = true;
       child.end(null, 'SIGTERM');
     };
+    // Never a real taskkill on a made-up PID.
+    child.stopTree = async () => child.kill();
     child.end = (code, signal = null) => {
       if (child.exitCode !== null || child.signalCode !== null) return;
       child.exitCode = code;
@@ -284,6 +286,36 @@ test('SSH spawn: hardened ssh argv, remote wrapper, PID fenced from stderr, stop
   const kill = fake.calls[1];
   assert.equal(kill.words.at(-1), '4321');
   assert.ok(call.child.killed, 'the local ssh client is stopped too');
+});
+
+test('keepAwake holds the box up while agents run and stops with the last one', async t => {
+  const { file, directory } = await keyFile(t);
+  const fake = fakeSsh({ answer: call => (call.executable === 'wsl.exe' ? 'stay' : 'stay') });
+  t.after(() => fake.children.forEach(child => child.end(0)));
+  const environment = createSshEnvironment(
+    validateEnvironmentConfig({ ...sshConfig(file), keepAwake: 'wsl.exe -d Ubuntu -- sleep infinity' }),
+    { stateDir: directory, spawnProcess: fake.spawnProcess, sshExecutable: 'ssh' },
+  );
+  const workspace = { path: '/home/me/sf/worktrees/w', temporaryRoot: '/home/me/sf/tmp/w', name: 'w' };
+  const spawnAgent = environment.spawnFor(workspace);
+  const keepers = () => fake.calls.filter(call => call.executable === 'wsl.exe');
+  const first = spawnAgent('codex', ['app-server'], {});
+  assert.equal(keepers().length, 1);
+  const second = spawnAgent('codex', ['app-server'], {});
+  assert.equal(keepers().length, 1, 'one keeper for all sessions');
+  first.end(0);
+  await until(() => !keepers()[0].child.killed && true);
+  second.end(0);
+  // Its tree is stopped once the last agent process closes (stopTree; the fake records kill()).
+  await until(
+    () => keepers()[0].child.exitCode !== null || keepers()[0].child.signalCode !== null || keepers()[0].child.killed,
+  );
+  // A new session starts a new keeper; the old one's late close must not forget it.
+  const third = spawnAgent('codex', ['app-server'], {});
+  assert.equal(keepers().length, 2);
+  keepers()[0].child.end(0);
+  third.end(0);
+  await until(() => keepers()[1].child.killed || keepers()[1].child.exitCode !== null);
 });
 
 test('SSH health parses the box report and never claims an unreachable box is fine', async t => {

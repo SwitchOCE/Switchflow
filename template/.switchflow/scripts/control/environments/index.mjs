@@ -108,6 +108,10 @@ export class EnvironmentRegistry {
       })),
     ];
   }
+  /** Stops what environments started for themselves (an SSH box's keepAwake command). */
+  close() {
+    for (const { environment } of this.cache.values()) environment.close?.();
+  }
   capabilitiesOf(config, settings) {
     try {
       return this.get(config.id, { environments: [{ ...config, enabled: true }] }).capabilities;

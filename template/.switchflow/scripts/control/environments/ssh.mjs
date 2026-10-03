@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { PassThrough } from 'node:stream';
+import { stopTree } from '../codex-runner.mjs';
 
 /**
  * A Linux box reached over ssh (home server, VPS, WSL). The same CLIs Switchflow drives locally
@@ -37,7 +38,19 @@ const LOCAL_ONLY = new Set([
   'USER',
   'LOGNAME',
 ]);
-const CONFIG_KEYS = ['id', 'kind', 'label', 'enabled', 'host', 'port', 'user', 'identityFile', 'workRoot', 'wake'];
+const CONFIG_KEYS = [
+  'id',
+  'kind',
+  'label',
+  'enabled',
+  'host',
+  'port',
+  'user',
+  'identityFile',
+  'workRoot',
+  'wake',
+  'keepAwake',
+];
 const CONNECT_TIMEOUT_SECONDS = 10;
 const PID_MARK = 'SWITCHFLOW_REMOTE_PID ';
 
@@ -47,11 +60,11 @@ export const shellQuote = value => `'${String(value).replaceAll("'", `'\\''`)}'`
 export const remoteCommand = argv => argv.map(shellQuote).join(' ');
 
 /** Splits an owner-typed wake command on spaces. No shell, no quoting: plain words only. */
-export function parseWake(value) {
+export function parseWake(value, field = 'wake', example = 'wsl.exe -d Ubuntu -- true') {
   if (value === undefined || value === null || value === '') return null;
   const words = Array.isArray(value) ? value : String(value).trim().split(/\s+/);
   if (!words.length || words.length > 20 || words.some(word => typeof word !== 'string' || !WAKE_WORD.test(word)))
-    throw new Error('wake must be a plain command such as "wsl.exe -d Ubuntu -- true" (no quotes or shell syntax).');
+    throw new Error(`${field} must be a plain command such as "${example}" (no quotes or shell syntax).`);
   return words;
 }
 
@@ -74,7 +87,10 @@ export function validateSshConfig(config) {
   if (typeof workRoot !== 'string' || !POSIX_ROOT.test(workRoot) || workRoot.split('/').some(part => part === '..'))
     throw new Error('workRoot must be an absolute Linux path of plain names, such as /home/me/switchflow.');
   const wake = parseWake(config.wake);
-  return { host, port, user, identityFile, workRoot, ...(wake ? { wake } : {}) };
+  // WSL stops a distro with no wsl.exe client attached, even with ssh sessions open: a long-running
+  // local command (for example "wsl.exe -d Ubuntu -- sleep infinity") holds it up while agents run.
+  const keepAwake = parseWake(config.keepAwake, 'keepAwake', 'wsl.exe -d Ubuntu -- sleep infinity');
+  return { host, port, user, identityFile, workRoot, ...(wake ? { wake } : {}), ...(keepAwake ? { keepAwake } : {}) };
 }
 
 export function defaultSshExecutable(platform = process.platform, env = process.env) {
@@ -330,6 +346,36 @@ export function createSshEnvironment(
     if (result.code !== 0)
       throw new Error(`The wake command failed: ${firstLine(result.stderr) || `exit ${result.code}`}`);
   };
+  // keepAwake runs while any agent process is open on the box, and stops with the last one.
+  let holders = 0;
+  let keeper = null;
+  const hold = () => {
+    holders++;
+    if (!config.keepAwake || keeper) return;
+    try {
+      const started = spawnProcess(config.keepAwake[0], config.keepAwake.slice(1), {
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      keeper = started;
+      started.once('error', () => {});
+      // An older keeper that exits late must not forget the current one.
+      started.once('close', () => {
+        if (keeper === started) keeper = null;
+      });
+    } catch {
+      keeper = null;
+    }
+  };
+  const release = () => {
+    holders = Math.max(0, holders - 1);
+    if (holders === 0 && keeper) {
+      // wsl.exe starts a child wsl.exe; stop the whole tree this environment started.
+      void stopTree(keeper);
+      keeper = null;
+    }
+  };
   const killRemote = async pid => {
     if (!Number.isSafeInteger(pid) || pid < 2) return;
     await script('kill -TERM -- "-$1" 2>/dev/null; sleep 2; kill -KILL -- "-$1" 2>/dev/null; true', String(pid));
@@ -422,6 +468,15 @@ export function createSshEnvironment(
         });
         child.remotePid = null;
         child.environmentId = config.id;
+        hold();
+        let released = false;
+        const done = () => {
+          if (released) return;
+          released = true;
+          release();
+        };
+        child.once('close', done);
+        child.once('error', done);
         const stderr = pidFilter(child.stderr, pid => {
           child.remotePid = pid;
           Promise.resolve(onRemoteProcess(pid)).catch(() => {});
@@ -436,6 +491,11 @@ export function createSshEnvironment(
       };
     },
     killRemote,
+    /** Stops the keepAwake command if this environment started it. */
+    close() {
+      holders = 0;
+      release();
+    },
 
     /**
      * Commits whatever the worker changed on the box (the host commits, not the worker) and
@@ -443,6 +503,7 @@ export function createSshEnvironment(
      * overwritten.
      */
     async collect(workspace, { into, message, author = {} }) {
+      await wake();
       const name = author.name || 'Switchflow';
       const email = author.email || 'switchflow@localhost';
       const result = await must(
@@ -469,6 +530,7 @@ export function createSshEnvironment(
     },
 
     async cleanup(workspace) {
+      await wake().catch(() => {});
       await script(
         'git -C "$1" worktree remove --force "$2" 2>/dev/null || rm -rf "$2"; rm -rf "$3"; rm -f "$4"/"$5"-*.pid; git -C "$1" worktree prune; true',
         mirror,
