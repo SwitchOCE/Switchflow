@@ -68,7 +68,7 @@ function resultContext(match) {
     .join(' · ');
 }
 
-export function mountSearch({ dialog, trigger, project, api, initiatives, navigate }) {
+export function mountSearch({ dialog, trigger, project, api, initiatives, navigate, commands = () => [] }) {
   const input = dialog.querySelector('#search-query'),
     results = dialog.querySelector('#search-results'),
     status = dialog.querySelector('#search-status');
@@ -90,7 +90,7 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
   }
   const help = document.createElement('p');
   help.className = 'workspace-search-help';
-  help.textContent = `Native search loads at most ${nativeLimit} mixed task, document and decision matches. Narrow the words when more may exist.`;
+  help.textContent = `Shows up to ${nativeLimit} matching records. Add words to narrow the results.`;
   input.closest('label')?.after(fieldset, help);
 
   let generation = 0,
@@ -98,7 +98,32 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     loaded = [],
     query = '',
     nativeCount = 0,
+    commandMatches = [],
     selected = -1;
+  const matchCommands = () => {
+    const words = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return commands().filter(command => words.every(word => command.label.toLowerCase().includes(word)));
+  };
+  const renderCommands = () => {
+    for (const command of commandMatches) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'workspace-search-result is-command';
+      const title = document.createElement('strong');
+      title.textContent = command.label;
+      button.append(title);
+      if (command.hint) {
+        const meta = document.createElement('span');
+        meta.textContent = command.hint;
+        button.append(meta);
+      }
+      button.addEventListener('click', () => {
+        dialog.close();
+        command.run();
+      });
+      results.append(button);
+    }
+  };
   const selectedTypes = () =>
     new Set([...fieldset.querySelectorAll('[data-search-scope]:checked')].map(item => item.value));
   const buttons = () => [...results.querySelectorAll('.workspace-search-result')];
@@ -126,6 +151,7 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
       shown = loaded.filter(match => scopes.has(match.type));
     results.replaceChildren();
     selected = -1;
+    renderCommands();
     for (const match of shown) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -148,10 +174,10 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     const nativeCapped = nativeCount >= nativeLimit;
     if (!shown.length)
       status.textContent = scopes.size
-        ? `No selected-type matches in the ${nativeCapped ? `first ${nativeLimit} native matches and local initiatives` : 'loaded records'}. Refine the search words or choose another type.`
+        ? `No matching records${nativeCapped ? ` in the first ${nativeLimit} results` : ''}. Try other words or record types.`
         : 'Choose at least one record type.';
     else
-      status.textContent = `${shown.length} loaded ${shown.length === 1 ? 'match' : 'matches'} shown.${nativeCapped ? ` Native search stopped at ${nativeLimit} mixed matches before type filtering; more may exist. Refine the search words to continue.` : ''}`;
+      status.textContent = `${shown.length} ${shown.length === 1 ? 'match' : 'matches'}.${nativeCapped ? ` Showing the first ${nativeLimit}; add words to narrow.` : ''}`;
   };
   function open() {
     if (!project()) return;
@@ -167,8 +193,10 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     results.replaceChildren();
     loaded = [];
     nativeCount = 0;
+    commandMatches = matchCommands();
     if (query.length < 2) {
-      status.textContent = 'Type at least two characters. Shortcut: Ctrl K.';
+      renderCommands();
+      status.textContent = 'Type to search tasks, documents, decisions and initiatives.';
       return;
     }
     status.textContent = 'Searching this project…';
@@ -206,6 +234,9 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     if (event.key === 'ArrowDown' && buttons().length) {
       event.preventDefault();
       select(0, true);
+    } else if (event.key === 'Enter' && buttons().length) {
+      event.preventDefault();
+      buttons()[0].click();
     }
   });
   results.addEventListener('keydown', event => {

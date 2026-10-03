@@ -1819,3 +1819,13 @@ main h1 + p {
     display: none;
   }
 }
+.workspace-search-result.is-command {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 13px;
+}
+.workspace-search-result.is-command span {
+  margin: 0;
+}

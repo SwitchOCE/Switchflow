@@ -1899,6 +1899,28 @@ mountSearch({
   project: () => selectedProjectId,
   api: route => nativeClient(selectedProjectId)(route),
   initiatives: () => state?.initiatives || [],
+  commands: () => [
+    ...[...document.querySelectorAll('#workspace-navigation .nav-tab')].map(tab => ({
+      label: `Go to ${tab.querySelector('.nav-label')?.textContent || tab.title}`,
+      hint: tab.closest('.nav-group')?.querySelector('.nav-group-title')?.textContent || '',
+      run: () => tab.click(),
+    })),
+    { label: 'New initiative', hint: 'Start intake for a new outcome', run: openCreate },
+    {
+      label: 'Create task',
+      hint: 'Tasks',
+      run: async () => {
+        const panel = showView('tasks');
+        await panel?.refresh?.();
+        $('#workspace-tasks [data-create]')?.click();
+      },
+    },
+    {
+      label: document.documentElement.dataset.theme === 'dark' ? 'Use light theme' : 'Use dark theme',
+      hint: 'Appearance',
+      run: () => $('#theme-toggle').click(),
+    },
+  ],
   navigate: async item => {
     if (item.view === 'board') {
       showView('board');
