@@ -1336,11 +1336,12 @@ async function refresh(forceDetail = false) {
       )
         renderDetail();
     }
-    const availability = state.capabilities?.codex;
-    if (availability === false || availability?.available === false)
-      notice(
-        'Agent runtime is unavailable. You can review project state; configure the Codex runtime to start delivery.',
-      );
+    const ready = provider =>
+      provider !== false && provider?.available !== false && provider?.loggedIn !== false && !!provider;
+    const codexReady = ready(state.capabilities?.codex);
+    const claudeReady = state.capabilities?.claude === undefined ? null : ready(state.capabilities.claude);
+    if (!codexReady && claudeReady !== true)
+      notice('Agent runtime is unavailable. You can review project state; install and sign in to Claude or Codex to start work.');
     else if ($('#notice-banner').textContent.startsWith('Agent runtime')) notice('');
     showError('');
     if (!shellViews.includes(activeView)) {
@@ -1657,6 +1658,7 @@ function showView(view, updateLocation = true) {
       ...options,
       request: route => readProject(route, id),
       send: (route, method, body) => writeProject(route, method, body, id),
+      initiativeTitle: initiativeId => state?.initiatives?.find(item => item.id === initiativeId)?.title || '',
     });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });

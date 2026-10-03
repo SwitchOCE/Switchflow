@@ -29,41 +29,49 @@ seed(process.env.UI_SCENARIO||'scale');
 // Disposable agent sessions: one Claude orchestrator steering Codex workers.
 const agentStart=Date.now();
 const iso=ms=>new Date(agentStart+ms).toISOString();
-let agentSettings={roles:{intake:'claude',planning:'claude',execution:'claude',delivery:'codex',review:'auto',uat:'claude'},models:{claude:null,codex:null},limits:{timeoutMinutes:60,maxWorkers:2,maxReviewRounds:2}};
+let agentSettings={schemaVersion:1,revision:0,roles:{intake:'claude',planning:'claude',execution:'claude',delivery:'codex',review:'auto',uat:'claude'},models:{claude:null,codex:null},efforts:{claude:null,codex:null},limits:{timeoutMinutes:60,maxWorkers:2,maxReviewRounds:2,maxTurns:200}};
+const routing=()=>Object.fromEntries(Object.keys(agentSettings.roles).map(r=>[r,{provider:agentSettings.roles[r]==='auto'?'claude':agentSettings.roles[r],fallback:null}]));
+const S=(o)=>({runId:'fixture-run',transport:o.provider==='codex'?'app-server':'cli',threadId:'thread-'+o.id,sandbox:o.kind==='review'?'read-only':'workspace-write',worktree:null,reviewRound:o.kind==='review'?1:null,endedAt:null,result:null,error:null,fallback:null,eventCount:0,usage:null,...o,get live(){return ['starting','working','idle'].includes(this.status)},get canSteer(){return this.live},get canInterrupt(){return this.status==='working'}});
 const agentSessions=[
- {id:'orch-1',parentId:null,provider:'claude',role:'execution',initiativeId:'fixture-plan',title:'Orchestrate phase 1 · Review the next delivery plan',status:'running',startedAt:iso(-540000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:182000,outputTokens:9400},lastMessage:'DEMO-3 is in review with Codex; DEMO-2 is being implemented.'},
- {id:'work-2',parentId:'orch-1',provider:'codex',role:'delivery',taskId:'DEMO-2',title:'Deliver DEMO-2 · Verify dependency completion',status:'running',startedAt:iso(-300000),updatedAt:iso(0),model:'gpt-5.6-codex',usage:{inputTokens:96000,outputTokens:5100},lastMessage:'Running the dependency check tests.'},
- {id:'work-3',parentId:'orch-1',provider:'codex',role:'delivery',taskId:'DEMO-3',title:'Deliver DEMO-3 · Outcome 3',status:'completed',startedAt:iso(-520000),updatedAt:iso(-200000),model:'gpt-5.6-codex',usage:{inputTokens:120000,outputTokens:7200},lastMessage:'Envelope written; task moved to Review.'},
- {id:'rev-3',parentId:'orch-1',provider:'claude',role:'review',taskId:'DEMO-3',title:'Review DEMO-3',status:'running',startedAt:iso(-190000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:40000,outputTokens:900},lastMessage:'Reading the diff.'},
- {id:'intake-0',parentId:null,provider:'claude',role:'intake',initiativeId:'fixture-uat',title:'Intake · Review the delivered workspace',status:'completed',startedAt:iso(-86400000),updatedAt:iso(-86000000),model:'claude-opus-5-5',usage:{inputTokens:52000,outputTokens:3100},lastMessage:'Scope ready for your review.'},
+ S({id:'orch-1',parentId:null,provider:'claude',role:'execution',kind:'stage',initiativeId:'fixture-plan',status:'working',startedAt:iso(-540000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:182000,cachedInputTokens:150000,outputTokens:9400,totalTokens:191400,costUsd:1.84},lastMessage:'DEMO-3 is in review; DEMO-2 is being implemented.'}),
+ S({id:'work-2',parentId:'orch-1',provider:'codex',role:'delivery',kind:'deliver',task:'DEMO-2',initiativeId:'fixture-plan',status:'working',startedAt:iso(-300000),updatedAt:iso(0),model:'gpt-5.6-codex',usage:{inputTokens:96000,outputTokens:5100,totalTokens:101100},lastMessage:'Running the dependency check tests.'}),
+ S({id:'work-3',parentId:'orch-1',provider:'codex',role:'delivery',kind:'deliver',task:'DEMO-3',initiativeId:'fixture-plan',status:'idle',startedAt:iso(-520000),updatedAt:iso(-200000),model:'gpt-5.6-codex',usage:{inputTokens:120000,outputTokens:7200,totalTokens:127200},lastMessage:'Envelope written; task moved to Review.'}),
+ S({id:'rev-3',parentId:'orch-1',provider:'claude',role:'review',kind:'review',task:'DEMO-3',initiativeId:'fixture-plan',status:'working',startedAt:iso(-190000),updatedAt:iso(0),model:'claude-opus-5-5',usage:{inputTokens:40000,outputTokens:900,totalTokens:40900,costUsd:0.31},lastMessage:'Reading the diff.'}),
+ S({id:'intake-0',parentId:null,provider:'claude',role:'intake',kind:'stage',initiativeId:'fixture-uat',status:'completed',startedAt:iso(-86400000),updatedAt:iso(-86000000),endedAt:iso(-86000000),model:'claude-opus-5-5',usage:{inputTokens:52000,outputTokens:3100,totalTokens:55100,costUsd:0.42},lastMessage:'Scope ready for your review.'}),
+ S({id:'plan-x',parentId:null,provider:'codex',role:'planning',kind:'stage',initiativeId:'fixture-plan',status:'failed',startedAt:iso(-7200000),updatedAt:iso(-7000000),endedAt:iso(-7000000),model:'gpt-5.6-codex',error:'The owner interrupted this agent. Add an update or retry.',fallback:{from:'claude',to:'codex',reason:'claude is not signed in'},lastMessage:'Drafting phase 2.'}),
 ];
 const agentEvents=Object.fromEntries(agentSessions.map(s=>[s.id,[]]));
 let agentSeq=0;
-const pushEvent=(id,event)=>{agentEvents[id].push({seq:++agentSeq,at:new Date().toISOString(),...event});const s=agentSessions.find(x=>x.id===id);s.updatedAt=new Date().toISOString();if(event.kind==='message')s.lastMessage=String(event.text).slice(0,160);};
-pushEvent('orch-1',{kind:'session.started'});
+const pushEvent=(id,event)=>{agentEvents[id].push({seq:++agentSeq,at:new Date().toISOString(),...event});const s=agentSessions.find(x=>x.id===id);s.updatedAt=new Date().toISOString();s.eventCount=agentSeq;if(event.kind==='message')s.lastMessage=String(event.text).slice(0,160);};
+pushEvent('orch-1',{kind:'session.started',provider:'claude',transport:'cli',model:'claude-opus-5-5'});
 pushEvent('orch-1',{kind:'message',text:'Reading the approved plan for **phase 1**. Two tasks can run in parallel: `DEMO-2` and `DEMO-3`. Delegating both to Codex in separate worktrees.'});
-pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-3 → codex (deliver)'});
-pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-2 → codex (deliver)'});
-pushEvent('orch-1',{kind:'tool',text:'wait_for_workers work-2, work-3'});
+pushEvent('orch-1',{kind:'tool',name:'delegate_task',summary:'DEMO-3 → codex (deliver)'});
+pushEvent('orch-1',{kind:'tool',name:'delegate_task',summary:'DEMO-2 → codex (deliver)'});
+pushEvent('orch-1',{kind:'tool',name:'send_to_worker',summary:'work-3: approach confirmed'});
+pushEvent('orch-1',{kind:'tool',name:'wait_for_workers',summary:'work-2, work-3'});
 pushEvent('orch-1',{kind:'message',text:'DEMO-3 finished. Starting an independent Claude review, since Codex wrote it.'});
-pushEvent('orch-1',{kind:'tool',text:'delegate_task DEMO-3 → claude (review)'});
-for(const [kind,text] of [['message','Confirming the three-line approach:\n1. Read DEMO-2 and its acceptance criteria.\n2. Extend `check-ready-dependencies` for completed records.\n3. Add regression tests.'],['command','node --test scripts/check-completed-tasks.test.mjs'],['file_change','scripts/check-ready-dependencies.mjs (+18 −4)'],['command','node --test scripts/flow.test.mjs']]) pushEvent('work-2',{kind,text});
+pushEvent('orch-1',{kind:'tool',name:'delegate_task',summary:'DEMO-3 → claude (review)'});
+pushEvent('work-3',{kind:'steer',by:'orchestrator',mode:'followup',text:'Approach confirmed. Go ahead.'});
+for(const ev of [{kind:'message',text:'Confirming the three-line approach:\n1. Read DEMO-2 and its acceptance criteria.\n2. Extend `check-ready-dependencies` for completed records.\n3. Add regression tests.'},{kind:'command',command:'node --test scripts/check-completed-tasks.test.mjs',status:'completed',exitCode:0},{kind:'file_change',paths:['scripts/check-ready-dependencies.mjs'],status:'completed'},{kind:'command',command:'node --test scripts/flow.test.mjs',status:'failed',exitCode:1}]) pushEvent('work-2',ev);
 pushEvent('work-3',{kind:'message',text:'Implemented and tested. Handoff envelope recorded.',final:true});
-pushEvent('work-3',{kind:'turn.completed',usage:{inputTokens:120000,outputTokens:7200}});
+pushEvent('work-3',{kind:'turn.completed',status:'completed',usage:{totalTokens:127200}});
 pushEvent('rev-3',{kind:'message',text:'Reading the diff for DEMO-3 against its acceptance criteria.'});
 pushEvent('intake-0',{kind:'message',text:'Scope ready for your review.',final:true});
+pushEvent('plan-x',{kind:'notice',level:'warning',text:'claude is not signed in; ran on codex.'});
+pushEvent('plan-x',{kind:'interrupt',by:'owner'});
+pushEvent('plan-x',{kind:'turn.failed',error:'The owner interrupted this agent.'});
 const liveLines=['Running the dependency check tests.','Two tests fail on block-list labels; fixing the parser.','Tests pass. Writing the handoff envelope.'];
 let liveIndex=0;
-setInterval(()=>{const w=agentSessions.find(s=>s.id==='work-2');if(w.status!=='running')return;pushEvent('work-2',{kind:liveIndex%2?'command':'message',text:liveIndex%2?'node --test scripts/flow.test.mjs':liveLines[Math.min(liveIndex/2|0,2)]});w.usage.inputTokens+=3000;liveIndex++;},4000).unref();
+setInterval(()=>{const w=agentSessions.find(s=>s.id==='work-2');if(w.status!=='working')return;pushEvent('work-2',liveIndex%2?{kind:'command',command:'node --test scripts/flow.test.mjs',status:'completed',exitCode:0}:{kind:'message',text:liveLines[Math.min(liveIndex/2|0,2)]});w.usage.totalTokens+=3000;liveIndex++;},4000).unref();
 function agentRoute(req,res,p,body){
  const rest=p.slice('/api/projects/ui-fixture/agents'.length);
- if(rest===''&&req.method==='GET')return json(res,{providers:{claude:{available:true,version:'2.1.288 (Claude Code)',loggedIn:true},codex:{available:true,version:'codex-cli 0.153.4'}},settings:agentSettings,sessions:agentSessions});
- if(rest==='/settings'&&req.method==='PUT'){if(activeRun)return json(res,{error:'Routing is locked while an agent run is active.'},409);agentSettings=body;return json(res,{settings:agentSettings});}
+ if(rest===''&&req.method==='GET')return json(res,{providers:{claude:{available:true,version:'2.1.288',transport:'cli',loggedIn:true,authMethod:'claude.ai'},codex:{available:true,version:'codex-cli 0.153.4',transport:'app-server',diagnostic:''}},settings:agentSettings,routing:routing(),activeRun:activeRun,sessions:agentSessions});
+ if(rest==='/settings'&&req.method==='PUT'){if(activeRun)return json(res,{error:'Routing is locked while an agent run is active.'},409);if(body.expectedRevision!==undefined&&body.expectedRevision!==agentSettings.revision)return json(res,{error:'Settings changed. Reload and try again.'},409);const {expectedRevision,...patch}=body;agentSettings={...agentSettings,...patch,roles:{...agentSettings.roles,...(patch.roles||{})},limits:{...agentSettings.limits,...(patch.limits||{})},revision:agentSettings.revision+1};return json(res,{settings:agentSettings,routing:routing()});}
  const m=rest.match(/^\/([^/]+)\/(events|steer|interrupt)$/);const s=m&&agentSessions.find(x=>x.id===decodeURIComponent(m[1]));
  if(!s)return json(res,{error:'Unknown agent session.'},404);
- if(m[2]==='events'){const after=Number(new URL(req.url,'http://x').searchParams.get('after'))||0;const events=agentEvents[s.id].filter(e=>e.seq>after);return json(res,{events,nextAfter:events.at(-1)?.seq??after,status:s.status});}
- if(m[2]==='steer'){const live=['running','waiting'].includes(s.status);pushEvent(s.id,{kind:'steer',source:'owner',text:String(body.message||''),mode:live?'steer':'followup'});setTimeout(()=>pushEvent(s.id,{kind:'message',text:'Understood — adjusting: '+String(body.message||'').slice(0,80)}),1200);if(!live){s.status='running';}return json(res,{ok:true,mode:live?'steer':'followup'});}
- if(m[2]==='interrupt'){s.status='interrupted';pushEvent(s.id,{kind:'interrupt',text:'Stopped by you'});return json(res,{ok:true});}
+ if(m[2]==='events'){const after=Number(new URL(req.url,'http://x').searchParams.get('after'))||0;const events=agentEvents[s.id].filter(e=>e.seq>after);return json(res,{sessionId:s.id,status:s.status,live:s.live,events,nextAfter:events.at(-1)?.seq??after,more:false});}
+ if(m[2]==='steer'){if(!s.canSteer)return json(res,{error:'This session is not live.'},409);const mode=s.status==='idle'?'followup':body.mode==='queue'?'queue':'steer';pushEvent(s.id,{kind:'steer',by:'owner',text:String(body.message||''),mode});setTimeout(()=>pushEvent(s.id,{kind:'message',text:'Understood, adjusting: '+String(body.message||'').slice(0,80)}),1200);if(s.status==='idle')s.status='working';return json(res,{ok:true,sessionId:s.id,mode,turnId:'turn-x'},202);}
+ if(m[2]==='interrupt'){if(!s.canInterrupt)return json(res,{error:'No turn is running.'},409);s.status=s.parentId?'idle':'failed';pushEvent(s.id,{kind:'interrupt',by:'owner'});return json(res,{sessionId:s.id,interrupted:true},202);}
 }
 
 const project={id:'ui-fixture',name:'UI review sandbox',available:true,attention:2,activeRun:false,root:'Disposable in-memory project',governanceRoot:'Disposable in-memory project'};

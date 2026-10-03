@@ -14,9 +14,12 @@ const roles = [
   ['review', 'Review', 'Independently reviews a finished task.'],
   ['uat', 'UAT guide', 'Prepares and walks you through acceptance.'],
 ];
-const live = new Set(['running', 'starting', 'waiting', 'queued']);
+// starting/working/idle are the service's open states; running/waiting remain for older fixtures.
+const live = new Set(['starting', 'working', 'idle', 'running', 'waiting', 'queued']);
 const statusLabel = {
   starting: 'Starting',
+  working: 'Working',
+  idle: 'Waiting for orchestrator',
   running: 'Working',
   waiting: 'Waiting',
   queued: 'Queued',
@@ -50,9 +53,10 @@ function duration(start, end) {
   return minutes ? `${minutes}m ${Math.floor((ms % 60000) / 1000)}s` : `${Math.floor(ms / 1000)}s`;
 }
 function tokens(usage) {
-  const total = (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
+  const total = usage?.totalTokens || (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
   if (!total) return '';
-  return total >= 1000 ? `${(total / 1000).toFixed(total >= 10000 ? 0 : 1)}k tokens` : `${total} tokens`;
+  const text = total >= 1000 ? `${(total / 1000).toFixed(total >= 10000 ? 0 : 1)}k tokens` : `${total} tokens`;
+  return usage?.costUsd ? `${text} · $${usage.costUsd.toFixed(2)}` : text;
 }
 function providerBadge(id) {
   const provider = providers[id] || { name: id || 'Agent', mark: '?' };
@@ -66,10 +70,25 @@ function statusPill(status) {
   return pill;
 }
 
-const attention = new Set(['failed', 'interrupted', 'waiting']);
+const attention = new Set(['failed', 'interrupted']);
 const settleAfterMs = 3 * 24 * 60 * 60 * 1000;
 
-export function mountAgents(container, { request, send, canWrite, writeBlockedReason, onOpenTask, projectId }) {
+export function mountAgents(
+  container,
+  { request, send, canWrite, writeBlockedReason, onOpenTask, projectId, initiativeTitle = () => '' },
+) {
+  const taskOf = session => session.task || session.taskId || null;
+  const titleOf = session => {
+    if (session.title) return session.title;
+    const task = taskOf(session);
+    if (session.kind === 'deliver') return `Deliver ${task}`;
+    if (session.kind === 'review')
+      return `Review ${task}${session.reviewRound > 1 ? ` · round ${session.reviewRound}` : ''}`;
+    const initiative = initiativeTitle(session.initiativeId);
+    return [roleLabel[session.role] || 'Agent', initiative].filter(Boolean).join(' · ');
+  };
+  const steerable = session => session.canSteer ?? live.has(session.status);
+  const interruptible = session => session.canInterrupt ?? live.has(session.status);
   // Settling is a per-browser inbox marker: it hides a handled session and never changes project records.
   const settleKey = `switchflow:settled:${projectId || 'project'}`;
   let settled = {};
@@ -182,12 +201,12 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
     const top = el('span', 'agents-row-top');
     top.append(
       providerBadge(session.provider),
-      el('strong', '', session.title || roleLabel[session.role] || 'Agent session'),
+      el('strong', '', titleOf(session)),
     );
     const meta = el('span', 'agents-row-meta');
     meta.append(
       statusPill(session.status),
-      el('span', '', [roleLabel[session.role] || session.role, session.taskId].filter(Boolean).join(' · ')),
+      el('span', '', [roleLabel[session.role] || session.role, taskOf(session)].filter(Boolean).join(' · ')),
       el(
         'span',
         'agents-row-time',
@@ -261,7 +280,7 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
 
   function eventNode(event) {
     const kind = event.kind || event.type;
-    const source = event.source || (kind === 'steer' ? 'owner' : 'agent');
+    const source = event.by || event.source || (kind === 'steer' ? 'owner' : 'agent');
     if (kind === 'message' || kind === 'steer') {
       const bubble = el('article', `agents-msg from-${source}${event.final ? ' final' : ''}`);
       const by =
@@ -272,7 +291,8 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
             : providers[event.provider || current()?.provider]?.name || 'Agent';
       const head = el('header');
       head.append(el('strong', '', by), el('time', '', relative(event.at)));
-      if (kind === 'steer') head.append(el('span', 'agents-tag', event.mode === 'followup' ? 'Follow-up' : 'Steer'));
+      if (kind === 'steer')
+        head.append(el('span', 'agents-tag', { followup: 'Follow-up', queue: 'Queued' }[event.mode] || 'Steer'));
       const body = el('div', 'docs-prose');
       body.innerHTML = renderMarkdown(String(event.text || '')).html;
       bubble.append(head, body);
@@ -283,7 +303,15 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       const label = kind === 'command' ? '$' : kind === 'file_change' ? '±' : '⚙';
       line.append(
         el('span', 'agents-op-icon', label),
-        el('code', '', event.text || event.summary || event.name || kind),
+        el(
+          'code',
+          '',
+          kind === 'command'
+            ? event.command || event.text
+            : kind === 'file_change'
+              ? (event.paths || []).join(', ') || event.text
+              : [event.name, event.summary].filter(Boolean).join(' · ') || event.text || kind,
+        ),
       );
       if (event.exitCode !== undefined && event.exitCode !== null && event.exitCode !== 0)
         line.append(el('span', 'agents-op-fail', `exit ${event.exitCode}`));
@@ -291,7 +319,7 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
     }
     const note = el(
       'div',
-      `agents-note note-${kind}${kind === 'turn.failed' || kind === 'stderr' || kind === 'error' ? ' is-error' : ''}`,
+      `agents-note note-${kind}${['turn.failed', 'stderr', 'error'].includes(kind) || event.level === 'error' ? ' is-error' : event.level === 'warning' ? ' is-warning' : ''}`,
     );
     const text =
       event.text ||
@@ -299,8 +327,9 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
         'session.started': 'Session started',
         'turn.started': 'Turn started',
         'turn.completed': `Turn finished${tokens(event.usage) ? ` · ${tokens(event.usage)}` : ''}`,
-        'turn.failed': 'Turn failed',
-        interrupt: 'Stopped',
+        'turn.failed': `Turn failed${event.error ? `: ${event.error}` : ''}`,
+        interrupt: event.by === 'orchestrator' ? 'Stopped by the orchestrator' : 'Stopped',
+        'session.closed': 'Session closed',
       }[kind] ||
       kind;
     note.append(el('span', '', text), el('time', '', relative(event.at)));
@@ -349,7 +378,7 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
     const h2 = el('h2');
     h2.append(
       providerBadge(session.provider),
-      document.createTextNode(session.title || roleLabel[session.role] || 'Agent session'),
+      document.createTextNode(titleOf(session)),
     );
     const facts = el('p', 'agents-facts');
     const parent = sessions().find(other => other.id === session.parentId);
@@ -363,11 +392,16 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       ...(tokens(session.usage) ? [el('span', '', tokens(session.usage))] : []),
     );
     title.append(h2, facts);
+    if (session.fallback)
+      title.append(
+        el('p', 'agents-fallback', `Ran on ${providers[session.fallback.to]?.name || session.fallback.to}: ${session.fallback.reason}.`),
+      );
+    if (session.error && !live.has(session.status)) title.append(el('p', 'agents-error', session.error));
     const actions = el('div', 'agents-detail-actions');
-    if (session.taskId && onOpenTask) {
-      const open = el('button', 'button quiet', `Open ${session.taskId}`);
+    if (taskOf(session) && onOpenTask) {
+      const open = el('button', 'button quiet', `Open ${taskOf(session)}`);
       open.type = 'button';
-      open.addEventListener('click', () => onOpenTask(session.taskId));
+      open.addEventListener('click', () => onOpenTask(taskOf(session)));
       actions.append(open);
     }
     if (parent) {
@@ -385,7 +419,7 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       settle.addEventListener('click', () => setSettled(session, !done));
       actions.append(settle);
     }
-    if (live.has(session.status)) {
+    if (interruptible(session)) {
       const stop = el('button', 'button danger', 'Stop');
       stop.type = 'button';
       stop.dataset.stop = '';
@@ -400,13 +434,44 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
     const form = el('form', 'agents-composer');
     const field = el('textarea');
     field.rows = 2;
-    field.maxLength = 8000;
+    field.maxLength = 20000;
     field.setAttribute('aria-label', `Message ${providers[session.provider]?.name || 'agent'}`);
-    const isLive = live.has(session.status);
+    const working = ['working', 'running', 'starting'].includes(session.status);
     const blocked = !canWrite() ? writeBlockedReasonFor() : '';
-    field.placeholder = isLive
-      ? 'Steer this agent. It reads your message at its next step. Ctrl+Enter to send.'
-      : 'Send a follow-up turn on this session. Ctrl+Enter to send.';
+    const unavailable = !steerable(session)
+      ? session.transport === 'exec'
+        ? 'This session runs through codex exec, which cannot take messages.'
+        : live.has(session.status)
+          ? 'This session cannot take a message right now.'
+          : 'This session has ended. Add an update on its initiative instead.'
+      : '';
+    let mode = 'steer';
+    const modes = el('div', 'segmented agents-mode');
+    modes.setAttribute('role', 'group');
+    modes.setAttribute('aria-label', 'When the agent reads it');
+    if (working)
+      for (const [value, label, help] of [
+        ['steer', 'Steer now', 'Read at its next step, inside the current turn.'],
+        ['queue', 'Queue', 'Held until the current turn finishes.'],
+      ]) {
+        const option = el('button', '', label);
+        option.type = 'button';
+        option.title = help;
+        option.setAttribute('aria-pressed', String(mode === value));
+        option.addEventListener('click', () => {
+          mode = value;
+          for (const other of modes.children) other.setAttribute('aria-pressed', String(other === option));
+          field.placeholder = placeholder();
+        });
+        modes.append(option);
+      }
+    const placeholder = () =>
+      !working
+        ? 'Send a follow-up turn. Ctrl+Enter to send.'
+        : mode === 'steer'
+          ? 'Steer this agent; it reads your message at its next step. Ctrl+Enter to send.'
+          : 'Queue a message for when this turn finishes. Ctrl+Enter to send.';
+    field.placeholder = placeholder();
     const draftKey = `switchflow:agent-draft:${session.id}`;
     try {
       field.value = sessionStorage.getItem(draftKey) || '';
@@ -422,16 +487,21 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
         form.requestSubmit();
       }
     });
-    const submit = el('button', 'button primary', isLive ? 'Send' : 'Send follow-up');
+    const submit = el('button', 'button primary', 'Send');
     submit.type = 'submit';
     const hint = el('p', 'agents-composer-hint');
-    hint.textContent = blocked || (session.steerable === false ? 'This session does not accept messages.' : '');
-    const disabled = !!blocked || session.steerable === false || sending;
+    hint.textContent = blocked || unavailable;
+    const disabled = !!(blocked || unavailable) || sending;
     field.disabled = disabled;
     submit.disabled = disabled;
+    for (const option of modes.children) option.disabled = disabled;
     const row = el('div', 'agents-composer-row');
     row.append(field, submit);
-    form.append(row, hint);
+    form.append(row);
+    const foot = el('div', 'agents-composer-foot');
+    if (modes.childElementCount) foot.append(modes);
+    foot.append(hint);
+    form.append(foot);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const text = field.value.trim();
@@ -440,13 +510,19 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       submit.disabled = true;
       hint.textContent = 'Sending…';
       try {
-        const result = await send(`/agents/${encodeURIComponent(session.id)}/steer`, 'POST', { message: text });
+        const result = await send(`/agents/${encodeURIComponent(session.id)}/steer`, 'POST', {
+          message: text,
+          ...(working ? { mode } : {}),
+        });
         field.value = '';
         try {
           sessionStorage.removeItem(draftKey);
         } catch {}
-        hint.textContent =
-          result?.mode === 'followup' ? 'Sent as a follow-up turn.' : 'Sent. The agent will read it at its next step.';
+        hint.textContent = {
+          followup: 'Sent as a follow-up turn.',
+          queue: 'Queued for when this turn finishes.',
+          steer: 'Sent. The agent reads it at its next step.',
+        }[result?.mode || 'steer'];
         pinnedToBottom = true;
         await loadEvents(true);
       } catch (error) {
@@ -507,6 +583,16 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
         option.selected = (settings.roles?.[id] || (id === 'review' ? 'auto' : '')) === value;
         select.append(option);
       }
+      const effective = data?.routing?.[id];
+      if (effective?.error) text.append(el('small', 'agents-route-error', effective.error));
+      else if (effective?.fallback)
+        text.append(
+          el(
+            'small',
+            'agents-route-fallback',
+            `Using ${providers[effective.fallback.to]?.name || effective.fallback.to}: ${effective.fallback.reason}`,
+          ),
+        );
       row.append(text, select);
       grid.append(row);
     }
@@ -523,9 +609,10 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       return wrap;
     };
     limits.append(
-      number('maxWorkers', 'Parallel workers', 1, 4),
+      number('maxWorkers', 'Parallel workers', 1, 8),
       number('maxReviewRounds', 'Review rounds', 1, 5),
-      number('timeoutMinutes', 'Run timeout (min)', 5, 1440),
+      number('timeoutMinutes', 'Run timeout (min)', 1, 1440),
+      number('maxTurns', 'Turn limit', 1, 1000),
     );
     const footer = el('div', 'agents-routing-footer');
     const status = el('span', 'muted');
@@ -542,9 +629,9 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       const values = new FormData(form);
       const next = {
         roles: Object.fromEntries(roles.map(([id]) => [id, values.get(id)])),
-        models: settings.models || {},
+        ...(Number.isInteger(settings.revision) ? { expectedRevision: settings.revision } : {}),
         limits: Object.fromEntries(
-          ['maxWorkers', 'maxReviewRounds', 'timeoutMinutes']
+          ['maxWorkers', 'maxReviewRounds', 'timeoutMinutes', 'maxTurns']
             .filter(name => values.get(name) !== '')
             .map(name => [name, Number(values.get(name))]),
         ),
@@ -553,7 +640,8 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       status.textContent = 'Saving…';
       try {
         const saved = await send('/agents/settings', 'PUT', next);
-        data = { ...data, settings: saved?.settings || saved || next };
+        data = { ...data, settings: saved?.settings || next, routing: saved?.routing || data?.routing };
+        renderRouting();
         status.textContent = 'Saved. Applies to the next run.';
       } catch (error) {
         status.textContent = error.message;
@@ -615,7 +703,10 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       data = next;
       message.textContent = data?.notice || '';
       if (!selected || !current()) {
-        const pick = sessions().find(session => live.has(session.status)) || sessions()[0];
+        const pick =
+          sessions().find(session => attention.has(session.status) && !settled[session.id]) ||
+          sessions().find(session => live.has(session.status)) ||
+          sessions()[0];
         selected = pick?.id || null;
         eventsFor = null;
       }
