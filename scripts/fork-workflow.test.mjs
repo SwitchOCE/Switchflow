@@ -56,7 +56,7 @@ const mcp = (root, name, args) =>
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'switchflow-fork-workflow-'));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const run = (...args) =>
     execFileSync(executable, args, {
       cwd: root,
