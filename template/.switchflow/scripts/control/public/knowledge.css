@@ -3,7 +3,6 @@
 .knowledge-reader {
   --kn-nav: 256px;
   --kn-toc: 216px;
-  --kn-measure: 740px;
   --kn-sticky-top: var(--space-5);
   color: var(--text-1);
 }
@@ -383,11 +382,13 @@
 }
 
 /* Reader ----------------------------------------------------------------- */
+/* The header and the prose share one font size, so --measure (in ch) gives both the same width. */
 .kn-doc {
   padding: var(--space-6) var(--space-7) var(--space-7);
+  font-size: var(--text-lg);
 }
 .kn-doc > * {
-  max-width: var(--kn-measure);
+  max-width: var(--measure);
   margin-inline: auto;
 }
 .kn-doc-header {
@@ -476,14 +477,15 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.knowledge-reader .kn-title-input {
-  min-height: 44px;
+.kn-editor-title {
+  margin: calc(-1 * var(--space-2)) 0 0;
   font-size: var(--text-xl);
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 .kn-editor-fields {
   display: grid;
-  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 2fr) minmax(130px, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
   gap: var(--space-3);
 }
 .kn-editor-fields label {
@@ -566,35 +568,11 @@
 .kn-preview-empty {
   color: var(--text-3);
 }
-.kn-savebar {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+/* Shared .editor-bar, bled to the panel edges. */
+.kn-editor .editor-bar {
   margin: 0 calc(-1 * var(--space-5));
-  padding: var(--space-3) var(--space-5);
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  padding-inline: var(--space-5);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-  box-shadow: 0 -8px 16px -14px color-mix(in srgb, var(--text-1) 40%, transparent);
-}
-.knowledge-save-state {
-  flex: 1 1 200px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--text-2);
-  font-size: var(--text-sm);
-}
-.knowledge-save-state::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status-progress);
 }
 
 /* Conflict comparison ---------------------------------------------------- */
@@ -695,6 +673,7 @@
   .kn-editor-fields {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+  .kn-editor-fields .kn-field-title,
   .kn-editor-fields label:last-child {
     grid-column: 1 / -1;
   }
@@ -708,30 +687,16 @@
   .knowledge-reader .kn-pane textarea {
     min-height: 50vh;
   }
-  .kn-savebar {
+  .kn-editor .editor-bar {
+    flex-wrap: wrap;
     margin: 0 calc(-1 * var(--space-4));
-    padding: var(--space-3) var(--space-4);
+    padding-inline: var(--space-4);
   }
-  /* Two rows: state and Save, then the secondary actions. */
-  .knowledge-save-state {
-    order: -2;
+  .kn-editor .editor-actions {
+    flex: 1 1 100%;
+  }
+  .kn-editor .editor-actions .button {
     flex: 1 1 0;
-    min-width: 0;
-    font-size: var(--text-xs);
-  }
-  .kn-savebar [data-action='save'] {
-    order: -1;
-  }
-  .kn-savebar::after {
-    content: '';
-    flex-basis: 100%;
-  }
-  .kn-savebar .button.quiet {
-    order: 1;
-    flex: 1 1 0;
-  }
-  .kn-savebar {
-    row-gap: var(--space-1);
   }
   .knowledge-field-comparison {
     grid-template-columns: minmax(0, 1fr);
@@ -748,4 +713,15 @@
 }
 .kn-layout[data-empty='true'] :is(.kn-browse, .kn-contents) {
   display: none;
+}
+
+/* Nothing selected: the index is the list, so the navigator and contents step aside. */
+.kn-layout[data-mode='read'][data-selected='false'] {
+  display: block;
+}
+.kn-layout[data-mode='read'][data-selected='false'] :is(.kn-browse, .kn-contents) {
+  display: none;
+}
+.kn-editor-fields:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
 }

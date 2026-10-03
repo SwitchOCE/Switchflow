@@ -57,6 +57,15 @@ export function draftFrom(record, kind) {
     folder: record ? folderOf(record) : '',
   };
 }
+// True when the draft differs from the editable fields it started from. Without a known
+// starting point (for example a recovered draft whose record moved on) it counts as changed.
+export function draftChanged(draft, original) {
+  if (!draft) return false;
+  if (!original) return true;
+  return ['title', 'content', 'type', 'tags', 'folder'].some(
+    field => String(draft[field] ?? '') !== String(original[field] ?? ''),
+  );
+}
 export function knowledgePayload(draft, kind) {
   if (!draft.title.trim()) throw new Error('A title is required.');
   if (kind === 'decisions') {
