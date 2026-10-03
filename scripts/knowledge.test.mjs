@@ -5,6 +5,10 @@ import {
   knowledgePayload,
   recordFingerprint,
   decisionSeed,
+  matchesSearch,
+  decisionTone,
+  statusLabel,
+  tocEntries,
 } from '../template/.switchflow/scripts/control/public/knowledge-model.js';
 
 test('document edit preserves body, tags, type and nested folder in native payload', () => {
@@ -66,4 +70,32 @@ test('decision examples retain nested shorter fences and fence-like text', () =>
     const content = `## Context\n\n${example}\n\n## Decision\n\nChosen\n\n## Consequences\n\nImpact`;
     assert.equal(knowledgePayload({ title: 'Example', content }, 'decisions').content, content);
   }
+});
+
+test('knowledge search, decision tone and contents entries', () => {
+  const record = { title: 'Release guide', rawContent: 'Ship carefully', tags: ['Ops'] };
+  assert.equal(matchesSearch(record, ' release  ops '), true);
+  assert.equal(matchesSearch(record, 'release missing'), false);
+  assert.equal(matchesSearch(record, ''), true);
+  assert.deepEqual(['accepted', 'Proposed', 'rejected', 'superseded', undefined].map(decisionTone), [
+    'done',
+    'review',
+    'blocked',
+    'backlog',
+    'backlog',
+  ]);
+  assert.equal(statusLabel('accepted'), 'Accepted');
+  const headings = [
+    { level: 1, id: 'title', text: 'Title' },
+    { level: 2, id: 'a', text: 'A' },
+    { level: 3, id: 'b', text: 'B' },
+    { level: 4, id: 'c', text: 'C' },
+  ];
+  assert.deepEqual(
+    tocEntries(headings, 'title').map(h => [h.id, h.depth]),
+    [
+      ['a', 0],
+      ['b', 1],
+    ],
+  );
 });
