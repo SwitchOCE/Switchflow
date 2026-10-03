@@ -54,7 +54,7 @@
   border-radius: 6px;
   font-size: 11px;
   font-weight: 800;
-  color: var(--on-accent);
+  color: var(--on-provider);
   background: var(--muted);
 }
 .agent-provider.provider-claude {
@@ -255,11 +255,12 @@
   border-radius: 50%;
   background: var(--muted);
 }
-.agent-status:is(.status-running, .status-starting)::before {
+/* Live states share the running colour; idle workers wait on their orchestrator. */
+.agent-status:is(.status-working, .status-running, .status-starting)::before {
   background: var(--success);
   animation: nav-pulse 1.6s ease-in-out infinite;
 }
-.agent-status:is(.status-waiting, .status-queued)::before {
+.agent-status:is(.status-idle, .status-waiting, .status-queued)::before {
   background: var(--warning);
 }
 .agent-status.status-failed::before {

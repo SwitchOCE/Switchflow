@@ -1184,9 +1184,14 @@ main {
   border-color: transparent;
   background: transparent;
 }
-.shell-collapsed .nav-live {
+/* "An agent is working" stays visible on the Agents icon, in the same corner as the attention dot. */
+.shell-collapsed .nav-live:not([hidden]) {
   position: absolute;
-  margin: -16px 0 0 18px;
+  top: 6px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  margin: 0;
 }
 .shell-collapsed .nav-tab {
   position: relative;
