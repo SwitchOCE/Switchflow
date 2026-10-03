@@ -1325,6 +1325,7 @@ function renderDetail() {
         canWrite: () => projectId === selectedProjectId && connected && !agentsBusy() && !busy,
         writeBlockedReason: () =>
           !connected ? 'Connection lost.' : agentsBusy() ? 'Paused while an agent is active or queued.' : '',
+        initiativeTitle: id => state?.initiatives?.find(entry => entry.id === id)?.title,
       }),
     );
     let reworkSummary = () => '';

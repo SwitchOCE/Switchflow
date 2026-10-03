@@ -182,6 +182,7 @@ test('the preview bar links only to loopback addresses and shows the initiative 
   const base = { configured: true, eligible: true, candidates: [{ name: 'integration' }], runtime: { state: 'idle' } };
   assert.equal(previewView(undefined, 'a').state, 'loading');
   assert.equal(previewView({ ...base, configured: false }, 'a').state, 'unconfigured');
+  assert.equal(previewView({ ...base, configured: false, configError: 'Unknown field: cmd' }, 'a').state, 'invalid');
   assert.equal(previewView({ ...base, eligible: false, reason: 'Not UAT' }, 'a').error, 'Not UAT');
   assert.equal(previewView(base, 'a').state, 'idle');
   const running = { state: 'running', initiativeId: 'b', url: 'http://localhost:5173/' };

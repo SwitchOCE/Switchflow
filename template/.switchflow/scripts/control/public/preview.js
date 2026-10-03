@@ -4,6 +4,7 @@ const cache = new Map();
 const LABELS = {
   loading: ['Checking', 'backlog'],
   unconfigured: ['Not configured', 'backlog'],
+  invalid: ['Config invalid', 'failed'],
   unavailable: ['Unavailable', 'backlog'],
   idle: ['Not running', 'backlog'],
   starting: ['Starting', 'running'],
@@ -41,13 +42,20 @@ export function previewView(status, initiativeId) {
   const active = ['starting', 'running', 'stopping'].includes(runtime.state);
   if (active && !mine) return { state: 'elsewhere', runtime };
   if (active || (mine && ['stopped', 'failed'].includes(runtime.state))) return { state: runtime.state, runtime };
-  if (!status.configured) return { state: 'unconfigured', error: status.configError };
+  if (!status.configured) return { state: status.configError ? 'invalid' : 'unconfigured', error: status.configError };
   if (!status.eligible || status.candidateError)
     return { state: 'unavailable', error: status.reason || status.candidateError };
   return { state: 'idle' };
 }
 
-export function createPreviewBar({ initiativeId, path, token, canWrite, writeBlockedReason = () => '' }) {
+export function createPreviewBar({
+  initiativeId,
+  path,
+  token,
+  canWrite,
+  writeBlockedReason = () => '',
+  initiativeTitle = () => '',
+}) {
   const bar = el('section', 'detail-section preview-bar');
   bar.setAttribute('aria-labelledby', `preview-title-${initiativeId}`);
   let busy = false;
@@ -174,22 +182,26 @@ export function createPreviewBar({ initiativeId, path, token, canWrite, writeBlo
 
     const note = (text, className = 'preview-note') => bar.append(el('p', className, text));
     if (view.state === 'loading') note('Checking whether this delivery can be previewed…');
-    if (view.state === 'unconfigured') {
+    if (view.state === 'invalid') note(view.error, 'preview-note preview-problem');
+    if (['unconfigured', 'invalid'].includes(view.state)) {
       const how = el('p', 'preview-note');
       how.append(
-        'To start the delivered product from here, add ',
+        view.state === 'invalid' ? 'Fix ' : 'To start the delivered product from here, add ',
         el('code', '', '.switchflow/preview.json'),
-        ' to your project with the command that runs it, for example ',
+        view.state === 'invalid'
+          ? ' in your project. It should look like '
+          : ' to your project with the command that runs it, for example ',
         el('code', '', '{"schemaVersion": 1, "command": "npm", "args": ["run", "dev"]}'),
         '.',
       );
       bar.append(how);
-      if (view.error) note(view.error, 'preview-note preview-problem');
     }
     if (view.state === 'unavailable') note(view.error);
     if (view.state === 'elsewhere')
-      note('A preview for another initiative is running. Stop it to preview this one: one preview runs at a time.');
-    if (status?.command && !['unconfigured', 'elsewhere'].includes(view.state)) {
+      note(
+        `The preview for ${initiativeTitle(runtime.initiativeId) || runtime.initiativeTitle || 'another initiative'} is running. One preview runs at a time; stop it to preview this one.`,
+      );
+    if (status?.command && !['unconfigured', 'invalid', 'elsewhere'].includes(view.state)) {
       const command = el('p', 'preview-command');
       command.append(
         'Runs ',
@@ -219,7 +231,8 @@ export function createPreviewBar({ initiativeId, path, token, canWrite, writeBlo
           draw();
         });
         field.append(select);
-        bar.append(field);
+        // Choose first, then start: the picker sits just before the Start button.
+        actions.prepend(field);
       }
     }
     if (startable && !status.candidateError && !canWrite())
