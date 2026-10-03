@@ -36,11 +36,19 @@ const editableFields = [
 const clone = value => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const count = value => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
 const text = value => (value === null || value === undefined ? '' : String(value));
+const percent = (value, total) => (total ? Math.round((100 * value) / total) : 0);
+const SVG = 'http://www.w3.org/2000/svg';
 
 function node(tag, className, content) {
   const element = document.createElement(tag);
   if (className) element.className = className;
   if (content !== undefined) element.textContent = text(content);
+  return element;
+}
+
+function svg(tag, attributes = {}) {
+  const element = document.createElementNS(SVG, tag);
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value));
   return element;
 }
 
@@ -68,6 +76,19 @@ function normalizeList(items) {
   const values = Array.isArray(items) ? items.map(item => text(item).trim()).filter(Boolean) : [];
   return values.length ? values : undefined;
 }
+
+/** Maps a project status name to the shared status token key used by `data-status`. */
+export function statusKey(label) {
+  const value = text(label).toLocaleLowerCase().trim().replace(/[-_]+/g, ' ');
+  if (['done', 'complete', 'completed'].includes(value)) return 'done';
+  if (value === 'blocked') return 'blocked';
+  if (value.includes('review')) return 'review';
+  if (['in progress', 'doing', 'running', 'active'].includes(value)) return 'in progress';
+  if (value === 'ready') return 'ready';
+  return 'backlog';
+}
+
+const priorityOrder = ['critical', 'urgent', 'highest', 'high', 'medium', 'normal', 'low', 'lowest'];
 
 export function mergeSettingsConfig(latest, values, dirtyFields) {
   const merged = clone(latest) || {};
@@ -180,27 +201,244 @@ export function completionPage(items, requestedPage = 0, pageSize = 20) {
   };
 }
 
-function renderDistribution(title, rows, total, emptyMessage) {
-  const card = node('section', 'insights-card insights-distribution');
-  card.append(node('h2', '', title));
-  if (!rows.length) {
-    card.append(node('p', 'muted', emptyMessage));
-    return card;
+/** Keeps the largest rows and folds the rest into one "Other" row so a breakdown never grows unbounded. */
+export function foldRows(rows, limit = 7) {
+  if (rows.length <= limit + 1) return rows;
+  const kept = rows.slice(0, limit);
+  const rest = rows.slice(limit);
+  return [
+    ...kept,
+    { label: `Other (${rest.length})`, count: rest.reduce((sum, row) => sum + row.count, 0), other: true },
+  ];
+}
+
+/* Insights ------------------------------------------------------------------------------------ */
+
+function panel(title, className, meta) {
+  const section = node('section', `panel insights-panel-block ${className || ''}`.trim());
+  const header = node('header', 'panel-header');
+  const heading = node('h2', '', title);
+  header.append(heading);
+  if (meta !== undefined) header.append(node('span', 'insights-panel-meta', meta));
+  const body = node('div', 'panel-body');
+  section.append(header, body);
+  return { section, header, body };
+}
+
+function tile(label, value, detail, status) {
+  const card = node('article', 'panel insights-tile');
+  const heading = node('span', 'insights-tile-label');
+  if (status) {
+    const dot = node('span', 'status-dot');
+    dot.dataset.status = status;
+    dot.setAttribute('aria-hidden', 'true');
+    heading.append(dot);
   }
-  const list = node('div', 'insights-bars');
+  heading.append(document.createTextNode(label));
+  card.append(heading, node('strong', 'insights-tile-value', value));
+  if (detail) card.append(node('span', 'insights-tile-detail', detail));
+  return card;
+}
+
+function renderStatusChart(rows, total) {
+  const block = panel('Status', 'insights-status', `${total} tasks`);
+  if (!rows.length || !total) {
+    block.body.append(node('p', 'empty', 'No task statuses yet.'));
+    return block.section;
+  }
+  const chart = svg('svg', {
+    class: 'insights-stack',
+    width: '100%',
+    height: 16,
+    role: 'img',
+    'aria-label': rows.map(row => `${row.label} ${row.count}`).join(', '),
+  });
+  const legend = node('ul', 'insights-legend');
+  const segments = [];
+  let offset = 0;
+  rows.forEach((row, index) => {
+    const share = (100 * row.count) / total;
+    const key = statusKey(row.label);
+    if (row.count) {
+      const rect = svg('rect', { x: `${offset}%`, y: 0, width: `${share}%`, height: 16 });
+      rect.classList.add('insights-segment');
+      rect.dataset.status = key;
+      rect.dataset.index = String(index);
+      const title = svg('title');
+      title.textContent = `${row.label}: ${row.count} (${percent(row.count, total)}%)`;
+      rect.append(title);
+      chart.append(rect);
+      segments.push(rect);
+    }
+    offset += share;
+    const item = node('li', 'insights-legend-row');
+    item.dataset.index = String(index);
+    const dot = node('span', 'status-dot');
+    dot.dataset.status = key;
+    dot.setAttribute('aria-hidden', 'true');
+    item.append(
+      dot,
+      node('span', 'insights-legend-label', row.label),
+      node('span', 'insights-legend-count', row.count),
+      node('span', 'insights-legend-share', `${percent(row.count, total)}%`),
+    );
+    legend.append(item);
+  });
+  const highlight = index => {
+    for (const element of [...segments, ...legend.children])
+      element.classList.toggle('is-dim', index !== null && element.dataset.index !== index);
+  };
+  for (const target of [chart, legend]) {
+    target.addEventListener('pointerover', event => {
+      const index = event.target.closest?.('[data-index]')?.dataset.index;
+      if (index !== undefined) highlight(index);
+    });
+    target.addEventListener('pointerleave', () => highlight(null));
+  }
+  block.body.append(chart, legend);
+  return block.section;
+}
+
+function renderBars(title, rows, total, emptyMessage, className) {
+  const block = panel(title, `insights-bars ${className || ''}`);
+  if (!rows.length) {
+    block.body.append(node('p', 'empty', emptyMessage));
+    return block.section;
+  }
+  const list = node('ul', 'insights-bar-list');
   for (const row of rows) {
-    const item = node('div', 'insights-bar-row');
-    const heading = node('div', 'insights-bar-heading');
-    heading.append(node('span', '', row.label), node('strong', '', row.count));
-    const progress = node('progress');
-    progress.max = Math.max(total, 1);
-    progress.value = Math.min(row.count, progress.max);
-    progress.setAttribute('aria-label', `${row.label}: ${row.count} of ${total}`);
-    item.append(heading, progress);
+    const item = node('li', 'insights-bar-row');
+    if (row.other) item.classList.add('is-other');
+    const share = percent(row.count, total);
+    const bar = svg('svg', { class: 'insights-bar', width: '100%', height: 8, 'aria-hidden': 'true' });
+    const track = svg('rect', { width: '100%', height: 8, rx: 4 });
+    track.classList.add('insights-bar-track');
+    bar.append(track);
+    if (row.count) {
+      const fill = svg('rect', { width: `${Math.max(share, 1)}%`, height: 8, rx: 4 });
+      fill.classList.add('insights-bar-fill');
+      bar.append(fill);
+    }
+    const label = node('span', 'insights-bar-label', row.label);
+    label.title = row.label;
+    item.append(label, bar, node('span', 'insights-bar-value', row.count));
+    item.setAttribute('aria-label', `${row.label}: ${row.count} of ${total} (${share}%)`);
     list.append(item);
   }
-  card.append(list);
-  return card;
+  block.body.append(list);
+  return block.section;
+}
+
+function sortPriority(rows) {
+  const rank = label => {
+    const index = priorityOrder.indexOf(text(label).toLocaleLowerCase());
+    return index < 0 ? priorityOrder.length : index;
+  };
+  return [...rows].sort((a, b) => {
+    if (a.label === 'No priority') return 1;
+    if (b.label === 'No priority') return -1;
+    return rank(a.label) - rank(b.label) || a.label.localeCompare(b.label);
+  });
+}
+
+function capitalise(value) {
+  const label = text(value);
+  return label.charAt(0).toLocaleUpperCase() + label.slice(1);
+}
+
+function renderHistory(model, { onOpenTask, dateFormat, historyState }) {
+  const block = panel('Completed tasks', 'insights-history');
+  const total = model.completionHistory.length;
+  if (!model.corpusMatches) {
+    block.body.append(
+      node(
+        'p',
+        'insights-note',
+        `The task list (${model.corpusCount}) and totals (${model.totalTasks}) disagree. Refresh to load completed tasks.`,
+      ),
+    );
+    return block.section;
+  }
+  if (!total) {
+    const empty = node('div', 'empty');
+    empty.append(node('strong', '', 'Nothing completed yet'), node('span', '', 'Tasks marked Done appear here.'));
+    block.body.append(empty);
+    return block.section;
+  }
+  block.header.querySelector('h2').append(' ', node('span', 'count', total));
+  const pager = node('div', 'insights-pager');
+  const range = node('span', 'insights-pager-range');
+  const previous = action('Newer', 'button quiet button-small');
+  const next = action('Older', 'button quiet button-small');
+  previous.setAttribute('aria-label', 'Newer completed tasks');
+  next.setAttribute('aria-label', 'Older completed tasks');
+  pager.append(range, previous, next);
+  block.header.append(pager);
+
+  const listStatus = node('p', 'sr-only');
+  listStatus.setAttribute('role', 'status');
+  listStatus.setAttribute('aria-live', 'polite');
+  const scroll = node('div', 'insights-table-scroll');
+  const table = node('table', 'data-table insights-table');
+  const caption = node('caption', 'sr-only', 'Completed tasks, most recently updated first');
+  const head = node('thead');
+  const headRow = node('tr');
+  for (const label of ['Task', 'Milestone', 'Last updated']) {
+    const cell = node('th', '', label);
+    cell.scope = 'col';
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = node('tbody');
+  table.append(caption, head, body);
+  scroll.append(table);
+  block.body.classList.add('insights-history-body');
+  block.body.append(listStatus, scroll);
+
+  const draw = focus => {
+    const page = completionPage(model.completionHistory, historyState.page);
+    historyState.page = page.page;
+    body.replaceChildren();
+    for (const task of page.items) {
+      const row = node('tr');
+      const taskCell = node('td', 'insights-task-cell');
+      const status = node('span', 'status-dot');
+      status.dataset.status = 'done';
+      status.setAttribute('aria-hidden', 'true');
+      taskCell.append(status);
+      if (typeof onOpenTask === 'function' && task.id) {
+        const link = action(task.title || task.id || 'Untitled task', 'insights-task-link');
+        link.addEventListener('click', () =>
+          Promise.resolve(onOpenTask(task.id, link)).catch(error => {
+            listStatus.textContent = `${errorMessage(error, 'Unable to open task.')} This page is unchanged.`;
+          }),
+        );
+        taskCell.append(link);
+      } else taskCell.append(node('span', 'insights-task-title', task.title || task.id || 'Untitled task'));
+      taskCell.append(node('span', 'insights-task-id', task.id || ''));
+      row.append(
+        taskCell,
+        node('td', 'insights-milestone-cell', task.milestoneTitle || 'No milestone'),
+        node('td', 'insights-date-cell', formatProjectDate(task.updatedDate || task.createdDate, dateFormat)),
+      );
+      body.append(row);
+    }
+    range.textContent = `${page.start}–${page.end} of ${page.total}`;
+    listStatus.textContent = `Showing completed tasks ${page.start} to ${page.end} of ${page.total}.`;
+    previous.disabled = page.page === 0;
+    next.disabled = page.page + 1 >= page.pages;
+    if (focus) (focus.disabled ? (focus === previous ? next : previous) : focus).focus();
+  };
+  previous.addEventListener('click', () => {
+    historyState.page--;
+    draw(previous);
+  });
+  next.addEventListener('click', () => {
+    historyState.page++;
+    draw(next);
+  });
+  draw();
+  return block.section;
 }
 
 function renderStatistics(
@@ -209,150 +447,94 @@ function renderStatistics(
   { refresh, onOpenTask, dateFormat, historyState, dateFormatAvailable = true },
 ) {
   container.replaceChildren();
-  const header = node('div', 'insights-heading');
+  const header = node('header', 'page-header');
   const copy = node('div');
   copy.append(
-    node('p', 'eyebrow', 'PROJECT INSIGHTS'),
-    node('h1', '', 'Statistics'),
-    node('p', 'muted', 'Current task distribution and progress for this project.'),
+    node('h1', '', 'Insights'),
+    node('p', '', model.totalTasks ? 'Where the work stands and what has been completed.' : 'No tasks yet.'),
   );
-  const reload = action('Refresh statistics');
+  const actions = node('div', 'page-actions');
+  const reload = action('Refresh');
   reload.addEventListener('click', refresh);
-  header.append(copy, reload);
+  actions.append(reload);
+  header.append(copy, actions);
 
-  const metrics = node('div', 'insights-metrics');
-  for (const [label, value, detail] of [
-    ['Total tasks', model.totalTasks, 'Tracked across the project'],
-    ['Completed', model.completedTasks, `${model.totalTasks - model.completedTasks} remaining`],
-    ['Completion', `${model.completionPercentage}%`, 'Share marked Done'],
-    ['Drafts', model.draftCount, 'Not yet active tasks'],
-  ]) {
-    const card = node('article', 'insights-card insights-metric');
-    card.append(
-      node('span', 'insights-metric-label', label),
-      node('strong', 'insights-metric-value', value),
-      node('span', 'muted', detail),
-    );
-    metrics.append(card);
-  }
+  const statusTotal = key =>
+    model.status.filter(row => statusKey(row.label) === key).reduce((sum, row) => sum + row.count, 0);
+  const hasStatus = key => model.status.some(row => statusKey(row.label) === key);
+  const tiles = node('div', 'insights-tiles');
+  tiles.append(
+    tile('Total tasks', model.totalTasks, model.draftCount ? `${model.draftCount} drafts not counted` : 'Active tasks'),
+  );
+  const done = tile(
+    'Done',
+    `${model.completionPercentage.toFixed(0)}%`,
+    `${model.completedTasks} of ${model.totalTasks} marked Done`,
+    'done',
+  );
+  const meter = node('progress');
+  meter.className = 'insights-meter';
+  meter.max = 100;
+  meter.value = model.completionPercentage;
+  meter.setAttribute('aria-label', `Done: ${model.completionPercentage.toFixed(0)}%`);
+  done.append(meter);
+  tiles.append(done);
+  for (const [key, label, detail] of [
+    ['in progress', 'In progress', 'Being worked on'],
+    ['review', 'In review', 'Waiting for review'],
+    ['blocked', 'Blocked', 'Need a decision or fix'],
+  ])
+    if (hasStatus(key)) {
+      const value = statusTotal(key);
+      const card = tile(label, value, detail, key);
+      if (key === 'blocked' && value) card.classList.add('is-alert');
+      tiles.append(card);
+    }
 
-  const overall = node('section', 'insights-card insights-overall');
-  const overallHeading = node('div', 'insights-bar-heading');
-  overallHeading.append(node('h2', '', 'Overall progress'), node('strong', '', `${model.completionPercentage}%`));
-  const overallProgress = node('progress');
-  overallProgress.max = 100;
-  overallProgress.value = model.completionPercentage;
-  overallProgress.setAttribute('aria-label', `Overall completion: ${model.completionPercentage}%`);
-  overall.append(overallHeading, overallProgress);
-
-  const distributions = node('div', 'insights-grid');
-  distributions.append(
-    renderDistribution('Status distribution', model.status, model.totalTasks, 'No task statuses were returned.'),
-    renderDistribution('Priority distribution', model.priority, model.totalTasks, 'No task priorities were returned.'),
+  const charts = node('div', 'insights-charts');
+  charts.append(
+    renderStatusChart(model.status, model.totalTasks),
+    renderBars(
+      'Priority',
+      sortPriority(model.priority).map(row => ({ ...row, label: capitalise(row.label) })),
+      model.totalTasks,
+      'No priorities set.',
+      'insights-priority',
+    ),
   );
   if (model.corpusMatches && model.milestoneLookupAvailable)
-    distributions.append(
-      renderDistribution(
-        'Milestone distribution',
-        model.milestones,
+    charts.append(
+      renderBars(
+        'Milestones',
+        foldRows(model.milestones),
         model.totalTasks,
-        'No milestone assignments were returned.',
+        'No tasks are in a milestone.',
+        'insights-milestones',
       ),
     );
   else {
-    const unavailable = node('section', 'insights-card');
-    const message = model.corpusMatches
-      ? 'Milestone titles are unavailable. Refresh before using this breakdown.'
-      : `The native task corpus returned ${model.corpusCount} counted tasks while statistics returned ${model.totalTasks}. Refresh before using this breakdown.`;
-    unavailable.append(node('h2', '', 'Milestone distribution'), node('p', 'insights-inline-warning', message));
-    distributions.append(unavailable);
-  }
-
-  const history = node('section', 'insights-card insights-history');
-  history.append(node('h2', '', 'Done tasks'));
-  if (!model.corpusMatches)
-    history.append(
-      node('p', 'muted', 'Completion rows are withheld until the native task corpus matches the statistics total.'),
-    );
-  else if (!model.completionHistory.length) history.append(node('p', 'muted', 'No completed tasks yet.'));
-  else {
-    const listStatus = node('p', 'muted insights-history-status');
-    listStatus.setAttribute('role', 'status');
-    listStatus.setAttribute('aria-live', 'polite');
-    history.append(listStatus);
-    const scroll = node('div', 'insights-table-scroll');
-    const table = node('table', 'insights-table');
-    const head = node('thead');
-    const headRow = node('tr');
-    for (const label of ['Task', 'Milestone', 'Last updated']) headRow.append(node('th', '', label));
-    head.append(headRow);
-    const body = node('tbody');
-    table.append(head, body);
-    scroll.append(table);
-    history.append(scroll);
-    const controls = node('div', 'insights-history-controls');
-    const previous = action('Newer tasks');
-    const next = action('Older tasks');
-    const range = node('span', 'muted');
-    const draw = focus => {
-      const page = completionPage(model.completionHistory, historyState.page);
-      historyState.page = page.page;
-      body.replaceChildren();
-      for (const task of page.items) {
-        const row = node('tr'),
-          taskCell = node('td');
-        if (typeof onOpenTask === 'function' && task.id) {
-          const link = action(task.title || task.id || 'Untitled task', 'insights-task-link');
-          link.addEventListener('click', () =>
-            Promise.resolve(onOpenTask(task.id, link)).catch(error => {
-              listStatus.textContent = `${errorMessage(error, 'Unable to open task.')} This history page is unchanged.`;
-            }),
-          );
-          taskCell.append(link);
-        } else taskCell.append(node('strong', '', task.title || task.id || 'Untitled task'));
-        taskCell.append(node('span', 'muted insights-task-id', task.id || ''));
-        row.append(
-          taskCell,
-          node('td', '', task.milestoneTitle || 'No milestone'),
-          node('td', '', formatProjectDate(task.updatedDate || task.createdDate, dateFormat)),
-        );
-        body.append(row);
-      }
-      range.textContent = `${page.start}–${page.end} of ${page.total} completed tasks`;
-      listStatus.textContent = `Showing ${range.textContent}. Open a task, then use Back to return to this page.`;
-      previous.disabled = page.page === 0;
-      next.disabled = page.page + 1 >= page.pages;
-      if (focus) (focus.disabled ? (focus === previous ? next : previous) : focus).focus();
-    };
-    previous.addEventListener('click', () => {
-      historyState.page--;
-      draw(previous);
-    });
-    next.addEventListener('click', () => {
-      historyState.page++;
-      draw(next);
-    });
-    controls.append(previous, range, next);
-    history.append(controls);
-    draw();
-  }
-  if (!dateFormatAvailable)
-    history.append(
+    const unavailable = panel('Milestones', 'insights-bars insights-milestones');
+    unavailable.body.append(
       node(
         'p',
-        'insights-inline-warning',
-        'The date setting could not be read. Dates use YYYY-MM-DD until Refresh succeeds.',
+        'insights-note',
+        model.corpusMatches
+          ? 'Milestone names are unavailable. Refresh to try again.'
+          : `The task list (${model.corpusCount}) and totals (${model.totalTasks}) disagree. Refresh to try again.`,
       ),
     );
-  container.append(header, metrics, overall, distributions, history);
+    charts.append(unavailable.section);
+  }
+
+  const history = renderHistory(model, { onOpenTask, dateFormat, historyState });
+  if (!dateFormatAvailable)
+    history.append(
+      node('p', 'insights-note insights-history-note', "Couldn't read the date setting. Showing YYYY-MM-DD."),
+    );
+  container.append(header, tiles, charts, history);
 }
 
-function appendHelp(label, message) {
-  const help = node('span', 'insights-field-help', message);
-  help.id = `${label.htmlFor}-help`;
-  label.append(help);
-  return help.id;
-}
+/* Settings ------------------------------------------------------------------------------------ */
 
 function fieldId(projectId, name) {
   return `insights-${String(projectId)
@@ -368,279 +550,349 @@ function setFieldError(form, name, message) {
     target.hidden = !message;
   }
   if (input instanceof HTMLElement) input.setAttribute('aria-invalid', message ? 'true' : 'false');
+  form.querySelector(`[data-row-for="${name}"]`)?.classList.toggle('is-invalid', Boolean(message));
 }
 
+/** Writes a message into the sticky save bar; the bar shows while there is something to say. */
+function setSaveState(container, message, tone = '') {
+  const bar = container.querySelector('.settings-savebar');
+  const status = container.querySelector('.settings-save-status');
+  if (!bar || !status) return;
+  status.textContent = message;
+  bar.dataset.tone = tone;
+  bar.hidden = !message;
+}
+
+const settingsSections = [
+  ['project', 'Project'],
+  ['workflow', 'Workflow'],
+  ['done', 'Definition of done'],
+  ['board', 'Board'],
+  ['browser', 'Backlog browser'],
+  ['cli', 'Backlog CLI'],
+];
+
 function renderSettings(container, context) {
-  const { projectId, canWrite, refresh, save, discard, latestConfig, draft } = context;
+  const { projectId, canWrite, writeBlockedReason, refresh, save, discard, latestConfig, draft } = context;
   const writable = isWritable(canWrite);
   container.replaceChildren();
-  const header = node('div', 'insights-heading');
+  const header = node('header', 'page-header');
   const copy = node('div');
-  copy.append(
-    node('p', 'eyebrow', 'PROJECT CONFIGURATION'),
-    node('h1', '', 'Settings'),
-    node(
-      'p',
-      'muted',
-      'Edit the connected project’s Backlog configuration. Each group states which interface uses it; other configuration stays intact.',
-    ),
-  );
-  const reload = action('Refresh saved settings');
+  copy.append(node('h1', '', 'Settings'), node('p', '', 'Project configuration stored in Backlog.'));
+  const actions = node('div', 'page-actions');
+  const reload = action('Reload');
+  reload.title = 'Reload saved settings';
   reload.addEventListener('click', refresh);
-  header.append(copy, reload);
+  actions.append(reload);
+  header.append(copy, actions);
   container.append(header);
-  if (!writable)
-    container.append(
-      node(
-        'p',
-        'insights-readonly',
-        'Settings are read-only while project delivery is active or your access does not allow changes.',
-      ),
+  if (!writable) {
+    const reason = (typeof writeBlockedReason === 'function' && writeBlockedReason()) || '';
+    const banner = node('div', 'banner settings-readonly');
+    banner.setAttribute('role', 'note');
+    banner.append(
+      node('strong', '', 'Read only. '),
+      document.createTextNode(reason || 'Settings are locked while an agent is active or queued.'),
     );
+    container.append(banner);
+  }
 
-  const form = node('form', 'insights-settings');
+  const layout = node('div', 'settings-layout');
+  const index = node('nav', 'settings-index');
+  index.setAttribute('aria-label', 'Settings sections');
+  const indexList = node('ul');
+  index.append(indexList);
+  const form = node('form', 'insights-settings settings-sections');
   form.noValidate = true;
-  const status = node('p', 'insights-form-status');
-  status.setAttribute('role', 'status');
-  status.setAttribute('aria-live', 'polite');
+  layout.append(index, form);
+
   const values = draft.values;
+  const idFor = name => fieldId(projectId, name);
+  let saveButton, discardButton;
   const mark = (field, value) => {
     draft.values[field] = value;
     draft.dirtyFields.add(field);
     storeDraft(projectId, draft);
-    status.textContent = 'Unsaved changes';
-    status.className = 'insights-form-status is-dirty';
     setFieldError(form, field, '');
-    controls.querySelector('[data-save]').disabled = !writable;
-    controls.querySelector('[data-discard]').disabled = false;
+    setSaveState(container, 'Unsaved changes', 'dirty');
+    saveButton.disabled = !writable;
+    discardButton.disabled = false;
   };
-  const section = (title, description) => {
-    const card = node('section', 'insights-card insights-settings-section');
-    card.append(node('h2', '', title), node('p', 'muted', description));
-    const grid = node('div', 'insights-fields');
-    card.append(grid);
+
+  const section = (key, title, description) => {
+    const card = node('section', 'panel settings-section');
+    card.id = idFor(`section-${key}`);
+    card.setAttribute('aria-labelledby', `${card.id}-title`);
+    const head = node('header', 'panel-header settings-section-header');
+    const headCopy = node('div');
+    const heading = node('h2', '', title);
+    heading.id = `${card.id}-title`;
+    headCopy.append(heading, node('p', '', description));
+    head.append(headCopy);
+    const body = node('div', 'settings-rows');
+    card.append(head, body);
     form.append(card);
-    return grid;
+    const item = node('li');
+    const link = node('a', '', title);
+    link.href = `#${card.id}`;
+    link.dataset.section = card.id;
+    item.append(link);
+    indexList.append(item);
+    return body;
   };
+
+  const row = (grid, name, labelText, help, control, { labelFor = true } = {}) => {
+    const wrap = node('div', 'settings-row');
+    wrap.dataset.rowFor = name;
+    const copyCell = node('div', 'settings-row-copy');
+    const label = node(labelFor ? 'label' : 'span', 'settings-row-label', labelText);
+    const id = idFor(name);
+    if (labelFor) label.htmlFor = id;
+    else label.id = `${id}-label`;
+    const helpText = node('p', 'settings-row-help', help);
+    helpText.id = `${id}-help`;
+    copyCell.append(label, helpText);
+    const controlCell = node('div', 'settings-row-control');
+    const error = node('p', 'settings-field-error');
+    error.id = `${id}-error`;
+    error.dataset.errorFor = name;
+    error.hidden = true;
+    controlCell.append(control, error);
+    wrap.append(copyCell, controlCell);
+    grid.append(wrap);
+    return { id, helpId: helpText.id, errorId: error.id };
+  };
+
   const inputField = (grid, name, labelText, help, options = {}) => {
-    const wrap = node('div', 'insights-field');
-    const label = node('label', '', labelText);
-    const id = fieldId(projectId, name);
-    label.htmlFor = id;
-    const helpId = appendHelp(label, help);
-    const input = node(options.select ? 'select' : 'input');
-    input.id = id;
+    const input = node(options.select ? 'select' : 'input', 'settings-input');
+    const ids = row(grid, name, labelText, help, input);
+    input.id = ids.id;
     input.name = name;
     input.disabled = !writable || Boolean(options.disabled);
-    input.setAttribute('aria-describedby', helpId);
+    input.setAttribute('aria-describedby', `${ids.helpId} ${ids.errorId}`);
     if (options.type) input.type = options.type;
     if (options.placeholder) input.placeholder = options.placeholder;
     if (options.min !== undefined) input.min = String(options.min);
     if (options.max !== undefined) input.max = String(options.max);
     if (options.step !== undefined) input.step = String(options.step);
     if (options.required) input.required = true;
+    if (options.narrow) input.classList.add('is-narrow');
     if (options.select)
-      for (const [value, labelText] of options.select) {
-        const option = node('option', '', labelText);
+      for (const [value, optionText] of options.select) {
+        const option = node('option', '', optionText);
         option.value = value;
         input.append(option);
       }
     input.value = values[name] ?? options.fallback ?? '';
-    input.addEventListener('input', () => mark(name, options.number ? input.value : input.value));
-    const error = node('span', 'insights-field-error');
-    error.dataset.errorFor = name;
-    error.hidden = true;
-    wrap.append(label, input, error);
-    grid.append(wrap);
+    input.addEventListener('input', () => mark(name, input.value));
     return input;
   };
+
   const toggle = (grid, name, labelText, help) => {
-    const label = node('label', 'insights-toggle');
-    const input = node('input');
+    const input = node('input', 'settings-switch');
     input.type = 'checkbox';
+    const ids = row(grid, name, labelText, help, input);
+    input.id = ids.id;
     input.name = name;
     input.checked = Boolean(values[name]);
     input.disabled = !writable;
-    const description = node('span');
-    description.append(node('strong', '', labelText), node('small', '', help));
+    input.setAttribute('role', 'switch');
+    input.setAttribute('aria-describedby', ids.helpId);
     input.addEventListener('change', () => mark(name, input.checked));
-    label.append(input, description);
-    grid.append(label);
+    return input;
   };
 
-  const project = section('Project', 'Shared project identity and date display.');
-  inputField(project, 'projectName', 'Project name', 'Shown in the board and generated project views.', {
-    required: true,
+  const project = section('project', 'Project', 'Name, dates and defaults for new tasks.');
+  inputField(project, 'projectName', 'Project name', 'Shown in the sidebar and on the board.', { required: true });
+  inputField(project, 'dateFormat', 'Date format', 'Used for dates in Insights and the workspace.', {
+    select: [
+      ['yyyy-mm-dd', 'YYYY-MM-DD'],
+      ['dd/mm/yyyy', 'DD/MM/YYYY'],
+      ['mm/dd/yyyy', 'MM/DD/YYYY'],
+    ],
+    fallback: 'yyyy-mm-dd',
   });
-  inputField(
-    project,
-    'dateFormat',
-    'Date format',
-    'Used by Insights and reusable workspace date displays. Native task files keep their stored format.',
-    {
-      select: [
-        ['yyyy-mm-dd', 'YYYY-MM-DD'],
-        ['dd/mm/yyyy', 'DD/MM/YYYY'],
-        ['mm/dd/yyyy', 'MM/DD/YYYY'],
-      ],
-      fallback: 'yyyy-mm-dd',
-    },
-  );
   const statuses = Array.isArray(latestConfig.statuses) ? latestConfig.statuses : [];
-  inputField(project, 'defaultStatus', 'Default task status', 'Applied to newly created tasks.', {
+  inputField(project, 'defaultStatus', 'Default status', 'Status given to new tasks.', {
     select: statuses.map(value => [value, value]),
     fallback: statuses[0] || '',
   });
 
-  const workflow = section('Workflow', 'Backlog task and Git behavior used by supported task operations.');
-  toggle(
-    workflow,
-    'autoCommit',
-    'Automatically commit task changes',
-    'Creates a Git commit after supported task operations.',
-  );
-  toggle(workflow, 'remoteOperations', 'Read active branches', 'Includes task information from active Git branches.');
-  inputField(
-    workflow,
-    'defaultEditor',
-    'Editor command',
-    'Overrides the EDITOR environment variable for task editing.',
-    { placeholder: 'For example: code --wait' },
-  );
-  const prefix = inputField(
-    workflow,
-    'taskPrefix',
-    'Task prefix',
-    'Set during initialization and read-only to protect existing task IDs.',
-    { disabled: true },
-  );
+  const workflow = section('workflow', 'Workflow', 'How task changes reach Git.');
+  toggle(workflow, 'autoCommit', 'Commit task changes', 'Create a Git commit after each task change.');
+  toggle(workflow, 'remoteOperations', 'Read active branches', 'Include tasks from other active Git branches.');
+  inputField(workflow, 'defaultEditor', 'Editor command', 'Overrides EDITOR when editing a task.', {
+    placeholder: 'code --wait',
+  });
+  const prefix = inputField(workflow, 'taskPrefix', 'Task prefix', 'Set at setup. Fixed so task IDs stay stable.', {
+    disabled: true,
+    narrow: true,
+  });
   prefix.value = text(latestConfig.prefixes?.task || 'task').toLocaleUpperCase();
 
-  const doneCard = section('Definition of Done defaults', 'Each non-empty item is added to new tasks.');
-  doneCard.classList.add('insights-list-field');
-  const list = node('div', 'insights-list');
-  doneCard.append(list);
+  const doneSection = section('done', 'Definition of done', 'Checklist added to every new task.');
+  const doneWrap = node('div', 'settings-list-field');
+  const list = node('ol', 'insights-list settings-list');
+  list.setAttribute('aria-label', 'Definition of done items');
+  const emptyList = node('p', 'settings-list-empty', 'No items. New tasks start without a checklist.');
+  const add = action('Add item', 'button quiet button-small settings-list-add');
+  add.disabled = !writable;
+  doneWrap.append(list, emptyList, add);
+  doneSection.append(doneWrap);
   const renderDone = () => {
     list.replaceChildren();
     const items = Array.isArray(values.definitionOfDone) ? values.definitionOfDone : [];
-    items.forEach((item, index) => {
-      const row = node('div', 'insights-list-row');
-      const label = node('label', 'sr-only', `Definition of Done item ${index + 1}`);
-      const input = node('input');
+    emptyList.hidden = items.length > 0;
+    items.forEach((item, itemIndex) => {
+      const entry = node('li', 'insights-list-row settings-list-row');
+      const label = node('label', 'sr-only', `Definition of done item ${itemIndex + 1}`);
+      const input = node('input', 'settings-input');
       input.value = item;
       input.disabled = !writable;
       input.maxLength = 500;
-      label.htmlFor = input.id = fieldId(projectId, `done-${index}`);
+      label.htmlFor = input.id = idFor(`done-${itemIndex}`);
       input.addEventListener('input', () => {
-        const next = [...values.definitionOfDone];
-        next[index] = input.value;
-        mark('definitionOfDone', next);
+        const nextItems = [...values.definitionOfDone];
+        nextItems[itemIndex] = input.value;
+        mark('definitionOfDone', nextItems);
       });
-      const remove = action('Remove', 'button quiet');
+      const remove = action('×', 'icon-button settings-list-remove');
+      remove.setAttribute('aria-label', `Remove item ${itemIndex + 1}`);
+      remove.title = 'Remove';
       remove.disabled = !writable;
       remove.addEventListener('click', () => {
         mark(
           'definitionOfDone',
-          values.definitionOfDone.filter((_, itemIndex) => itemIndex !== index),
+          values.definitionOfDone.filter((_, position) => position !== itemIndex),
         );
         renderDone();
+        const inputs = list.querySelectorAll('input');
+        (inputs[Math.min(itemIndex, inputs.length - 1)] || add).focus();
       });
-      row.append(label, input, remove);
-      list.append(row);
+      entry.append(node('span', 'settings-list-index', `${itemIndex + 1}`), label, input, remove);
+      list.append(entry);
     });
   };
   renderDone();
-  const add = action('Add checklist item', 'button quiet');
-  add.disabled = !writable;
   add.addEventListener('click', () => {
     mark('definitionOfDone', [...(values.definitionOfDone || []), '']);
     renderDone();
     list.lastElementChild?.querySelector('input')?.focus();
   });
-  doneCard.append(add);
 
-  const web = section(
-    'Native Backlog browser',
-    'Startup and board defaults for the separate native Backlog browser. These do not control the Switchflow workspace shell.',
-  );
-  inputField(web, 'defaultPort', 'Default port', 'Port used when no command-line port is provided.', {
+  const board = section('board', 'Board', 'How the Tasks board looks.');
+  toggle(board, 'hideEmptyColumns', 'Hide empty columns', 'Empty columns still appear while you drag a card.');
+
+  const browser = section('browser', 'Backlog browser', 'The separate Backlog web board, not this workspace.');
+  inputField(browser, 'defaultPort', 'Port', 'Used when no port is given on the command line.', {
     type: 'number',
     number: true,
     min: 1,
     max: 65535,
     fallback: 6420,
+    narrow: true,
   });
-  toggle(web, 'autoOpenBrowser', 'Open browser automatically', 'Opens the native board after its local server starts.');
+  toggle(browser, 'autoOpenBrowser', 'Open on start', 'Open the board in a browser when its server starts.');
 
-  const taskViews = section(
-    'Tasks views',
-    'Presentation defaults shared by the Switchflow Tasks view and supported native task views.',
-  );
-  toggle(
-    taskViews,
-    'hideEmptyColumns',
-    'Hide empty board columns',
-    'Use Actions → Move task to choose any status; empty destinations also appear while dragging.',
-  );
-
-  const advanced = section('Backlog CLI', 'Cross-branch task selection and command-line presentation.');
-  inputField(advanced, 'maxColumnWidth', 'Maximum CLI column width', 'Limits text column width in terminal output.', {
+  const cli = section('cli', 'Backlog CLI', 'Terminal output and tasks on several branches.');
+  inputField(cli, 'maxColumnWidth', 'Column width', 'Maximum width of text columns in the terminal.', {
     type: 'number',
     number: true,
     min: 20,
     max: 200,
     fallback: 80,
+    narrow: true,
   });
   inputField(
-    advanced,
+    cli,
     'taskResolutionStrategy',
-    'Cross-branch task resolution',
-    'Chooses which copy wins when a task exists on more than one branch.',
+    'Branch conflicts',
+    'Which copy wins when a task exists on several branches.',
     {
       select: [
         ['most_recent', 'Most recently updated'],
-        ['most_progressed', 'Most progressed status'],
+        ['most_progressed', 'Furthest along'],
       ],
       fallback: 'most_recent',
     },
   );
-  inputField(advanced, 'zeroPaddedIds', 'Task ID padding', 'Use 0 to disable; 3 produces task-001.', {
+  inputField(cli, 'zeroPaddedIds', 'ID padding', '0 turns it off. 3 gives task-001.', {
     type: 'number',
     number: true,
     min: 0,
     max: 10,
     fallback: 0,
+    narrow: true,
   });
 
-  const controls = node('div', 'insights-form-actions');
-  const discardButton = action('Discard changes');
+  const bar = node('div', 'settings-savebar');
+  const status = node('p', 'insights-form-status settings-save-status');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  discardButton = action('Discard');
   discardButton.dataset.discard = '';
   discardButton.disabled = !draft.dirtyFields.size;
   discardButton.addEventListener('click', discard);
-  const saveButton = action('Save settings', 'button primary');
+  saveButton = action('Save changes', 'button primary');
   saveButton.dataset.save = '';
   saveButton.type = 'submit';
   saveButton.disabled = !writable || !draft.dirtyFields.size;
-  controls.append(status, discardButton, saveButton);
-  form.append(controls);
+  const barActions = node('div', 'settings-savebar-actions');
+  barActions.append(discardButton, saveButton);
+  bar.append(status, barActions);
+  form.append(bar);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const errors = validateSettingsDraft(values, statuses);
     for (const field of editableFields) setFieldError(form, field, errors[field]);
     if (Object.keys(errors).length) {
-      status.textContent = 'Fix the highlighted settings before saving.';
-      status.className = 'insights-form-status is-error';
+      setSaveState(container, 'Fix the highlighted settings.', 'error');
       form.querySelector('[aria-invalid="true"]')?.focus();
       return;
     }
-    await save({ status, saveButton, discardButton });
+    await save({ saveButton, discardButton });
   });
-  container.append(form);
+  container.append(layout);
+  setSaveState(container, draft.dirtyFields.size ? 'Unsaved changes' : '', draft.dirtyFields.size ? 'dirty' : '');
+
+  // Section index: jump without changing the URL, and track the section in view.
+  const links = [...indexList.querySelectorAll('a')];
+  const current = id => {
+    for (const link of links)
+      if (link.dataset.section === id) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+  };
+  current(links[0]?.dataset.section);
+  index.addEventListener('click', event => {
+    const link = event.target.closest('a[data-section]');
+    if (!link) return;
+    event.preventDefault();
+    const target = container.querySelector(`#${CSS.escape(link.dataset.section)}`);
+    target?.scrollIntoView({
+      block: 'start',
+      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+    target?.querySelector('h2')?.setAttribute('tabindex', '-1');
+    target?.querySelector('h2')?.focus({ preventScroll: true });
+    current(link.dataset.section);
+  });
+  if (typeof IntersectionObserver === 'function') {
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries.filter(entry => entry.isIntersecting);
+        if (visible.length) current(visible[0].target.id);
+      },
+      { rootMargin: '0px 0px -70% 0px' },
+    );
+    for (const card of form.querySelectorAll('.settings-section')) observer.observe(card);
+    container.settingsObserver?.disconnect();
+    container.settingsObserver = observer;
+  }
 }
 
 export function mountInsights(
   container,
-  { api, projectId, canWrite = false, onChange = async () => {}, onOpenTask, kind } = {},
+  { api, projectId, canWrite = false, writeBlockedReason, onChange = async () => {}, onOpenTask, kind } = {},
 ) {
   if (!(container instanceof HTMLElement)) throw new TypeError('mountInsights requires an HTML container.');
   if (typeof api !== 'function') throw new TypeError('mountInsights requires an api function.');
@@ -650,6 +902,8 @@ export function mountInsights(
     saving = false;
   let generation = 0;
   let latestConfig = null;
+  let renderedWritable = null;
+  let savedTimer = 0;
   const projectKey = String(projectId);
   if (!settingsDrafts.has(projectKey)) {
     try {
@@ -661,7 +915,7 @@ export function mountInsights(
   let statisticsSignature = '';
   const historyState = { page: 0 };
 
-  container.classList.add('insights-panel');
+  container.classList.add('insights-view');
   container.dataset.insightsKind = kind;
 
   const loading = message => {
@@ -670,7 +924,7 @@ export function mountInsights(
     container.setAttribute('aria-busy', 'true');
     const state = node('div', 'insights-state');
     state.setAttribute('role', 'status');
-    state.append(node('strong', '', message), node('p', 'muted', 'Reading the connected project.'));
+    state.append(node('strong', '', message));
     container.append(state);
   };
   const failure = (error, retry, preserve = false) => {
@@ -681,20 +935,24 @@ export function mountInsights(
     const state = node('div', 'insights-state insights-state-error');
     state.setAttribute('role', 'alert');
     state.dataset.refreshError = '';
-    state.append(
-      node('strong', '', errorMessage(error, `Unable to load ${kind}.`)),
-      node('p', 'muted', 'Your saved project data was not changed.'),
+    const copy = node('div');
+    copy.append(
+      node('strong', '', errorMessage(error, `Unable to load ${kind === 'settings' ? 'settings' : 'insights'}.`)),
+      node('p', '', 'Nothing in the project was changed.'),
     );
     const button = action('Try again');
     button.addEventListener('click', retry);
-    state.append(button);
-    preserve ? container.prepend(state) : container.append(state);
+    state.append(copy, button);
+    const pageHeader = preserve ? container.querySelector('.page-header') : null;
+    if (pageHeader) pageHeader.after(state);
+    else if (preserve) container.prepend(state);
+    else container.append(state);
   };
 
   async function refreshStatistics() {
     const ticket = ++generation,
-      hadContent = Boolean(container.querySelector('.insights-metrics'));
-    if (!hadContent) loading('Loading project statistics…');
+      hadContent = Boolean(container.querySelector('.insights-tiles'));
+    if (!hadContent) loading('Loading insights…');
     else container.setAttribute('aria-busy', 'true');
     const [statistics, tasks, milestones, config] = await Promise.allSettled([
       api('/statistics'),
@@ -707,6 +965,7 @@ export function mountInsights(
       failure(statistics.reason, refreshStatistics, hadContent);
       return;
     }
+    container.querySelector('[data-refresh-error]')?.remove();
     const taskResult = tasks.status === 'fulfilled' ? tasks.value : [];
     const milestoneResult = milestones.status === 'fulfilled' ? milestones.value : undefined;
     const model = buildStatisticsModel(statistics.value, taskResult, milestoneResult);
@@ -716,7 +975,7 @@ export function mountInsights(
     }
     const dateFormat = normalizeDateFormat(config.status === 'fulfilled' ? config.value?.dateFormat : undefined);
     const signature = JSON.stringify([model, dateFormat, config.status]);
-    if (signature !== statisticsSignature || !container.querySelector('.insights-metrics')) {
+    if (signature !== statisticsSignature || !container.querySelector('.insights-tiles')) {
       statisticsSignature = signature;
       renderStatistics(container, model, {
         refresh: refreshStatistics,
@@ -729,11 +988,10 @@ export function mountInsights(
     container.removeAttribute('aria-busy');
   }
 
-  async function saveSettings({ status, saveButton, discardButton }) {
+  async function saveSettings({ saveButton, discardButton }) {
     if (saving) return;
     if (!isWritable(canWrite)) {
-      status.textContent = 'Settings are read-only right now.';
-      status.className = 'insights-form-status is-error';
+      setSaveState(container, 'Settings are read-only right now. Your changes are kept.', 'error');
       return;
     }
     const draft = settingsDrafts.get(projectKey);
@@ -741,8 +999,7 @@ export function mountInsights(
     saving = true;
     const controls = [...container.querySelectorAll('input,select,button')].map(field => [field, field.disabled]);
     for (const [field] of controls) field.disabled = true;
-    status.textContent = 'Saving settings…';
-    status.className = 'insights-form-status';
+    setSaveState(container, 'Saving…', 'dirty');
     try {
       const current = await api('/config');
       const payload = mergeSettingsConfig(current, draft.values, draft.dirtyFields);
@@ -750,21 +1007,26 @@ export function mountInsights(
       latestConfig = saved && typeof saved === 'object' ? saved : payload;
       clearDraft(projectKey);
       if (!destroyed) renderSettings(container, settingsContext());
+      let message = 'Settings saved.',
+        tone = 'saved';
       try {
         await onChange({ kind: 'settings', projectId, config: latestConfig });
       } catch (error) {
-        const currentStatus = container.querySelector('.insights-form-status');
-        if (currentStatus) {
-          currentStatus.textContent = `Settings saved. ${errorMessage(error, 'The workspace could not refresh.')}`;
-          currentStatus.className = 'insights-form-status is-error';
-        }
+        message = `Settings saved. ${errorMessage(error, 'The workspace could not refresh.')}`;
+        tone = 'error';
       }
-      const currentStatus = container.querySelector('.insights-form-status');
-      if (currentStatus && !currentStatus.textContent) currentStatus.textContent = 'Settings saved.';
+      if (!destroyed) {
+        setSaveState(container, message, tone);
+        clearTimeout(savedTimer);
+        if (tone === 'saved')
+          savedTimer = setTimeout(() => {
+            const bar = container.querySelector('.settings-savebar');
+            if (bar?.dataset.tone === 'saved') setSaveState(container, '', '');
+          }, 4000);
+      }
     } catch (error) {
       if (destroyed) return;
-      status.textContent = `${errorMessage(error, 'Unable to save settings.')} Your changes are still here.`;
-      status.className = 'insights-form-status is-error';
+      setSaveState(container, `${errorMessage(error, 'Unable to save settings.')} Your changes are kept.`, 'error');
       saveButton.disabled = false;
       discardButton.disabled = false;
     } finally {
@@ -776,15 +1038,19 @@ export function mountInsights(
   function discardSettings() {
     clearDraft(projectKey);
     renderSettings(container, settingsContext());
-    container.querySelector('input,select,button')?.focus();
+    container
+      .querySelector('.settings-sections input:not(:disabled),.settings-sections select:not(:disabled)')
+      ?.focus();
   }
 
   function settingsContext() {
     let draft = settingsDrafts.get(projectKey);
     if (!draft) draft = { values: editableValues(latestConfig), dirtyFields: new Set() };
+    renderedWritable = isWritable(canWrite);
     return {
       projectId,
       canWrite,
+      writeBlockedReason,
       refresh: refreshSettings,
       save: saveSettings,
       discard: discardSettings,
@@ -797,31 +1063,25 @@ export function mountInsights(
     if (saving) return;
     const ticket = ++generation;
     const draft = settingsDrafts.get(projectKey);
-    if (!container.querySelector('.insights-settings')) loading('Loading project settings…');
+    if (!container.querySelector('.insights-settings')) loading('Loading settings…');
     else container.setAttribute('aria-busy', 'true');
     try {
       const config = await api('/config');
       if (destroyed || ticket !== generation) return;
       const changed = JSON.stringify(latestConfig) !== JSON.stringify(config);
       latestConfig = config;
+      const rendered = Boolean(container.querySelector('.insights-settings'));
+      // Re-render when write access changes so the read-only fence and its reason stay current.
+      const fenceChanged = rendered && renderedWritable !== isWritable(canWrite);
       if (draft?.dirtyFields.size) {
-        if (!container.querySelector('.insights-settings')) renderSettings(container, settingsContext());
-        const status = container.querySelector('.insights-form-status');
-        if (status) {
-          status.textContent = 'Saved settings refreshed; your unsaved changes are unchanged.';
-          status.className = 'insights-form-status is-dirty';
-        }
-      } else if (changed || !container.querySelector('.insights-settings'))
-        renderSettings(container, settingsContext());
+        if (!rendered || fenceChanged) renderSettings(container, settingsContext());
+        if (changed) setSaveState(container, 'Saved settings reloaded. Your unsaved changes are kept.', 'dirty');
+      } else if (changed || !rendered || fenceChanged) renderSettings(container, settingsContext());
     } catch (error) {
       if (destroyed || ticket !== generation) return;
-      if (draft?.dirtyFields.size) {
-        const status = container.querySelector('.insights-form-status');
-        if (status) {
-          status.textContent = `${errorMessage(error, 'Unable to refresh settings.')} Your changes are still here.`;
-          status.className = 'insights-form-status is-error';
-        }
-      } else failure(error, refreshSettings);
+      if (draft?.dirtyFields.size && container.querySelector('.insights-settings'))
+        setSaveState(container, `${errorMessage(error, 'Unable to reload settings.')} Your changes are kept.`, 'error');
+      else failure(error, refreshSettings);
     } finally {
       if (!destroyed && ticket === generation) container.removeAttribute('aria-busy');
     }
@@ -834,7 +1094,10 @@ export function mountInsights(
     destroy() {
       destroyed = true;
       generation++;
-      container.classList.remove('insights-panel');
+      clearTimeout(savedTimer);
+      container.settingsObserver?.disconnect();
+      delete container.settingsObserver;
+      container.classList.remove('insights-view');
       delete container.dataset.insightsKind;
       container.replaceChildren();
     },
