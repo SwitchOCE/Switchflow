@@ -8,6 +8,45 @@ export const escapeHtml = value =>
 export function folderOf(record) {
   return (record.path || '').replaceAll('\\', '/').split('/').slice(0, -1).join('/');
 }
+// Every search term must appear in the title, tags or body.
+export function matchesSearch(record, query) {
+  const text = [
+    record.title,
+    record.rawContent,
+    record.context,
+    record.decision,
+    record.consequences,
+    ...(record.tags || []),
+  ]
+    .join(' ')
+    .toLowerCase();
+  return String(query || '')
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every(term => text.includes(term));
+}
+// Decision status maps onto the shared status colours; unknown values stay neutral.
+export function decisionTone(status) {
+  return (
+    { accepted: 'done', proposed: 'review', rejected: 'blocked' }[
+      String(status || '')
+        .trim()
+        .toLowerCase()
+    ] || 'backlog'
+  );
+}
+export function statusLabel(status) {
+  const text = String(status || '').trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : '';
+}
+// The page title already heads the reader, so "On this page" lists the sections below it.
+export function tocEntries(headings, titleHeading = null) {
+  const entries = headings.filter(h => h.id !== titleHeading && h.level <= 3);
+  const top = Math.min(...entries.map(h => h.level));
+  return entries.map(h => ({ ...h, depth: h.level - top }));
+}
 export function draftFrom(record, kind) {
   return {
     id: record?.id || '',

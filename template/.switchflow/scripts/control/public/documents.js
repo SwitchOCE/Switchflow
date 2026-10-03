@@ -382,15 +382,28 @@ export function renderMarkdown(markdown) {
   return { html: blocks(lines), headings };
 }
 
+// `html` is the complete reader markup. `parts` splits it for readers that place the title
+// in their own header: the leading Markdown title moves there with its anchor id intact.
 export function renderDocument(doc) {
   const rendered = renderMarkdown(doc.markdown);
   const first = rendered.headings[0];
   const sameTitle = rendered.html.startsWith('<h1 ') && first?.level === 1 && first.text.trim() === doc.title.trim();
   const body = sameTitle ? rendered.html.replace(/^<h1 /, '<h1 class="docs-page-title" ') : rendered.html;
   const title = sameTitle ? '' : `<h2 class="docs-page-title" tabindex="-1">${escape(doc.title)}</h2>`;
+  const breadcrumb = `<div class="docs-breadcrumb">${escape(doc.id)}</div>`;
+  const leading = sameTitle ? body.match(/^<h1 [^>]*>[\s\S]*?<\/h1>/)[0] : '';
   return {
     ...rendered,
-    html: `<div class="docs-breadcrumb">${escape(doc.id)}</div>${title}<article class="docs-prose">${body}</article>`,
+    html: `${breadcrumb}${title}<article class="docs-prose">${body}</article>`,
+    parts: {
+      breadcrumb,
+      // The view heading is the page's h1, so the document title is its h2.
+      title: leading
+        ? leading.replace(/<a class="docs-heading-anchor"[^>]*>#<\/a><\/h1>$/, '</h2>').replace(/^<h1 /, '<h2 ')
+        : title,
+      titleHeading: sameTitle ? first.id : null,
+      article: `<article class="docs-prose">${body.slice(leading.length)}</article>`,
+    },
   };
 }
 

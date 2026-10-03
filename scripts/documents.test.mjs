@@ -197,3 +197,22 @@ test('project knowledge routes resolve documents and decisions across collection
     'a document filename cannot impersonate a decision ID',
   );
 });
+
+test('document parts move a matching leading title into the reader header', () => {
+  const same = renderDocument({
+    id: 'Overview.md',
+    title: 'Project overview',
+    markdown: '# Project overview\n\n## Next',
+  });
+  assert.match(
+    same.parts.title,
+    /^<h2 class="docs-page-title" id="doc-heading-project-overview" tabindex="-1">Project overview<\/h2>$/,
+  );
+  assert.equal(same.parts.titleHeading, 'project-overview');
+  assert(!same.parts.article.includes('project-overview'));
+  assert.match(same.parts.article, /^<article class="docs-prose"><h2 id="doc-heading-next"/);
+  const different = renderDocument({ id: 'Overview.md', title: 'Overview', markdown: '# Purpose' });
+  assert.equal(different.parts.titleHeading, null);
+  assert.match(different.parts.title, /<h2 class="docs-page-title" tabindex="-1">Overview<\/h2>/);
+  assert.match(different.parts.article, /id="doc-heading-purpose"/);
+});
