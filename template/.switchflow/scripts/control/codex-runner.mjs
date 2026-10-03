@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { safeWorkerEnv, withWorkerEnv } from './worker-env.mjs';
 
 const MAX_LOG = 16 * 1024 * 1024;
 const MAX_LINE = 2 * 1024 * 1024;
@@ -115,6 +116,7 @@ export function codexArguments({
   additionalWritableRoots = [],
   temporaryRoot,
   disabledMcpServers = [],
+  env = {},
 }) {
   if (!['workspace-write', 'read-only'].includes(sandboxMode)) throw new Error('Unsafe sandbox mode');
   if (resumeThreadId && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(resumeThreadId))
@@ -147,6 +149,9 @@ export function codexArguments({
     for (const name of ['TMP', 'TEMP', 'TMPDIR'])
       args.push('-c', `shell_environment_policy.set.${name}=${JSON.stringify(temporaryRoot)}`);
   }
+  // Capacity caps (worker-env.mjs policy) for the commands Codex runs.
+  for (const [name, value] of Object.entries(safeWorkerEnv(env)))
+    args.push('-c', `shell_environment_policy.set.${name}=${JSON.stringify(value)}`);
   if (additionalWritableRoots.length)
     args.push('-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(additionalWritableRoots)}`);
   // Resume does not expose --color in this CLI version.
@@ -199,6 +204,7 @@ export async function startCodexRun({
   executable = 'codex',
   spawnProcess = spawn,
   listMcpServers = () => listUserMcpServers(executable),
+  env = {},
 }) {
   if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > MAX_RESULT)
     throw new Error('Invalid or oversized prompt');
@@ -222,6 +228,7 @@ export async function startCodexRun({
     sandboxMode,
     additionalWritableRoots,
     temporaryRoot,
+    env,
   });
   // Exclusive creation prevents reusing stale results or overwriting another run.
   const log = await open(path.join(runDirectory, 'events.jsonl'), 'wx');
@@ -245,8 +252,13 @@ export async function startCodexRun({
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(temporaryRoot
-        ? { env: { ...process.env, TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot } }
+      ...(temporaryRoot || Object.keys(env).length
+        ? {
+            env: {
+              ...withWorkerEnv(process.env, env),
+              ...(temporaryRoot ? { TMP: temporaryRoot, TEMP: temporaryRoot, TMPDIR: temporaryRoot } : {}),
+            },
+          }
         : {}),
     });
     const closed = new Promise(resolve => {

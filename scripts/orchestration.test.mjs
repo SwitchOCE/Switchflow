@@ -14,7 +14,7 @@ import {
   createOrchestrationFactory,
 } from '../template/.switchflow/scripts/control/orchestration.mjs';
 import { TOOL_NAMES, handleMessage } from '../template/.switchflow/scripts/control/orchestration-mcp.mjs';
-import { fakeProvider, fixture, until } from './agent-fakes.mjs';
+import { fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const both = { codex: { available: true }, claude: { available: true, loggedIn: true } };
 const planHash = 'a'.repeat(64);
@@ -64,6 +64,8 @@ async function setup(context, { providers, capabilities = both } = {}) {
       codex: fakeProvider('codex', log, respond),
       claude: fakeProvider('claude', log, respond),
     },
+    // A roomy machine of its own, so admission never depends on the test host's memory.
+    capacity: { pool: roomyPool() },
   });
   await host.init();
   const runId = randomUUID();
@@ -314,18 +316,20 @@ test('delegate, steer, review return, round cap and cancel stay inside host guar
       /Review round limit \(2\) reached for DEMO-1/,
     );
 
-    // Worker limit: two running workers, the third is refused.
+    // Worker limit: two running workers; the third queues and starts by itself when a slot frees.
     const a = await call('delegate_task', { task: 'DEMO-2', kind: 'deliver', instructions: 'slow', worktree: 'cand' });
     const b = await call('delegate_task', { task: 'DEMO-3', kind: 'deliver', instructions: 'slow', worktree: 'cand' });
-    await refuse(
-      call('delegate_task', { task: 'DEMO-3', kind: 'deliver', instructions: 'slow', worktree: 'cand' }),
-      409,
-      /At most 2 workers/,
-    );
-    const timed = await call('wait_for_workers', { workerIds: [a.workerId], timeoutSeconds: 1 });
+    const c = await call('delegate_task', { task: 'DEMO-3', kind: 'deliver', instructions: 'slow', worktree: 'cand' });
+    assert.equal(c.status, 'queued');
+    assert.equal(c.queue.position, 1);
+    assert.match(c.queue.reason, /2 workers are running, the limit/);
+    await refuse(call('send_to_worker', { workerId: c.workerId, message: 'x' }), 409, /queued \(position 1/);
+    const timed = await call('wait_for_workers', { workerIds: [a.workerId, c.workerId], timeoutSeconds: 1 });
     assert.equal(timed.timedOut, true);
+    assert.equal(timed.workers[1].status, 'queued');
     assert.equal((await call('interrupt_worker', { workerId: b.workerId })).interrupted, true);
     await until(async () => (await call('worker_status', { workerId: b.workerId })).workers[0].status === 'idle');
+    await until(async () => (await call('worker_status', { workerId: c.workerId })).workers[0].status === 'working');
 
     // Cancel: the run's abort reaches every worker.
     controller.abort();
@@ -335,6 +339,7 @@ test('delegate, steer, review return, round cap and cancel stay inside host guar
     const sessions = (await host.list()).sessions;
     assert.equal(sessions.find(s => s.id === a.workerId).status, 'cancelled');
     assert.equal(sessions.find(s => s.id === b.workerId).status, 'completed');
+    assert.equal(sessions.find(s => s.id === c.workerId).status, 'cancelled');
     assert.ok(sessions.filter(s => s.parentId === orchestrator.id).every(s => !s.live));
   }));
 
@@ -379,11 +384,13 @@ test('queued messages run as the next turn, and the suite lock admits one worker
       error => error.status === 403,
     );
 
-    // Suite lock: one holder; others wait or time out; release and session end free it.
+    // Suite lock (the lease "suite"): one holder; others wait or time out; release and session end free it.
     assert.equal((await call('acquire_suite_lock', { timeoutSeconds: 1 }, first.workerId)).acquired, true);
     assert.equal((await call('acquire_suite_lock', { timeoutSeconds: 1 }, first.workerId)).acquired, true);
     const blocked = await call('acquire_suite_lock', { timeoutSeconds: 1 }, second.workerId);
-    assert.deepEqual(blocked, { acquired: false, heldBy: first.workerId });
+    assert.equal(blocked.acquired, false);
+    assert.equal(blocked.heldBy, first.workerId);
+    assert.match(blocked.reason, /suite: 1 of 1 held by DEMO-1 deliver worker, 30 min left/);
     const waiting = call('acquire_suite_lock', { timeoutSeconds: 5 }, second.workerId);
     assert.deepEqual(await call('release_suite_lock', {}, second.workerId), { released: false });
     assert.deepEqual(await call('release_suite_lock', {}, first.workerId), { released: true });
@@ -409,10 +416,12 @@ test('queued messages run as the next turn, and the suite lock admits one worker
     );
 
     // Ending the worker that holds the lock releases it.
-    assert.equal(host.suiteLock.holder, second.workerId);
+    const suiteHolder = async () =>
+      (await host.capacity.listLeases()).leases.find(lease => lease.name === 'suite')?.holder ?? null;
+    assert.equal(await suiteHolder(), second.workerId);
     controller.abort();
     await orchestration.close();
-    assert.equal(host.suiteLock, null);
+    assert.equal(await suiteHolder(), null);
     assert.equal(orchestration.authorize(workerToken), null);
   }));
 
@@ -566,6 +575,7 @@ test('the stdio MCP helper reaches the run over HTTP with the run token only', (
       capabilities: both,
       backlog: { list: async () => [], view: async () => ({}) },
       providers: { codex: fakeProvider('codex', [], respond), claude: fakeProvider('claude', [], respond) },
+      capacity: { pool: roomyPool() },
     });
     let child;
     try {

@@ -5,9 +5,29 @@ import { fileURLToPath } from 'node:url';
 import { assertSafePath, readState } from '../operations/storage.mjs';
 import { ControlError } from './lifecycle.mjs';
 import { resolveProvider } from './agent-settings.mjs';
-import { SUITE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
+import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
+import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
 
-const SUITE_TOOL_NAMES = SUITE_TOOLS.map(tool => tool.name);
+const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
+/** A worker in one of these states has not finished its current step. */
+const BUSY = new Set(['queued', 'starting', 'working']);
+const MAX_INSTRUCTIONS = 50000;
+const SUITE_TTL_MINUTES = 30;
+
+/** Instructions for a worker re-delegated after a service restart. */
+export function resumeInstructions(entry) {
+  const was =
+    entry.status === 'queued'
+      ? 'was still queued'
+      : `had started${entry.approval ? ` (approach ${entry.approval})` : ''}`;
+  const note = [
+    `Resumed after the Switchflow service stopped. The previous ${entry.kind} worker for ${entry.task} (${entry.provider ?? 'provider unknown'}) ${was} and cannot be continued; this is a new session with the same instructions.`,
+    'Before changing anything, inspect the worktree: keep committed work, check uncommitted edits and any half-finished rebase or merge, and do not redo steps that are already done.',
+    "The orchestrator's original instructions follow.",
+    '',
+  ].join('\n');
+  return note + String(entry.instructions ?? '').slice(0, MAX_INSTRUCTIONS - note.length);
+}
 
 const MCP_SCRIPT = fileURLToPath(new URL('./orchestration-mcp.mjs', import.meta.url));
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -116,7 +136,7 @@ export class Orchestration {
     this.authors = new Map(); // task -> provider of the latest delivery worker
     this.reviewRounds = new Map();
     this.orchestratorId = null;
-    this.workerTokens = new Map(); // token -> worker session ID (suite lock only)
+    this.workerTokens = new Map(); // token -> worker session ID (lease tools only)
     this.closed = false;
   }
   /** Returns "orchestrator", a worker session ID, or null. */
@@ -165,9 +185,9 @@ export class Orchestration {
   async call(tool, args, principal = 'orchestrator') {
     if (this.closed || this.signal?.aborted) throw new ControlError('This run has ended.', 409);
     if (!TOOL_NAMES.includes(tool)) throw new ControlError('Unknown orchestration tool.', 404);
-    // Workers hold only the suite lock; delegation stays with the orchestrator.
-    if (principal !== 'orchestrator' && !SUITE_TOOL_NAMES.includes(tool))
-      throw new ControlError('Workers may only use the suite lock.', 403);
+    // Workers hold only leases; delegation stays with the orchestrator.
+    if (principal !== 'orchestrator' && !WORKER_TOOL_NAMES.includes(tool))
+      throw new ControlError('Workers may only use leases.', 403);
     if (!args || typeof args !== 'object' || Array.isArray(args))
       throw new ControlError('Arguments must be an object.');
     return this[tool](args, principal);
@@ -182,6 +202,7 @@ export class Orchestration {
     if (!worker) throw new ControlError('Unknown worker for this run.', 404);
     return worker;
   }
+  /** Workers counted against limits.maxWorkers: starting or in a turn. Idle and queued ones are not. */
   liveCount() {
     return [...this.workers.values()].filter(worker => ['starting', 'working'].includes(worker.status)).length;
   }
@@ -203,21 +224,20 @@ export class Orchestration {
     return entry;
   }
 
-  async delegate_task(args) {
+  /**
+   * Delegates one task. The worker is admitted at once when a worker slot and memory are free;
+   * otherwise it is queued (status "queued") and starts by itself, first in first out.
+   */
+  async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
     this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider']);
     const { task, kind, instructions, provider: requested } = args;
     if (typeof task !== 'string' || !TASK_ID.test(task)) throw new ControlError('task must be a Backlog task ID.');
     if (!['deliver', 'review'].includes(kind)) throw new ControlError('kind must be deliver or review.');
-    if (typeof instructions !== 'string' || !instructions.trim() || instructions.length > 50000)
-      throw new ControlError('instructions must contain 1–50000 characters.');
+    if (typeof instructions !== 'string' || !instructions.trim() || instructions.length > MAX_INSTRUCTIONS)
+      throw new ControlError(`instructions must contain 1–${MAX_INSTRUCTIONS} characters.`);
     if (requested !== undefined && !['claude', 'codex'].includes(requested))
       throw new ControlError('provider must be claude or codex.');
     const settings = await this.host.settings();
-    if (this.liveCount() >= settings.limits.maxWorkers)
-      throw new ControlError(
-        `At most ${settings.limits.maxWorkers} workers may run at once. Wait for one to finish.`,
-        409,
-      );
     if (this.taskExists) {
       try {
         await this.taskExists(task);
@@ -250,13 +270,79 @@ export class Orchestration {
         capabilities: this.host.capabilities,
         requested: requested ?? null,
       });
-    // Reserve the slot before any await that could let a second delegation pass the limit check.
-    const placeholder = { status: 'starting' };
-    const key = Symbol('pending');
-    this.workers.set(key, placeholder);
-    let pendingToken;
+    if (kind === 'review') this.reviewRounds.set(task, reviewRound);
+    const write = kind === 'deliver';
+    const worker = {
+      id: randomUUID(),
+      task,
+      kind,
+      provider: routed.provider,
+      worktree: entry.path,
+      candidate: entry.name,
+      reviewRound,
+      meta: null,
+      handle: null,
+      status: 'queued',
+      result: null,
+      error: null,
+      reported: true,
+      queue: [],
+      token: null,
+      schemaPath: path.join(this.directory, `${kind}-schema.json`),
+      approval: write ? APPROVAL.drafting : null,
+      instructions,
+      resumedFrom,
+    };
+    this.workers.set(worker.id, worker);
+    if (write) this.authors.set(task, routed.provider);
+    let admission;
     try {
-      if (kind === 'review') this.reviewRounds.set(task, reviewRound);
+      // Durable before anything starts, so a crash can still name and resume this delegation.
+      await recordDelegation(this.context, {
+        runId: this.runId,
+        initiativeId: this.initiativeId,
+        workerId: worker.id,
+        task,
+        kind,
+        worktree: entry.name,
+        provider: routed.provider,
+        instructions,
+        status: 'queued',
+        approval: worker.approval,
+        resumedFrom,
+      });
+      admission = await this.host.capacity.request({
+        id: worker.id,
+        runId: this.runId,
+        task,
+        kind,
+        maxWorkers: settings.limits.maxWorkers,
+        slotFree: () => this.liveCount() < settings.limits.maxWorkers,
+        start: () => (worker.launching = this.launch(worker, routed, entry)),
+        onFailure: error => this.launchFailed(worker, error),
+      });
+    } catch (error) {
+      // A worker that could not start at once leaves no record behind, as before queuing existed.
+      this.workers.delete(worker.id);
+      this.host.capacity.cancel(worker.id);
+      await updateDelegation(this.context, worker.id, { status: 'finished', outcome: 'failed' }).catch(() => {});
+      throw error;
+    }
+    return {
+      ...this.summary(worker),
+      fallback: routed.fallback,
+      ...(admission.note ? { capacityNote: admission.note } : {}),
+    };
+  }
+
+  /** Opens an admitted worker's session and starts its first turn. */
+  async launch(worker, routed, entry) {
+    // Before the first await: the worker now counts against limits.maxWorkers.
+    worker.status = 'starting';
+    let workerToken;
+    try {
+      if (this.closed || this.signal?.aborted) throw new ControlError('This run has ended.', 409);
+      const { task, kind, reviewRound } = worker;
       const workerDirectory = await this.host.ensureDirectory(
         this.directory,
         'workers',
@@ -265,14 +351,12 @@ export class Orchestration {
       const stateDir = this.context.stateDir;
       const temporaryRoot = await this.host.ensureDirectory(workerDirectory, 'tmp');
       const write = kind === 'deliver';
-      // Each worker gets its own token, valid only for the suite lock while it runs.
-      const workerId = randomUUID();
-      const workerToken = randomBytes(32).toString('hex');
-      const suiteServer = this.serverFor(workerToken, 'suite');
-      const suiteConfigPath = path.join(workerDirectory, 'mcp.json');
-      await this.writeMcpConfig(suiteConfigPath, suiteServer);
-      this.workerTokens.set(workerToken, workerId);
-      pendingToken = workerToken;
+      // Each worker gets its own token, valid only for the lease tools while it runs.
+      workerToken = randomBytes(32).toString('hex');
+      const leaseServer = this.serverFor(workerToken, 'suite');
+      const leaseConfigPath = path.join(workerDirectory, 'mcp.json');
+      await this.writeMcpConfig(leaseConfigPath, leaseServer);
+      this.workerTokens.set(workerToken, worker.id);
       const writableRoots = write
         ? [
             entry.path,
@@ -282,7 +366,7 @@ export class Orchestration {
           ]
         : [];
       const opened = await this.host.openSession({
-        id: workerId,
+        id: worker.id,
         provider: routed.provider,
         fallback: routed.fallback,
         role: write ? 'delivery' : 'review',
@@ -300,37 +384,23 @@ export class Orchestration {
         runDirectory: workerDirectory,
         signal: this.signal,
         gitHelperPath: write ? this.gitBridge.helperPath : undefined,
-        mcpServers: { switchflow: suiteServer },
-        mcpConfigPath: suiteConfigPath,
-        approval: write ? APPROVAL.drafting : null,
+        mcpServers: { switchflow: leaseServer },
+        mcpConfigPath: leaseConfigPath,
+        approval: worker.approval,
         forward: async () => {},
       });
-      const worker = {
-        id: opened.meta.id,
-        task,
-        kind,
-        provider: routed.provider,
-        worktree: entry.path,
-        reviewRound,
-        meta: opened.meta,
-        handle: opened.handle,
-        status: 'working',
-        result: null,
-        error: null,
-        reported: true,
-        queue: [],
-        token: workerToken,
-        schemaPath: path.join(this.directory, `${kind}-schema.json`),
-        approval: write ? APPROVAL.drafting : null,
-      };
+      // Cancelled while it was starting: close what just opened.
+      if (this.closed || worker.status !== 'starting') {
+        await this.host.closeSession(opened.meta, opened.handle, { status: 'cancelled' }).catch(() => {});
+        throw new ControlError('This worker was cancelled while it started.', 409);
+      }
+      Object.assign(worker, { meta: opened.meta, handle: opened.handle, token: workerToken, status: 'working' });
       opened.handle.followUp = (message, { confirm = false, by = 'orchestrator' } = {}) =>
         this.startTurn(worker, message, { confirm, by });
       opened.handle.enqueue = message => worker.queue.push(message);
       // The host reads the gate when a message asks to confirm.
       Object.defineProperty(opened.handle, 'approval', { get: () => worker.approval, configurable: true });
-      this.workers.delete(key);
-      this.workers.set(worker.id, worker);
-      if (write) this.authors.set(task, routed.provider);
+      await updateDelegation(this.context, worker.id, { status: 'open' }).catch(() => {});
       await this.startTurn(
         worker,
         workerPrompt({
@@ -340,16 +410,58 @@ export class Orchestration {
           candidate: entry.name,
           governanceRoot: this.context.governanceRoot,
           gitBridge: this.gitBridge,
-          instructions,
+          instructions: worker.instructions,
         }),
       );
-      return { ...this.summary(worker), fallback: routed.fallback };
-    } finally {
-      this.workers.delete(key);
+    } catch (error) {
       // A worker that never opened must not leave a usable token behind.
-      if (pendingToken && !this.workers.has(this.workerTokens.get(pendingToken)))
-        this.workerTokens.delete(pendingToken);
+      if (workerToken && !worker.handle) this.workerTokens.delete(workerToken);
+      throw error;
     }
+  }
+  /** A queued worker that failed to start once admitted. Its orchestrator sees it as failed. */
+  async launchFailed(worker, error) {
+    if (FINISHED.has(worker.status)) return;
+    Object.assign(worker, { status: 'failed', closedStatus: 'failed', error: error.message, reported: false });
+    await updateDelegation(this.context, worker.id, { status: 'finished', outcome: 'failed' }).catch(() => {});
+    this.host.registry.wake();
+  }
+  /** Re-delegates workers held by a service restart, deliveries before reviews. */
+  async resume(entries) {
+    const ordered = [...entries].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'deliver' ? -1 : 1));
+    const resumed = [];
+    const failed = [];
+    for (const entry of ordered) {
+      try {
+        const summary = await this.delegate_task(
+          {
+            task: entry.task,
+            kind: entry.kind,
+            worktree: entry.worktree,
+            instructions: resumeInstructions(entry),
+            // A reviewer is routed afresh so it still differs from the author.
+            ...(entry.kind === 'deliver' && entry.provider ? { provider: entry.provider } : {}),
+          },
+          'orchestrator',
+          { resumedFrom: entry.workerId },
+        );
+        resumed.push(`${entry.task} ${entry.kind} (${summary.status})`);
+      } catch (error) {
+        failed.push(`${entry.task} ${entry.kind}: ${error.message}`);
+      }
+    }
+    if (this.orchestratorId)
+      await this.host.registry.record(this.orchestratorId, {
+        kind: 'notice',
+        level: failed.length ? 'warning' : 'info',
+        text: [
+          resumed.length ? `Resumed held workers: ${resumed.join('; ')}.` : '',
+          failed.length ? `Could not resume: ${failed.join('; ')}.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      });
+    return { resumed, failed };
   }
 
   /**
@@ -419,11 +531,19 @@ export class Orchestration {
   }
   async finishWorker(worker, status) {
     if (FINISHED.has(worker.status) && worker.closedStatus) return;
+    const opened = Boolean(worker.meta);
     worker.status = status;
     worker.closedStatus = status;
     worker.queue = [];
-    this.workerTokens.delete(worker.token);
-    this.host.releaseSuiteLock(worker.id);
+    if (worker.token) this.workerTokens.delete(worker.token);
+    await updateDelegation(this.context, worker.id, { status: 'finished', outcome: status }).catch(() => {});
+    if (!opened) {
+      // Queued, or still starting: launch() sees the status and closes what it opens.
+      this.host.capacity.cancel(worker.id);
+      this.host.registry.wake();
+      return;
+    }
+    // Closing the session also releases its leases, memory reservation and leftover processes.
     await this.host.closeSession(worker.meta, worker.handle, {
       status,
       error: status === 'completed' ? null : worker.error,
@@ -431,7 +551,8 @@ export class Orchestration {
     });
   }
   summary(worker) {
-    const meta = this.host.registry.get(worker.id)?.meta ?? worker.meta;
+    const meta = this.host.registry.get(worker.id)?.meta ?? worker.meta ?? {};
+    const queue = worker.status === 'queued' ? this.host.capacity.queueInfo(worker.id) : null;
     return {
       workerId: worker.id,
       task: worker.task,
@@ -440,9 +561,11 @@ export class Orchestration {
       worktree: worker.worktree,
       reviewRound: worker.reviewRound,
       status: worker.status,
+      ...(queue ? { queue } : {}),
       approval: worker.approval,
       writable: worker.kind === 'deliver' && worker.approval === APPROVAL.confirmed,
       ...(worker.approval === APPROVAL.awaiting && worker.status === 'idle' ? { note: AWAITING_NOTE } : {}),
+      ...(worker.resumedFrom ? { resumedFrom: worker.resumedFrom } : {}),
       lastTurn: meta.lastTurn ?? null,
       lastMessage: meta.lastMessage ?? null,
       usage: meta.usage ?? null,
@@ -451,55 +574,118 @@ export class Orchestration {
     };
   }
   realWorkers() {
-    return [...this.workers.values()].filter(worker => worker.id);
+    return [...this.workers.values()];
   }
 
   async worker_status(args) {
     this.fields(args, [], ['workerId']);
     const workers = args.workerId ? [this.worker(args.workerId)] : this.realWorkers();
-    for (const worker of workers) if (worker.status !== 'working') worker.reported = true;
+    for (const worker of workers) if (!BUSY.has(worker.status)) worker.reported = true;
     return { workers: workers.map(worker => this.summary(worker)) };
   }
   async send_to_worker(args) {
     this.fields(args, ['workerId', 'message'], ['mode', 'confirm']);
     const worker = this.worker(args.workerId);
     if (FINISHED.has(worker.status)) throw new ControlError('This worker has finished. Delegate again.', 409);
+    if (worker.status === 'queued') {
+      const queue = this.host.capacity.queueInfo(worker.id);
+      throw new ControlError(
+        `This worker is queued (position ${queue?.position ?? '?'}: ${queue?.reason ?? 'waiting for capacity'}). Send the message after it starts, or interrupt it to cancel.`,
+        409,
+      );
+    }
+    if (worker.status === 'starting')
+      throw new ControlError('This worker is starting. Send the message after its first turn begins.', 409);
     return this.host.deliver(worker.id, args.message, 'orchestrator', args.mode ?? 'steer', {
       confirm: args.confirm,
     });
   }
-  async acquire_suite_lock(args, principal) {
-    this.fields(args, [], ['timeoutSeconds']);
-    const seconds = args.timeoutSeconds ?? 30;
+
+  waitMs(value) {
+    const seconds = value ?? 30;
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 50)
       throw new ControlError('timeoutSeconds must be 1–50. Call again to keep waiting.');
-    const holder = principal === 'orchestrator' ? this.orchestratorId || 'orchestrator' : principal;
-    return this.host.acquireSuiteLock(holder, seconds * 1000, this.signal);
+    return seconds * 1000;
+  }
+  /** Leases are held by sessions: a worker's own, or the orchestrator's. */
+  leaseHolder(principal) {
+    if (principal !== 'orchestrator') {
+      const worker = this.worker(principal);
+      return { holder: worker.id, kind: worker.kind, task: worker.task };
+    }
+    return { holder: this.orchestratorId || `orchestrator:${this.runId}`, kind: 'orchestrator', task: null };
+  }
+  async acquire_lease(args, principal) {
+    this.fields(args, ['name'], ['ttlMinutes', 'timeoutSeconds']);
+    const timeoutMs = this.waitMs(args.timeoutSeconds);
+    if (args.ttlMinutes !== undefined && !Number.isInteger(args.ttlMinutes))
+      throw new ControlError('ttlMinutes must be a whole number of minutes.');
+    return this.host.capacity.acquireLease({
+      name: args.name,
+      ...this.leaseHolder(principal),
+      runId: this.runId,
+      ttlMinutes: args.ttlMinutes,
+      timeoutMs,
+      signal: this.signal,
+    });
+  }
+  async release_lease(args, principal) {
+    this.fields(args, ['id']);
+    if (typeof args.id !== 'string' || args.id.length > 64) throw new ControlError('id must be a lease ID.');
+    // The orchestrator may release any lease of its run, for example one a stuck worker holds.
+    return this.host.capacity.releaseLease(args.id, {
+      holder: this.leaseHolder(principal).holder,
+      runId: principal === 'orchestrator' ? this.runId : null,
+    });
+  }
+  async list_leases(args) {
+    this.fields(args, []);
+    return this.host.capacity.listLeases();
+  }
+  /** Compatibility: the suite lock is the lease "suite". */
+  async acquire_suite_lock(args, principal) {
+    this.fields(args, [], ['timeoutSeconds']);
+    const timeoutMs = this.waitMs(args.timeoutSeconds);
+    const result = await this.host.capacity.acquireLease({
+      name: 'suite',
+      ...this.leaseHolder(principal),
+      runId: this.runId,
+      timeoutMs,
+      signal: this.signal,
+      ttlMinutes: SUITE_TTL_MINUTES,
+    });
+    if (result.acquired) return { acquired: true, expiresAt: result.expiresAt };
+    const holder = (await this.host.capacity.listLeases()).leases.find(lease => lease.name === 'suite');
+    return { acquired: false, heldBy: holder?.holder ?? null, reason: result.reason };
   }
   async release_suite_lock(args, principal) {
     this.fields(args, []);
-    return this.host.releaseSuiteLock(principal === 'orchestrator' ? this.orchestratorId || 'orchestrator' : principal);
+    const released = await this.host.capacity.releaseHolder(this.leaseHolder(principal).holder, 'suite');
+    return { released: released.length > 0 };
   }
   async interrupt_worker(args) {
     this.fields(args, ['workerId']);
     const worker = this.worker(args.workerId);
+    // A queued worker has no turn to stop; interrupting it cancels the delegation.
+    if (worker.status === 'queued') {
+      await this.finishWorker(worker, 'cancelled');
+      return { workerId: worker.id, interrupted: true, cancelled: true };
+    }
     const interrupted = worker.status === 'working' && (await worker.handle.interrupt({ by: 'orchestrator' }));
     return { workerId: worker.id, interrupted: Boolean(interrupted) };
   }
-  /** Returns when a listed worker finishes a turn not yet reported, or none is still working. */
+  /** Returns when a listed worker finishes a turn not yet reported, or none is still busy (queued, starting, working). */
   async wait_for_workers(args) {
     this.fields(args, [], ['workerIds', 'timeoutSeconds']);
     const ids = args.workerIds ?? this.realWorkers().map(worker => worker.id);
     if (!Array.isArray(ids) || ids.length > 50) throw new ControlError('workerIds must be a list.');
     const workers = ids.map(id => this.worker(id));
-    const seconds = args.timeoutSeconds ?? 30;
-    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 50)
-      throw new ControlError('timeoutSeconds must be 1–50. Call again to keep waiting.');
+    const timeoutMs = this.waitMs(args.timeoutSeconds);
     const ready = () =>
-      workers.some(worker => worker.status !== 'working' && !worker.reported) ||
-      workers.every(worker => worker.status !== 'working');
-    const done = await this.host.registry.waitFor(ready, seconds * 1000, this.signal);
-    for (const worker of workers) if (worker.status !== 'working') worker.reported = true;
+      workers.some(worker => !BUSY.has(worker.status) && !worker.reported) ||
+      workers.every(worker => !BUSY.has(worker.status));
+    const done = await this.host.registry.waitFor(ready, timeoutMs, this.signal);
+    for (const worker of workers) if (!BUSY.has(worker.status)) worker.reported = true;
     return { timedOut: !done, workers: workers.map(worker => this.summary(worker)) };
   }
 
@@ -507,12 +693,11 @@ export class Orchestration {
     if (this.closed) return;
     this.closed = true;
     this.host.orchestrations.delete(this.runId);
-    this.host.releaseSuiteLock(this.orchestratorId || 'orchestrator');
+    await this.host.capacity.releaseHolder(this.orchestratorId || `orchestrator:${this.runId}`).catch(() => {});
     await Promise.allSettled(
-      this.realWorkers().map(worker =>
-        this.finishWorker(worker, worker.status === 'working' ? 'cancelled' : 'completed'),
-      ),
+      this.realWorkers().map(worker => this.finishWorker(worker, BUSY.has(worker.status) ? 'cancelled' : 'completed')),
     );
+    await Promise.allSettled(this.realWorkers().map(worker => worker.launching));
     await Promise.allSettled(this.realWorkers().map(worker => worker.turn));
   }
 }
