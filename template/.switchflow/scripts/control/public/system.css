@@ -502,3 +502,54 @@ main {
 dialog.sheet::backdrop {
   backdrop-filter: none;
 }
+
+/* Editor action bar: one layout for every record editor (task, document, milestone).
+   Left: save state. Right: secondary actions, then the single primary Save.
+   Markup: <div class="editor-bar"><span class="editor-state" role="status">…</span>
+   <div class="editor-actions">[Compare only during a conflict] [Discard] [Cancel] [Save]</div></div> */
+.editor-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -6px 16px -12px rgb(0 0 0 / 0.25);
+}
+.editor-state {
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.editor-state[data-state='dirty']::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  vertical-align: 1px;
+}
+.editor-state[data-state='error'] {
+  color: var(--danger-text);
+}
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.prose-measure {
+  max-width: var(--measure);
+}
+@media (max-width: 760px) {
+  .toolbar input[type='search'] {
+    width: 100%;
+  }
+}

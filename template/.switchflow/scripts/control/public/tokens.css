@@ -57,6 +57,8 @@
   --text-lg: 16px;
   --text-xl: 20px;
   --text-2xl: 24px;
+  /* One reading measure for prose in documents, tasks and milestones. */
+  --measure: 76ch;
   --font: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 
