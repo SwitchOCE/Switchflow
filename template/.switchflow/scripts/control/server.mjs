@@ -11,6 +11,7 @@ import { ControlError } from './lifecycle.mjs';
 import { createBacklogAdapter } from './backlog-adapter.mjs';
 import { isRunProcessAlive } from './codex-runner.mjs';
 import { AgentHost } from './agent-host.mjs';
+import { createOrchestrationFactory } from './orchestration.mjs';
 import { normalizeCapabilities, probeCapabilities } from './agent-settings.mjs';
 import * as protocol from './agent-protocol.mjs';
 import { previewUatArtifact } from './artifacts.mjs';
@@ -99,7 +100,7 @@ export async function createControlServer({
   runner,
   providers,
   agentExecutables,
-  orchestrationFactory,
+  orchestrationFactory = createOrchestrationFactory,
   agentProtocol = protocol,
   backlog,
   backlogFactory = createBacklogAdapter,

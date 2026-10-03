@@ -6,6 +6,14 @@ import { StringDecoder } from 'node:string_decoder';
 const MAX_LOG = 16 * 1024 * 1024;
 const MAX_LINE = 2 * 1024 * 1024;
 const MAX_RESULT = 1024 * 1024;
+export const CODEX_FEATURE_OVERRIDES = Object.freeze([
+  '-c',
+  'features.apps=false',
+  '-c',
+  'features.plugins=false',
+  '-c',
+  'features.computer_use=false',
+]);
 
 /** Conservative recovery probe. A reused PID is considered alive: never kill an unverified process. */
 export function isRunProcessAlive(pid) {
@@ -38,6 +46,8 @@ export function codexArguments({
     '-c',
     'sandbox_workspace_write.exclude_slash_tmp=true',
   );
+  // ChatGPT apps can reach live services and deploy; bundled plugins include computer use.
+  args.push(...CODEX_FEATURE_OVERRIDES);
   if (
     !Array.isArray(additionalWritableRoots) ||
     additionalWritableRoots.some(root => typeof root !== 'string' || !path.isAbsolute(root))

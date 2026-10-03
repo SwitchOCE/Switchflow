@@ -17,6 +17,7 @@ import {
 
 export const defaultProviders = Object.freeze({ codex: openCodexSession, claude: openClaudeSession });
 const MAX_STEER = 20000;
+const SUITE_LOCK_MS = 30 * 60 * 1000;
 
 /** Maps `codex exec --json` events into the normalized session vocabulary. */
 export function normalizeExecEvent(entry) {
@@ -204,6 +205,7 @@ export class AgentHost {
    * fails its handshake; that fallback is recorded as a visible notice on the session.
    */
   async openSession({
+    id,
     provider,
     fallback = null,
     role,
@@ -231,6 +233,7 @@ export class AgentHost {
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
     const meta = await this.registry.create({
+      id,
       runId,
       initiativeId,
       parentId,
@@ -437,51 +440,79 @@ export class AgentHost {
     throw new ControlError('Agent session not found.', 404);
   }
 
-  /** Delivers a message to a live session: mid-turn steer, or a follow-up turn for an idle worker. */
-  async deliver(sessionId, message, by) {
+  /**
+   * Delivers a message to a live session. mode "steer" reaches a running turn mid-turn; "queue"
+   * holds it until that turn ends and sends it as the next turn's input. An idle worker gets a
+   * follow-up turn either way. Returns the effective mode: steer, queue or followup.
+   */
+  async deliver(sessionId, message, by, mode = 'steer') {
     if (typeof message !== 'string' || !message.trim() || message.length > MAX_STEER)
       throw new ControlError(`message must contain 1–${MAX_STEER} characters.`);
+    if (!['steer', 'queue'].includes(mode)) throw new ControlError('mode must be steer or queue.');
+    const text = message.trim();
     const entry = await this.liveEntry(sessionId);
     const { handle, meta } = entry;
-    if (handle.activeTurnId) {
+    // A turn that has just started may not have its provider turn ID yet.
+    for (let waited = 0; !handle.activeTurnId && meta.status === 'working' && !handle.closed && waited < 10000;) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      waited += 50;
+    }
+    const turnId = handle.activeTurnId;
+    if (turnId && mode === 'queue') {
+      // Workers run the queue as their next turn; a stage agent's next turn is the next checkpoint.
+      if (typeof handle.enqueue === 'function') handle.enqueue(text);
+      else if (meta.kind !== 'stage') throw new ControlError('This session cannot queue messages.', 409);
+      await this.registry.record(sessionId, { kind: 'steer', text, by, mode: 'queue', turnId });
+      return { ok: true, sessionId, mode: 'queue', turnId };
+    }
+    if (turnId) {
       if (handle.canSteer === false)
-        throw new ControlError('This session cannot be steered. Interrupt it or wait for it to finish.', 409);
+        throw new ControlError('This session cannot be steered. Queue the message or interrupt it.', 409);
       try {
-        const steered = await handle.steer(message.trim(), { expectedTurnId: handle.activeTurnId, by });
-        return { sessionId, delivered: 'steer', turnId: steered?.turnId ?? null };
+        const steered = await handle.steer(text, { expectedTurnId: turnId, by });
+        return { ok: true, sessionId, mode: 'steer', turnId: steered?.turnId ?? turnId };
       } catch (error) {
         if (error instanceof ControlError) throw error;
         throw new ControlError(`The agent did not accept the message: ${error.message}`, 409);
       }
     }
     if (meta.status === 'idle' && typeof handle.followUp === 'function') {
-      await handle.followUp(message.trim(), { by });
-      return { sessionId, delivered: 'follow-up', turnId: null };
+      await this.registry.record(sessionId, { kind: 'steer', text, by, mode: 'followup', turnId: null });
+      await handle.followUp(text, { by });
+      return { ok: true, sessionId, mode: 'followup', turnId: null };
     }
     throw new ControlError('This agent has no running turn to steer.', 409);
   }
 
   /** Owner steering from the browser. The text is kept in the initiative's owner history. */
   async steer(sessionId, input) {
-    if (!input || typeof input !== 'object' || Object.keys(input).some(key => key !== 'message'))
-      throw new ControlError('Only message can be supplied.');
-    const delivered = await this.deliver(sessionId, input.message, 'owner');
+    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['message', 'mode'].includes(key)))
+      throw new ControlError('Only message and mode can be supplied.');
+    const delivered = await this.deliver(sessionId, input.message, 'owner', input.mode ?? 'steer');
     const meta = this.registry.get(sessionId)?.meta ?? (await this.registry.find(sessionId));
     if (this.engine && meta?.initiativeId)
       await this.engine.mutate(state => {
         const item = state.initiatives.find(i => i.id === meta.initiativeId);
         if (!item) return;
+        // A message queued to a stage agent is ordinary owner input for the next checkpoint.
+        const forNextRun = delivered.mode === 'queue' && meta.kind === 'stage';
         item.messages.push({
-          type: 'steer',
+          type: forNextRun ? 'update' : 'steer',
           message: input.message.trim(),
           sessionId,
           runId: meta.runId,
           role: meta.role,
           provider: meta.provider,
-          delivered: delivered.delivered,
+          mode: delivered.mode,
           at: now(),
         });
-        event(item, 'steer', `Human steered the ${meta.role} agent (${meta.provider}).`);
+        event(
+          item,
+          'steer',
+          forNextRun
+            ? `Human queued a message for the next ${meta.role} checkpoint.`
+            : `Human steered the ${meta.role} agent (${meta.provider}).`,
+        );
         item.revision++;
         item.updatedAt = now();
       });
@@ -521,12 +552,38 @@ export class AgentHost {
     return { settings: saved, routing: this.routing(saved) };
   }
 
-  /** Orchestrator tool calls arrive over loopback HTTP with the per-run token. */
+  /** Orchestrator and worker tool calls arrive over loopback HTTP with a per-run or per-worker token. */
   async orchestrationCall(runId, token, tool, args) {
     const orchestration = this.orchestrations.get(runId);
-    if (!orchestration || !orchestration.authorize(token))
-      throw new ControlError('Unknown or expired orchestration run.', 403);
-    return orchestration.call(tool, args);
+    const principal = orchestration?.authorize(token);
+    if (!principal) throw new ControlError('Unknown or expired orchestration run.', 403);
+    return orchestration.call(tool, args, principal);
+  }
+
+  /**
+   * One project-wide suite lock so parallel workers do not saturate the machine with full
+   * test or build runs. Held per session; released explicitly, when the session ends, or
+   * after SUITE_LOCK_MS.
+   */
+  async acquireSuiteLock(holder, timeoutMs, signal) {
+    const free = () => {
+      if (this.suiteLock && this.suiteLock.expiresAt <= Date.now()) this.suiteLock = null;
+      return !this.suiteLock || this.suiteLock.holder === holder;
+    };
+    const acquired = await this.registry.waitFor(free, timeoutMs, signal);
+    if (acquired && free()) {
+      this.suiteLock = { holder, since: new Date().toISOString(), expiresAt: Date.now() + SUITE_LOCK_MS };
+      return { acquired: true, expiresAt: new Date(this.suiteLock.expiresAt).toISOString() };
+    }
+    return { acquired: false, heldBy: this.suiteLock?.holder ?? null };
+  }
+  releaseSuiteLock(holder) {
+    const held = this.suiteLock?.holder === holder;
+    if (held) {
+      this.suiteLock = null;
+      this.registry.wake();
+    }
+    return { released: held };
   }
 
   async close() {

@@ -51,6 +51,7 @@ test('fresh and resumed commands enforce sandbox and noninteractive approvals', 
     assert.ok(args.includes('sandbox_mode="workspace-write"'));
     assert.ok(args.includes('sandbox_workspace_write.exclude_tmpdir_env_var=true'));
     assert.ok(args.includes('sandbox_workspace_write.exclude_slash_tmp=true'));
+    for (const feature of ['apps', 'plugins', 'computer_use']) assert.ok(args.includes(`features.${feature}=false`));
     assert.equal(args.at(-1), '-');
     assert.ok(!args.some(a => a.includes('bypass')));
   }

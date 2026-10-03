@@ -190,7 +190,13 @@ export class AgentSessionRegistry {
     this.live.delete(id);
     this.wake();
   }
-  async persist(meta) {
+  /** Writes are serialized and copy the summary at write time, so a later state never loses to an earlier one. */
+  persist(meta) {
+    const write = (this.persisting ?? Promise.resolve()).catch(() => {}).then(() => this.write(meta));
+    this.persisting = write;
+    return write;
+  }
+  async write(meta) {
     const snapshot = structuredClone(meta);
     await updateState(
       this.context,

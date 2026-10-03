@@ -203,6 +203,9 @@ test('Codex app-server arguments and thread settings keep the exec guardrails', 
   assert.deepEqual(params.config.notify, []);
   assert.deepEqual(params.config.sandbox_workspace_write.writable_roots, []);
   assert.deepEqual(params.config.mcp_servers.supabase, { enabled: false });
+  assert.deepEqual(params.config.features, { apps: false, plugins: false, computer_use: false });
+  assert.equal(params.config.apps._default.enabled, false);
+  for (const feature of ['apps', 'plugins', 'computer_use']) assert.ok(args.includes(`features.${feature}=false`));
   assert.equal(params.config.mcp_servers.switchflow.command, 'node');
   assert.deepEqual(sandboxPolicy({ sandbox: 'read-only', writableRoots: [temporaryRoot] }), {
     type: 'readOnly',

@@ -451,7 +451,7 @@ export async function openClaudeSession({
       active.unreplayed++;
       // "next": read inside the running turn once its current tools finish (Agent SDK semantics).
       write(userMessage(text, 'next'));
-      await emit({ kind: 'steer', text, by, turnId: active.id });
+      await emit({ kind: 'steer', text, by, mode: 'steer', turnId: active.id });
       return { turnId: active.id };
     },
     async interrupt({ by = 'owner' } = {}) {

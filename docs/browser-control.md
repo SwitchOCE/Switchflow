@@ -32,7 +32,7 @@ An ordinary conflict between managed candidates stays with the agents. The helpe
 
 Each stage runs one agent session through a provider adapter in `scripts/control/providers/`: `codex-app-server.mjs` (`codex app-server`, JSON-RPC over stdio) or `claude-cli.mjs` (the installed `claude` CLI in stream-json mode). If app-server fails its initialize handshake, Codex falls back to `codex exec` (`codex-runner.mjs`), which cannot be steered. Both adapters keep the exec guardrails: approval `never` with no approval prompts, only the `workspace-write` or `read-only` sandbox, the host's explicit writable roots, a private temp folder, no sandbox network, and no bypass mode.
 
-- **Codex** gets the policy twice: as `-c` process overrides (including `notify=[]`) and as explicit per-thread and per-turn settings (`approvalPolicy: never`, `approvalsReviewer: user`, `sandboxPolicy`), so `~/.codex/config.toml` cannot loosen it. The user's own MCP servers are disabled for runs; runs see only servers Switchflow supplies.
+- **Codex** gets the policy twice: as `-c` process overrides (including `notify=[]`) and as explicit per-thread and per-turn settings (`approvalPolicy: never`, `approvalsReviewer: user`, `sandboxPolicy`), so `~/.codex/config.toml` cannot loosen it. The user's own MCP servers, ChatGPT apps (the `codex_apps` connector, which can reach live services and deploy) and bundled plugins such as computer use are disabled for runs (`features.apps`, `features.plugins`, `features.computer_use` set to false); runs see only servers Switchflow supplies. The `codex exec` fallback gets the same feature overrides but still loads the user's MCP servers.
 - **Claude** runs with `--restricted --strict-mcp-config --permission-prompts none`: user, project and local settings are ignored, file tools are confined to the working directory and `--add-dir` roots, and anything not pre-approved is denied. Writing roles use `acceptEdits` with `Read, Grep, Glob, Edit, Write, NotebookEdit, Bash`; read-only roles get no edit tools. Bash is limited to read-only Git and the Switchflow wrappers (`.switchflow/scripts/*`, plus the Git helper during delivery). Each session has `--max-turns`, a `--json-schema` result and an `is_error` check.
 
 ### Role routing
@@ -120,7 +120,7 @@ Poll with `after=nextAfter`. Every event has `seq`, `at` and `kind`:
 | `tool` | `name`, `summary` (one line) |
 | `command` | `command`, `status` (`started`, `completed`, `failed`, ...), `exitCode` |
 | `file_change` | `paths[]`, `status` |
-| `steer` | `text`, `by` (`owner` or `orchestrator`), `turnId` |
+| `steer` | `text`, `by` (`owner` or `orchestrator`), `mode` (`steer`, `queue` or `followup`), `turnId` |
 | `interrupt` | `by`, `turnId` |
 | `turn.completed` | `turnId`, `status` (`completed` or `interrupted`), `usage` |
 | `turn.failed` | `turnId`, `error` |
@@ -130,17 +130,48 @@ Poll with `after=nextAfter`. Every event has `seq`, `at` and `kind`:
 
 Text fields are capped at 20,000 characters. Shell output and hidden reasoning are not included.
 
-**`POST /agents/<sessionId>/steer`** takes `{ "message": "<1–20000 characters>" }` and no other fields. A running turn receives it mid-turn: Codex through `turn/steer` with the active turn ID, Claude as a queued user message read at its next tool boundary. An idle worker receives it as a follow-up turn. Returns 202:
+**`POST /agents/<sessionId>/steer`** takes `{ "message": "<1–20000 characters>", "mode": "steer" | "queue" }`; `mode` is optional and defaults to `steer`. No other fields.
+
+- `steer` reaches a running turn mid-turn: Codex through `turn/steer` with the active turn ID, Claude as a user message with `priority: "next"`, read at its next tool boundary.
+- `queue` holds the message until the current turn ends. A worker then runs it as its next turn (several queued messages are joined in order). A stage agent has no next turn in this run, so a queued message becomes an ordinary owner update for the next checkpoint.
+- An idle worker receives the message as a follow-up turn in either mode.
+
+Returns 202:
 
 ```json
-{ "sessionId": "<uuid>", "delivered": "steer", "turnId": "<id or null>" }
+{ "ok": true, "sessionId": "<uuid>", "mode": "steer", "turnId": "<id or null>" }
 ```
 
-`delivered` is `steer` or `follow-up`. Returns 409 when the session is not live, has no running turn, or uses `exec`. Owner steering is appended to the initiative's message history as `{ "type": "steer", "message", "sessionId", "runId", "role", "provider", "delivered", "at" }` with a `steer` activity event, so it survives restarts. A steer delivered to a run is not repeated as new input to the next run.
+`mode` is the effective mode: `steer`, `queue` or `followup`. The session's `steer` event carries the same `mode`. Returns 400 for an unknown mode, and 409 when the session is not live, has no running turn, or uses `exec` with `mode: "steer"`. Owner messages are appended to the initiative's message history as `{ "type": "steer", "message", "sessionId", "runId", "role", "provider", "mode", "at" }` (type `update` for a message queued to a stage agent) with a `steer` activity event, so they survive restarts. A steer delivered to a run is not repeated as new input to the next run.
 
 **`POST /agents/<sessionId>/interrupt`** takes `{}` or no body and returns 202 `{ "sessionId": "<uuid>", "interrupted": true }`, or 409 when no turn is running. Interrupting a stage agent ends that run as failed with "The owner interrupted this agent. Add an update or retry." Interrupting a worker leaves it `idle` for its orchestrator.
 
 **`PUT /agents/settings`** takes any subset of `{ "roles", "models", "efforts", "limits", "expectedRevision" }`. Roles take `claude` or `codex`, and `review` also takes `auto`. Models and efforts take `null` or a plain name. Limits are integers: `timeoutMinutes` 1–1440, `maxWorkers` 1–8, `maxReviewRounds` 1–5, `maxTurns` 1–1000. Unknown keys return 400, a stale `expectedRevision` returns 409, and so does any change while a run holds admission (`activeRun` is set). Returns 200 `{ "settings", "routing" }`.
+
+### Orchestrator and workers
+
+During Execution, the orchestrator session (either provider) gets a `switchflow` MCP server (`scripts/control/orchestration-mcp.mjs`, stdio, no dependencies). Claude receives it through `--mcp-config`; Codex through per-thread `mcp_servers` config. The server forwards each call to `POST /api/projects/<projectId>/orchestration/<runId>/<tool>` with a per-run `X-Switchflow-Run-Token` instead of the page token; the token stops working when the run ends. Tools:
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `delegate_task` | `task`, `kind` (`deliver` or `review`), `instructions`, `worktree` (candidate name or path), optional `provider` | Worker summary: `workerId`, `task`, `kind`, `provider`, `worktree`, `reviewRound`, `status`, `lastTurn`, `lastMessage`, `usage`, `result`, `error`, `fallback` |
+| `worker_status` | optional `workerId` | `{ workers: [summary] }` |
+| `send_to_worker` | `workerId`, `message`, optional `mode` (`steer` or `queue`) | `{ ok, sessionId, mode, turnId }` as for owner steering |
+| `interrupt_worker` | `workerId` | `{ workerId, interrupted }` |
+| `wait_for_workers` | optional `workerIds`, `timeoutSeconds` (1–50, default 30) | `{ timedOut, workers: [summary] }`; returns when a listed worker finishes a turn the orchestrator has not seen, or none is running |
+| `acquire_suite_lock` | optional `timeoutSeconds` (1–50) | `{ acquired: true, expiresAt }` or `{ acquired: false, heldBy }` |
+| `release_suite_lock` | none | `{ released }` |
+
+The host enforces:
+
+- The worktree must be a candidate the Git helper registered for this initiative's plan grant, and the task must exist in Backlog.
+- At most `limits.maxWorkers` workers run at once.
+- Delivery workers get `workspace-write` with the candidate, governance root, operations, scratch and Git request inbox as writable roots. Their first turn returns the three-line approach; the orchestrator confirms it with `send_to_worker`.
+- Reviewers are `read-only`, use a different provider from the task's latest author (the orchestrator's provider when it delivered directly), and return their verdict comment for the orchestrator to record. A blocked review is not retried on the author's provider.
+- At most `limits.maxReviewRounds` reviews per task in a run; the next is refused with "Escalate to the owner."
+- The run's cancel or scope change aborts every worker. Workers appear in `GET /agents` with `parentId` set to the orchestrator and `kind` `deliver` or `review`. Owner steering and interrupts work on them too.
+
+The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
 
 `GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `cancelled` with an error, and their events stay readable.
 

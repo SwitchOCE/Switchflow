@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { CODEX_FEATURE_OVERRIDES } from '../codex-runner.mjs';
 import {
   TurnInterruptedError,
   childEnvironment,
@@ -54,6 +55,7 @@ export function codexAppServerArguments({ sandbox = 'workspace-write', writableR
     'sandbox_workspace_write.network_access=false',
     '-c',
     `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`,
+    ...CODEX_FEATURE_OVERRIDES,
   );
   if (temporaryRoot)
     for (const name of ['TMP', 'TEMP', 'TMPDIR'])
@@ -84,6 +86,7 @@ export function threadStartParams({
   instructions,
   mcpServers = {},
   disabledMcpServers = [],
+  disabledApps = [],
 }) {
   const roots = validatePolicy({ sandbox, writableRoots, temporaryRoot });
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw new Error('Session working directory must be absolute');
@@ -110,6 +113,17 @@ export function threadStartParams({
     },
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(Object.keys(servers).length ? { mcp_servers: servers } : {}),
+    // ChatGPT apps (the built-in codex_apps connector) can reach live services and deploy, and
+    // bundled plugins include computer use. Runs get none of them (verified with mcpServerStatus/list).
+    features: { apps: false, plugins: false, computer_use: false },
+    apps: {
+      _default: { enabled: false, destructive_enabled: false, open_world_enabled: false },
+      ...Object.fromEntries(
+        disabledApps
+          .filter(name => SAFE_NAME.test(name) && name !== '_default')
+          .map(name => [name, { enabled: false }]),
+      ),
+    },
   };
   return {
     cwd,
@@ -406,11 +420,13 @@ export async function openCodexSession({
   }
   try {
     let disabledMcpServers = [];
+    let disabledApps = [];
     if (isolateUserMcp) {
       // User MCP servers can reach live services; runs get only the servers Switchflow supplies.
       try {
         const { config } = await request('config/read', { includeLayers: false, cwd }, 15000);
         disabledMcpServers = Object.keys(config?.mcp_servers || {}).filter(name => !(name in mcpServers));
+        disabledApps = Object.keys(config?.apps || {});
       } catch (error) {
         await emit({ kind: 'notice', level: 'warning', text: `Could not list user MCP servers: ${error.message}` });
       }
@@ -427,6 +443,7 @@ export async function openCodexSession({
         instructions,
         mcpServers,
         disabledMcpServers,
+        disabledApps,
       }),
       60000,
     );
@@ -511,7 +528,7 @@ export async function openCodexSession({
       const turnId = expectedTurnId ?? active?.id;
       if (!active?.id || turnId !== active.id) throw Object.assign(new Error('No active turn to steer'), { code: 409 });
       await request('turn/steer', { threadId, expectedTurnId: turnId, input: textInput(text) }, 30000);
-      await emit({ kind: 'steer', text, by, turnId });
+      await emit({ kind: 'steer', text, by, mode: 'steer', turnId });
       return { turnId };
     },
     async interrupt({ by = 'owner' } = {}) {
