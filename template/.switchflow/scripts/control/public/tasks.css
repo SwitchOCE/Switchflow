@@ -109,7 +109,7 @@
 }
 .sf-task-count {
   margin: 0 var(--space-2) 0 0;
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -304,13 +304,89 @@
   overflow-x: auto;
   padding-bottom: var(--space-3);
 }
+/* Five lanes fit at 1600px; more scroll sideways behind a faded edge. */
+.sf-board-wrap {
+  position: relative;
+}
+.sf-board-wrap::before,
+.sf-board-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: var(--space-3);
+  z-index: 2;
+  width: 40px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sf-board-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg), transparent);
+}
+.sf-board-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg), transparent);
+}
+.sf-board-wrap[data-more-left='true']::before,
+.sf-board-wrap[data-more-right='true']::after {
+  opacity: 1;
+}
 .sf-task-column {
   display: flex;
-  flex: 1 0 264px;
+  flex: 1 0 228px;
   flex-direction: column;
-  min-width: 248px;
+  min-width: 220px;
   max-width: 380px;
   padding: var(--space-2);
+}
+.sf-lane-note {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.sf-lane-note + .count {
+  margin-left: 0;
+}
+.sf-lane-more {
+  flex-shrink: 0;
+  padding: var(--space-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.sf-lane-more span {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.sf-lane-more:hover {
+  background: var(--surface);
+}
+/* Status changes in place from the reading rail. */
+.sf-quick-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.sf-quick-status .status-dot {
+  position: absolute;
+  left: 9px;
+  pointer-events: none;
+}
+.sf-quick-status select {
+  width: auto;
+  min-height: 28px;
+  padding: 2px 26px 2px 24px;
+  border-color: var(--border);
+  border-radius: 14px;
+  background-color: var(--surface);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
 }
 .sf-lane-head {
   display: flex;
@@ -769,37 +845,14 @@
 .sf-editor-message:empty {
   display: none;
 }
-.sf-sheet-foot {
-  position: sticky;
-  bottom: 0;
+/* The footer is the shared .editor-bar; only its gutters follow the sheet. */
+.sf-sheet-foot.editor-bar {
   z-index: 4;
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
   padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--border);
-  background: var(--surface);
 }
-.sf-editor-policy {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 auto 0 0;
-  color: var(--text-2);
-  font-size: var(--text-sm);
-}
-.sf-editor-policy[data-dirty='true']::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--warning);
-}
-.sf-foot-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.sf-task-editor.sheet.sf-sheet-instant[open] {
+  animation: none;
 }
 
 /* Content column plus properties rail. */
@@ -810,7 +863,7 @@
   gap: var(--space-6);
 }
 .sf-task-editor.sheet-wide .sf-task-reading .sf-detail-layout {
-  grid-template-columns: minmax(0, 760px) 280px;
+  grid-template-columns: minmax(0, calc(var(--measure) + var(--space-6))) 280px;
   justify-content: center;
 }
 .sf-task-editor.sheet-wide .sf-task-writing .sf-detail-layout {
@@ -819,8 +872,15 @@
 .sf-read-main {
   display: grid;
   gap: var(--space-6);
-  max-width: 720px;
   min-width: 0;
+}
+/* Prose shares the app-wide reading measure and the Documents body size. */
+.sf-read-main > * {
+  max-width: var(--measure);
+}
+.sf-read-main .docs-prose {
+  font-size: var(--text-lg);
+  line-height: 1.65;
 }
 .sf-read-section h3 {
   display: flex;
@@ -1403,8 +1463,10 @@
     grid-template-columns: minmax(0, 1fr) !important;
     gap: var(--space-5);
   }
+  /* Narrow sheets show status and owner before the description. */
   .sf-read-rail {
     position: static;
+    order: -1;
     max-height: none;
   }
   .sf-form-grid {
@@ -1482,13 +1544,13 @@
   .sf-sheet-body {
     padding: var(--space-4) var(--space-4) var(--space-5);
   }
-  .sf-sheet-foot {
+  .sf-sheet-foot.editor-bar {
     padding: var(--space-2) var(--space-4);
   }
-  .sf-editor-policy {
+  .sf-sheet-foot .editor-state {
     flex: 1 1 100%;
   }
-  .sf-foot-actions {
+  .sf-sheet-foot .editor-actions {
     margin-left: auto;
   }
   .sf-sheet-actions [data-expand] {

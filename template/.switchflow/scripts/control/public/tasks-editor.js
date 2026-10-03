@@ -54,11 +54,17 @@ export function taskEditor({
   tasks = [],
   viewState,
   onOpenRecord = async () => {},
+  // When supplied, a successful save of an existing record hands over to the caller,
+  // which reloads the record into a fresh reading view instead of closing the sheet.
+  afterSave = null,
+  instant = false,
+  opener: givenOpener = null,
+  flash = '',
 }) {
   const dialog = document.createElement('dialog'),
-    opener = document.activeElement;
+    opener = givenOpener?.isConnected ? givenOpener : document.activeElement;
   dialog.setAttribute('aria-labelledby', 'sf-task-title');
-  dialog.className = 'sf-task-editor sheet';
+  dialog.className = `sf-task-editor sheet${instant ? ' sf-sheet-instant' : ''}`;
   const key = `${storageKey}:${task.id || (draft ? 'new-draft' : 'new')}`;
   let original = structuredClone(task),
     busy = false,
@@ -106,6 +112,7 @@ export function taskEditor({
     ['implementationPlan', 'Implementation plan'],
     ['implementationNotes', 'Implementation notes'],
   ];
+  const capital = value => (value ? String(value)[0].toUpperCase() + String(value).slice(1) : 'None');
   const commentTotal = (task.comments || []).length;
   const kind = draft ? 'draft task' : 'task';
   dialog.innerHTML = `<form class="sf-sheet"><header class="sf-sheet-head"><div class="sf-sheet-bar"><div class="sf-sheet-ident"><span class="card-id">${e(task.id || `New ${kind}`)}</span>${draft && task.id ? '<span class="chip">Draft</span>' : ''}${task.id ? `<span class="status-pill" data-status="${e(statusKey(task.status))}">${e(task.status || 'No status')}</span>` : ''}</div><div class="sf-sheet-actions"><button type="button" class="button quiet button-small" data-edit>${icons.edit}Edit</button><button type="button" class="icon-button" data-expand aria-pressed="false" aria-label="Expand" title="Expand">${icons.expand}</button><button type="button" class="icon-button" data-close aria-label="Close task" title="Close">×</button></div></div><h2 id="sf-task-title">${e(task.title || `Create ${kind}`)}</h2><div class="segmented sf-task-detail-tabs" role="group" aria-label="Task content"><button type="button" data-task-tab="details" aria-pressed="true">Details</button><button type="button" data-task-tab="discussion" aria-pressed="false">Discussion <span class="count">${commentTotal}</span></button></div></header><div class="sf-sheet-body"><div class="sf-editor-message" role="status"></div><div class="sf-conflict" hidden></div><div class="sf-task-reading"></div><fieldset class="sf-task-writing"><legend class="sf-sr">Edit ${kind}</legend><div class="sf-detail-layout"><div class="sf-detail-main"><label class="sf-field sf-title-field"><span class="sf-field-label">Title</span><textarea required rows="1" name="title" data-grow="title" placeholder="Name the outcome">${e(task.title || '')}</textarea></label>${field('description', 'Description', task.description, 'long')}${narratives
@@ -120,13 +127,13 @@ export function taskEditor({
     'priority',
     'Priority',
     task.priority || '',
-    [...new Set(['', 'low', 'medium', 'high', task.priority].filter(x => x !== undefined))].map(x => [x, x || 'None']),
+    [...new Set(['', 'low', 'medium', 'high', task.priority].filter(x => x !== undefined))].map(x => [x, capital(x)]),
   )}${select(
     'type',
     'Type',
     task.type || '',
-    [...new Set(['', ...types, task.type].filter(x => x !== undefined))].map(x => [x, x || 'None']),
-  )}${select('milestone', 'Milestone', task.milestone || '', [['', 'No milestone'], ...milestones.map(x => [x.id, x.title || x.id]), ...(task.milestone && !milestones.some(x => x.id === task.milestone) ? [[task.milestone, task.milestone]] : [])])}${field('assignee', 'Owners', task.assignee?.join(', '))}${field('labels', 'Labels', task.labels?.join(', '))}</div><p class="sf-hint">Separate owners and labels with commas.</p></section><section class="sf-rail-group"><h3>Prerequisites</h3><input type="search" data-dependency-search aria-label="Find a prerequisite" placeholder="Search tasks by title or ID"><div class="sf-dependency-options" data-dependency-options></div>${field('dependencies', 'Prerequisite IDs', task.dependencies?.join(', '))}</section><section class="sf-rail-group"><h3>Links</h3>${field('references', 'References · one per line', task.references?.join('\n'), 'short')}${field('modifiedFiles', 'Changed files · one per line', task.modifiedFiles?.join('\n'), 'short')}</section></aside></div></fieldset><section class="sf-task-discussion" aria-label="Discussion">${task.id ? `<fieldset class="sf-comment-composer"><legend class="sf-sr">Add a comment</legend><textarea name="comment" aria-label="Comment" placeholder="Add a comment. Markdown is supported." data-grow="comment"></textarea><div class="sf-composer-foot"><label class="sf-inline-field"><span class="sf-sr">Your name</span><input name="commentAuthor" placeholder="Your name" autocomplete="name"></label><button type="button" class="button primary button-small" data-comment>Comment</button></div></fieldset>` : '<p class="sf-thread-empty">Save the task before adding comments.</p>'}<div class="sf-comments"></div><button type="button" class="button quiet button-small sf-older" data-older>Show older comments</button></section></div><footer class="sf-sheet-foot"><p class="sf-editor-policy"></p><div class="sf-foot-actions"><button type="button" class="button quiet" data-recover hidden>Recover discarded edits</button><button type="button" class="button quiet" data-discard>Discard</button><button type="submit" class="button primary">${task.id ? 'Save changes' : `Create ${kind}`}</button></div></footer></form>`;
+    [...new Set(['', ...types, task.type].filter(x => x !== undefined))].map(x => [x, capital(x)]),
+  )}${select('milestone', 'Milestone', task.milestone || '', [['', 'No milestone'], ...milestones.map(x => [x.id, x.title || x.id]), ...(task.milestone && !milestones.some(x => x.id === task.milestone) ? [[task.milestone, task.milestone]] : [])])}${field('assignee', 'Owners', task.assignee?.join(', '))}${field('labels', 'Labels', task.labels?.join(', '))}</div><p class="sf-hint">Separate owners and labels with commas.</p></section><section class="sf-rail-group"><h3>Prerequisites</h3><input type="search" data-dependency-search aria-label="Find a prerequisite" placeholder="Search tasks by title or ID"><div class="sf-dependency-options" data-dependency-options></div>${field('dependencies', 'Prerequisite IDs', task.dependencies?.join(', '))}</section><section class="sf-rail-group"><h3>Links</h3>${field('references', 'References · one per line', task.references?.join('\n'), 'short')}${field('modifiedFiles', 'Changed files · one per line', task.modifiedFiles?.join('\n'), 'short')}</section></aside></div></fieldset><section class="sf-task-discussion" aria-label="Discussion">${task.id ? `<fieldset class="sf-comment-composer"><legend class="sf-sr">Add a comment</legend><textarea name="comment" aria-label="Comment" placeholder="Add a comment. Markdown is supported." data-grow="comment"></textarea><div class="sf-composer-foot"><label class="sf-inline-field"><span class="sf-sr">Your name</span><input name="commentAuthor" placeholder="Your name" autocomplete="name"></label><button type="button" class="button primary button-small" data-comment>Comment</button></div></fieldset>` : '<p class="sf-thread-empty">Save the task before adding comments.</p>'}<div class="sf-comments"></div><button type="button" class="button quiet button-small sf-older" data-older>Show older comments</button></section></div><footer class="sf-sheet-foot editor-bar"><span class="editor-state sf-editor-policy" role="status"></span><div class="editor-actions"><button type="button" class="button quiet" data-compare hidden>Compare</button><button type="button" class="button quiet" data-recover hidden>Recover discarded edits</button><button type="button" class="button quiet" data-discard>Discard</button><button type="button" class="button quiet" data-cancel>Cancel</button><button type="submit" class="button primary">${task.id ? 'Save changes' : `Create ${kind}`}</button></div></footer></form>`;
   document.body.append(dialog);
   const form = dialog.querySelector('form'),
     message = dialog.querySelector('.sf-editor-message'),
@@ -286,7 +293,13 @@ export function taskEditor({
     const rail = `<aside class="sf-detail-rail sf-read-rail" aria-label="Task properties"><dl class="sf-read-properties">${[
       property(
         'Status',
-        `<span class="status-pill" data-status="${e(statusKey(task.status))}">${e(task.status || 'No status')}</span>`,
+        quickStatusAvailable()
+          ? `<span class="sf-quick-status" data-status="${e(statusKey(task.status))}"><span class="status-dot" data-status="${e(statusKey(task.status))}"></span><select id="sf-quick-status" data-quick-status aria-label="Status">${[
+              ...new Set([...statuses, task.status].filter(Boolean)),
+            ]
+              .map(x => `<option ${x === task.status ? 'selected' : ''}>${e(x)}</option>`)
+              .join('')}</select></span>`
+          : `<span class="status-pill" data-status="${e(statusKey(task.status))}">${e(task.status || 'No status')}</span>`,
       ),
       property('Owner', ownerMarkup(task.assignee)),
       property('Milestone', milestone ? e(milestone) : '<span class="sf-none">None</span>'),
@@ -374,6 +387,53 @@ export function taskEditor({
     older.textContent = `Show older comments (${Math.max(0, all.length - commentCount)} more)`;
     bindProse();
   }
+  function quickStatusAvailable() {
+    return Boolean(task.id && !draft && !['remote', 'local-branch', 'completed'].includes(task.source));
+  }
+  // Status changes from the reading view save at once, against the revision this sheet loaded.
+  async function quickStatus(select) {
+    const next = select.value;
+    if (next === task.status) return;
+    if (busy || !writable() || !original.revision) {
+      select.value = task.status;
+      message.textContent = !canWrite()
+        ? writeBlockedReason() || 'Editing is temporarily unavailable.'
+        : busy
+          ? 'A change is being saved. Please wait.'
+          : !writable()
+            ? 'This record is read-only.'
+            : 'No revision available. Reload before changing status.';
+      delete message.dataset.info;
+      return;
+    }
+    busy = true;
+    sync();
+    info(`Moving to ${next}…`);
+    try {
+      const body = taskPayload({ ...initialValues, status: next }, original);
+      const result = await api(`/tasks/${encodeURIComponent(task.id)}`, { method: 'PUT', body });
+      if (!alive) return;
+      busy = false;
+      if (afterSave) afterSave(result, { status: next });
+      else {
+        saved(result);
+        dialog.close();
+      }
+    } catch (error) {
+      if (!alive) return;
+      select.value = task.status;
+      delete message.dataset.info;
+      message.textContent =
+        error.status === 409
+          ? 'This task changed since you opened it, so the status was not changed. Close and reopen it to load the latest record.'
+          : error.outcome === 'unknown'
+            ? 'Status change outcome unknown. Close and reopen the task to check the saved status before trying again.'
+            : `${error.message}. The status was not changed.`;
+    } finally {
+      busy = false;
+      if (alive) sync();
+    }
+  }
   function policy() {
     if (!canWrite())
       return `${writeBlockedReason() || 'Editing is temporarily unavailable.'} Your tab edits are retained.`;
@@ -381,7 +441,7 @@ export function taskEditor({
     if (task.id && !original.revision) return 'No revision available. Reload before editing.';
     if (!editing) return '';
     if (busy) return 'Saving…';
-    if (conflict) return 'Review the changed record before saving. Your edits are kept in this tab.';
+    if (conflict) return 'The saved task changed. Compare before saving; your edits are kept in this tab.';
     return JSON.stringify(values()) === JSON.stringify(initialValues)
       ? 'No changes yet.'
       : 'Unsaved changes · kept in this tab until you save or discard.';
@@ -402,13 +462,23 @@ export function taskEditor({
     form.querySelector('[data-edit]').disabled = !writable();
     form.querySelectorAll('[data-add-content]').forEach(b => (b.hidden = !writable()));
     form.querySelector('[data-discard]').hidden = !editing;
+    form.querySelector('[data-cancel]').hidden = !editing;
+    form.querySelector('[data-cancel]').disabled = busy;
+    form.querySelector('[data-compare]').hidden =
+      !editing || !conflict || !comparison.querySelector('[data-compare-pending]');
     const submit = form.querySelector('[type=submit]');
     submit.hidden = !editing;
     submit.disabled = busy || !writable() || conflict || Boolean(task.id && !original.revision);
+    const quick = form.querySelector('[data-quick-status]');
+    if (quick) {
+      // Stays enabled while saving so focus survives the reload; quickStatus ignores changes while busy.
+      quick.disabled = !writable() || !original.revision || editing;
+      quick.title = !canWrite() ? writeBlockedReason() || 'Editing is temporarily unavailable.' : '';
+    }
     const text = policy();
     const status = dialog.querySelector('.sf-editor-policy');
     if (status.textContent !== text) status.textContent = text;
-    status.dataset.dirty = String(text.startsWith('Unsaved'));
+    status.dataset.state = text.startsWith('Unsaved') ? 'dirty' : conflict || !canWrite() ? 'error' : '';
     foot.hidden = !editing && !text && form.querySelector('[data-recover]').hidden;
     dialog.style.setProperty('--sf-sheet-head', `${head.offsetHeight}px`);
   }
@@ -432,9 +502,10 @@ export function taskEditor({
     sync();
     comparison.hidden = false;
     comparison.innerHTML =
-      '<div class="sf-conflict-head"><div><strong>This task changed since you opened it.</strong><p>Your edits are still here. Compare them with the saved record before saving.</p></div><button type="button" class="button quiet" data-compare>Compare with latest</button></div>';
+      '<div class="sf-conflict-head" data-compare-pending><div><strong>This task changed since you opened it.</strong><p>Your edits are still here. Choose Compare to review them against the saved record.</p></div></div>';
     comparison.scrollIntoView?.({ block: 'nearest' });
-    comparison.querySelector('button').onclick = async event => {
+    sync();
+    form.querySelector('[data-compare]').onclick = async event => {
       event.target.disabled = true;
       try {
         const latest = draft
@@ -510,6 +581,7 @@ export function taskEditor({
           stash();
           sync();
         };
+        sync();
       } catch (error) {
         message.textContent = error.message;
         delete message.dataset.info;
@@ -545,13 +617,19 @@ export function taskEditor({
         clearSavedDraft(sessionStorage, key, snapshot);
       } catch {}
       if (!alive) return;
-      saved(result);
-      dialog.close();
+      busy = false;
+      if (afterSave) afterSave(result);
+      else {
+        saved(result);
+        dialog.close();
+      }
     } catch (error) {
       if (alive) {
         delete message.dataset.info;
         message.textContent = `${error.message}. Your edits are retained.`;
         if ((error.status === 409 || error.outcome === 'unknown') && task.id) {
+          // The conflict panel and the editor bar carry this state; avoid a second banner.
+          if (error.status === 409) message.textContent = '';
           showConflict();
           if (error.outcome === 'unknown')
             message.textContent =
@@ -579,7 +657,11 @@ export function taskEditor({
       save();
     }
   });
+  form.addEventListener('change', event => {
+    if (event.target.matches('[data-quick-status]')) quickStatus(event.target);
+  });
   form.addEventListener('input', event => {
+    if (event.target.matches('[data-quick-status]')) return;
     if (event.target.name === 'title' && /\n/.test(event.target.value))
       event.target.value = event.target.value.replace(/\s*\n\s*/g, ' ');
     if (event.target.matches('textarea[data-grow]')) grow(event.target);
@@ -620,6 +702,18 @@ export function taskEditor({
     if (b.hasAttribute('data-edit')) edit();
     if (b.dataset.addContent) edit(b.dataset.addContent);
     if (b.hasAttribute('data-close') && !busy) dialog.close();
+    // Cancel leaves edit mode without discarding: edits stay in this tab and return with Edit.
+    if (b.hasAttribute('data-cancel') && !busy) {
+      if (!task.id) dialog.close();
+      else {
+        editing = false;
+        if (JSON.stringify(values()) !== JSON.stringify(initialValues))
+          info('Your unsaved edits are kept in this tab. Choose Edit to continue them.');
+        sync();
+        dialog.scrollTop = 0;
+        form.querySelector('[data-edit]').focus();
+      }
+    }
     if (b.hasAttribute('data-expand')) setExpanded(!dialog.classList.contains('sheet-wide'));
     if (b.dataset.addCheck) {
       row(b.dataset.addCheck, '', false);
@@ -736,8 +830,10 @@ export function taskEditor({
     });
   }
   if (conflict) showConflict();
+  else if (flash) info(flash);
   return {
     snapshot,
+    opener,
     updateAccess: sync,
     destroy: () => {
       if (alive) {

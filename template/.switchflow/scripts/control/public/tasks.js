@@ -10,6 +10,11 @@ import {
 import { taskEditor } from './tasks-editor.js';
 
 const PAGE_SIZE = 30;
+// Board lanes are bounded; the finished lane reads newest first and grows in pages of 20.
+const LANE_STEP = 20;
+const LANE_LIMIT = 50;
+const flip = { top: 'bottom', bottom: 'top', before: 'after', after: 'before' };
+const finishedLane = status => ['done', 'completed', 'complete'].includes(String(status || '').toLowerCase());
 const icon = {
   refresh:
     '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 4v3.5h-3.5"/></svg>',
@@ -45,7 +50,8 @@ export function mountTasks(
     dragging,
     pending = false,
     filtersOpen = false,
-    restoreFocusTo = null;
+    restoreFocusTo = null,
+    laneLimit = {};
   const events = new AbortController();
   const listen = (type, handler) => container.addEventListener(type, handler, { signal: events.signal });
   const filters = { search: '', status: '', assignee: '', labels: '', priority: '', type: '', milestone: '' };
@@ -198,7 +204,10 @@ export function mountTasks(
   container.addEventListener(
     'scroll',
     event => {
-      if (event.target.matches?.('.sf-task-board')) boardScroll = event.target.scrollLeft;
+      if (event.target.matches?.('.sf-task-board')) {
+        boardScroll = event.target.scrollLeft;
+        boardEdges();
+      }
       if (event.target.matches?.('.sf-task-stack'))
         laneScroll[event.target.closest('.sf-task-column').dataset.status] = event.target.scrollTop;
       persist();
@@ -262,24 +271,28 @@ export function mountTasks(
           '',
         )}</tbody></table></div><nav class="sf-task-pagination" aria-label="Task pages"><span>${start + 1}–${Math.min(start + PAGE_SIZE, shown.length)} of ${shown.length}</span><button type="button" class="button quiet button-small" data-page="previous" ${page === 1 ? 'disabled' : ''}>Previous</button><button type="button" class="button quiet button-small" data-page="next" ${start + PAGE_SIZE >= shown.length ? 'disabled' : ''}>Next</button></nav>`;
     } else
-      results.innerHTML = `<div class="sf-task-board">${[...new Set([...statuses, ...tasks.map(x => x.status)])]
+      results.innerHTML = `<div class="sf-board-wrap"><div class="sf-task-board">${[
+        ...new Set([...statuses, ...tasks.map(x => x.status)]),
+      ]
         .map(status => {
-          const lane = shown.filter(x => x.status === status);
-          return `<section class="sf-task-column lane" data-status="${e(status)}" aria-label="${e(status)}, ${lane.length} ${lane.length === 1 ? 'task' : 'tasks'}" ${(hideEmptyColumns || filtered()) && !lane.length ? 'data-empty-hidden hidden' : ''}><header class="sf-lane-head"><span class="status-dot" data-status="${e(statusKey(status))}"></span><h2>${e(status)}</h2><span class="count">${lane.length}</span></header><div class="sf-task-stack">${
-            lane
-              .sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0))
-              .map(card)
-              .join('') || '<p class="column-empty">No tasks</p>'
-          }</div></section>`;
+          const reversed = finishedLane(status),
+            lane = shown
+              .filter(x => x.status === status)
+              .sort((a, b) => ((a.ordinal || 0) - (b.ordinal || 0)) * (reversed ? -1 : 1)),
+            limit = laneLimit[status] || (reversed ? LANE_STEP : LANE_LIMIT),
+            rest = lane.length - Math.min(limit, lane.length);
+          return `<section class="sf-task-column lane" data-status="${e(status)}" aria-label="${e(status)}, ${lane.length} ${lane.length === 1 ? 'task' : 'tasks'}${reversed ? ', newest first' : ''}" ${(hideEmptyColumns || filtered()) && !lane.length ? 'data-empty-hidden hidden' : ''}><header class="sf-lane-head"><span class="status-dot" data-status="${e(statusKey(status))}"></span><h2>${e(status)}</h2>${reversed && lane.length > 1 ? '<span class="sf-lane-note">Newest first</span>' : ''}<span class="count">${lane.length}</span></header><div class="sf-task-stack">${
+            lane.slice(0, limit).map(card).join('') || '<p class="column-empty">No tasks</p>'
+          }${rest ? `<button type="button" class="sf-lane-more" data-lane-more="${e(status)}">Show ${Math.min(reversed ? LANE_STEP : LANE_LIMIT, rest)} more <span>· ${rest} not shown</span></button>` : ''}</div></section>`;
         })
-        .join('')}</div>`;
+        .join('')}</div></div>`;
     // A refresh replaces the control that opened a dialog; return focus to the same task.
     if (restoreFocusTo) {
       const active = globalThis.document?.activeElement;
       const target = [...container.querySelectorAll('[data-open]')].find(x => x.dataset.open === restoreFocusTo);
       if (target && (!active || active === document.body || !active.isConnected))
         target.focus({ preventScroll: false });
-      restoreFocusTo = null;
+      ((restoreFocusTo = null), (laneLimit = {}));
     }
     const board = find('.sf-task-board');
     if (board) {
@@ -287,7 +300,16 @@ export function mountTasks(
       board.querySelectorAll('.sf-task-stack').forEach(stack => {
         stack.scrollTop = laneScroll[stack.closest('.sf-task-column').dataset.status] || 0;
       });
+      boardEdges();
     }
+  }
+  // Fade the board edge that has more lanes beyond it, so horizontal overflow is visible.
+  function boardEdges() {
+    const board = find('.sf-task-board');
+    const wrap = board?.parentElement;
+    if (!wrap?.dataset) return;
+    wrap.dataset.moreLeft = String(board.scrollLeft > 2);
+    wrap.dataset.moreRight = String(board.scrollLeft + board.clientWidth < board.scrollWidth - 2);
   }
   async function refresh() {
     const current = ++generation;
@@ -325,13 +347,18 @@ export function mountTasks(
       }
     }
   }
-  async function openTask(id) {
+  // replace: reload the record into the sheet that is already open (after a save), keeping
+  // its place in history, its opener and its width, and returning it to the reading view.
+  async function openTask(id, { replace = false, flash = '' } = {}) {
     const current = ++editorGeneration;
     try {
       const task = mode === 'drafts' ? tasks.find(x => x.id === id) : await api(`/task/${encodeURIComponent(id)}`);
       if (destroyed || current !== editorGeneration) return;
       if (!task) throw new Error('Task is no longer available. Refresh the list.');
+      const keptOpener = replace ? editor?.opener : null;
       closeEditor();
+      if (replace && detailViews[id]?.editing)
+        detailViews[id] = { ...detailViews[id], editing: false, scrollTop: 0, focusIndex: -1, identity: null };
       activeTaskId = id;
       editor = taskEditor({
         task,
@@ -351,9 +378,21 @@ export function mountTasks(
           editor = null;
           activeTaskId = null;
           onClose();
+          // The opener may have been replaced by a refresh; fall back to the same task's card.
+          setTimeout(() => {
+            if (destroyed || !restoreFocusTo) return;
+            const active = document.activeElement;
+            if (active && active !== document.body && active.isConnected) return;
+            [...container.querySelectorAll('[data-open]')].find(x => x.dataset.open === id)?.focus();
+            restoreFocusTo = null;
+          }, 0);
         },
         tasks,
         viewState: detailViews[id],
+        afterSave: (result, detail) => afterSave(id, result, detail),
+        instant: replace,
+        opener: keptOpener,
+        flash,
         onOpenRecord: async target => {
           closeEditor();
           try {
@@ -364,10 +403,35 @@ export function mountTasks(
           }
         },
       });
-      if (mode === 'tasks') onNavigate({ view: 'tasks', task: id });
+      if (mode === 'tasks' && !replace) onNavigate({ view: 'tasks', task: id });
     } catch (error) {
-      if (!destroyed && current === editorGeneration) notice.textContent = error.message;
+      if (!destroyed && current === editorGeneration) {
+        notice.textContent = replace ? `Saved, but the task could not be reloaded: ${error.message}` : error.message;
+        if (replace) {
+          closeEditor();
+          onClose();
+        }
+      }
     }
+  }
+  // A save keeps the sheet open: refresh the workset, then show the saved record for reading.
+  async function afterSave(id, result, detail = {}) {
+    if (destroyed) return;
+    onChange();
+    await refresh();
+    if (destroyed) return;
+    const target = id || result?.id;
+    if (!target) {
+      editorGeneration++;
+      closeEditor();
+      onClose();
+      notice.textContent = 'Saved.';
+      return;
+    }
+    await openTask(target, {
+      replace: Boolean(id),
+      flash: detail.status ? `Status changed to ${detail.status}.` : id ? 'Saved.' : 'Created.',
+    });
   }
   function changed() {
     if (destroyed) return;
@@ -491,6 +555,7 @@ export function mountTasks(
   function resetPosition() {
     boardScroll = 0;
     laneScroll = {};
+    laneLimit = {};
     page = 1;
   }
   listen('input', event => {
@@ -535,7 +600,7 @@ export function mountTasks(
     const choices = () => {
       reference.innerHTML = tasks
         .filter(x => x.id !== id && x.status === destination.value)
-        .sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0))
+        .sort((a, b) => ((a.ordinal || 0) - (b.ordinal || 0)) * (finishedLane(destination.value) ? -1 : 1))
         .map(x => `<option value="${e(x.id)}">${e(x.id)} · ${e(x.title)}</option>`)
         .join('');
     };
@@ -548,7 +613,13 @@ export function mountTasks(
         const position = actions.querySelector('[data-move-position]').value;
         if (['before', 'after'].includes(position) && !reference.value)
           throw new Error('Choose a reference task, or use Top or Bottom.');
-        const body = moveTaskOrder(tasks, id, destination.value, reference.value, position);
+        const body = moveTaskOrder(
+          tasks,
+          id,
+          destination.value,
+          reference.value,
+          finishedLane(destination.value) ? flip[position] : position,
+        );
         if (body) await api('/tasks/reorder', { method: 'POST', body });
         restoreFocusTo = id;
         actions.close();
@@ -592,6 +663,7 @@ export function mountTasks(
         writeBlockedReason,
         saved: changed,
         closed: onClose,
+        afterSave: result => afterSave(null, result),
         tasks,
       });
     }
@@ -626,8 +698,23 @@ export function mountTasks(
     }
     if (button.dataset.action) taskAction(button.dataset.id, button.dataset.action);
     if (button.dataset.actions) openActions(button.dataset.actions);
+    if (button.dataset.laneMore) {
+      const status = button.dataset.laneMore,
+        shownBefore = laneLimit[status] || (finishedLane(status) ? LANE_STEP : LANE_LIMIT);
+      laneLimit[status] = shownBefore + (finishedLane(status) ? LANE_STEP : LANE_LIMIT);
+      render();
+      // Continue from the first newly shown card.
+      const column = [...container.querySelectorAll('.sf-task-column')].find(x => x.dataset.status === status);
+      column?.querySelectorAll('.sf-task-open')[shownBefore]?.focus();
+    }
   };
   listen('click', click);
+  const resized =
+    globalThis.ResizeObserver && globalThis.Element && results instanceof Element
+      ? new ResizeObserver(() => boardEdges())
+      : null;
+  resized?.observe(results);
+  events.signal.addEventListener('abort', () => resized?.disconnect());
   globalThis.document?.addEventListener(
     'click',
     event => {
@@ -695,7 +782,13 @@ export function mountTasks(
           ? 'before'
           : 'after'
         : 'bottom';
-    const body = moveTaskOrder(tasks, id, column.dataset.status, card?.dataset.id, position);
+    const body = moveTaskOrder(
+      tasks,
+      id,
+      column.dataset.status,
+      card?.dataset.id,
+      finishedLane(column.dataset.status) && card ? flip[position] : position,
+    );
     clearDrag();
     if (!body) {
       notice.textContent = 'Task position unchanged.';
