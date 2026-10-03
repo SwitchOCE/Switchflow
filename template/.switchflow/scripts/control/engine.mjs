@@ -349,30 +349,28 @@ export class ControlEngine {
           }),
         schemaPath: this.protocol.schemaPathForStage(stage),
         signal,
+        stage,
+        runId: run.id,
+        initiativeId: item.id,
+        gitBridge: gitBridge?.descriptor ?? null,
+        // Runners emit the normalized session vocabulary (docs/browser-control.md, Agents API).
         onEvent: async entry => {
-          if (entry.type === 'runner.started' && entry.pid) {
+          if (entry.kind === 'session.started' && (entry.pid || entry.threadId)) {
             await this.mutate(s => {
               if (s.activeRun?.id !== run.id) return;
-              s.activeRun.pid = entry.pid;
-              s.activeRun.processStartedAt = entry.startedAt;
               const live = s.initiatives.find(i => i.id === item.id)?.runs.find(r => r.id === run.id);
-              if (live) {
-                live.pid = entry.pid;
-                live.processStartedAt = entry.startedAt;
+              for (const target of [s.activeRun, live].filter(Boolean)) {
+                if (entry.pid && !target.pid) {
+                  target.pid = entry.pid;
+                  target.processStartedAt = now();
+                }
+                if (entry.threadId) target.threadId = entry.threadId;
+                if (entry.provider) target.provider = entry.provider;
               }
             });
           }
-          if (entry.type === 'thread.started' && entry.thread_id) {
-            await this.mutate(s => {
-              if (s.activeRun?.id !== run.id) return;
-              s.activeRun.threadId = entry.thread_id;
-              const live = s.initiatives.find(i => i.id === item.id)?.runs.find(r => r.id === run.id);
-              if (live) live.threadId = entry.thread_id;
-            });
-          }
           // Only human-readable agent activity enters the browser, never shell output or hidden reasoning.
-          const message =
-            entry.type === 'item.completed' && entry.item?.type === 'agent_message' ? entry.item.text : null;
+          const message = entry.kind === 'message' ? entry.text : null;
           if (
             typeof message === 'string' &&
             message.length &&
@@ -402,7 +400,10 @@ export class ControlEngine {
         });
         if (!s.activeRun.superseded) {
           applyResult(live, result.result);
-          live.messageCursor = item.messages.length;
+          // Owner steering already reached this run; it is not new input for the next one.
+          let cursor = item.messages.length;
+          while (live.messages[cursor]?.type === 'steer' && live.messages[cursor].runId === run.id) cursor++;
+          live.messageCursor = cursor;
         }
         s.activeRun = null;
       });
@@ -436,7 +437,7 @@ export class ControlEngine {
           live.status = signal.aborted ? 'cancelled' : 'failed';
           live.pending = false;
           live.revision++;
-          live.nextAction = /permission|access|codex home|credential|sign.in/i.test(error.message)
+          live.nextAction = /permission|access|codex home|credential|sign.in|signed in|logged in/i.test(error.message)
             ? 'Resolve the local access issue shown in run details, then retry this checkpoint.'
             : 'Inspect the failed run details, then retry this checkpoint. Your approvals and earlier work are preserved.';
           event(live, 'failed', error.message);

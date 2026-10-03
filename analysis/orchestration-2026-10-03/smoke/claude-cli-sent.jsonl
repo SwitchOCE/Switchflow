@@ -1,0 +1,2 @@
+> {"type":"user","message":{"role":"user","content":[{"type":"text","text":"Use the Read tool to read README.md, then report its first line in firstLine and set marker to \"PLAIN\"."}]},"parent_tool_use_id":null,"session_id":""}
+> {"type":"user","message":{"role":"user","content":[{"type":"text","text":"Change of plan: set marker to \"STEERED\" instead."}]},"parent_tool_use_id":null,"session_id":"","priority":"next"}

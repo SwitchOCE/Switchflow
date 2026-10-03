@@ -59,7 +59,7 @@ export function codexArguments({
   return args;
 }
 
-function stopTree(child) {
+export function stopTree(child) {
   if (!child.pid) return Promise.resolve();
   if (process.platform === 'win32') {
     return new Promise(resolve => {
