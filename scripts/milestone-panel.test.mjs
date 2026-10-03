@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   createMilestonePanel,
   milestoneMatches,
+  nextUp,
   parseMilestoneOrder,
+  planMilestoneOrder,
   sortMilestones,
 } from '../template/.switchflow/scripts/control/public/milestones.js';
 class Element {
@@ -303,7 +305,7 @@ test('opening another milestone while saving cannot replace or discard its edito
   await panel.open('m-21');
   find('New milestone').listeners.click();
   assert.equal(reads.includes('/milestones/m-21'), false);
-  assert.ok(find('Edit m-20'));
+  assert.ok(find('Edit · Scope'));
   assert.equal(find('Create milestone'), undefined);
   finish(milestone);
   await saving;
@@ -415,4 +417,112 @@ test('linked tasks and assignment matches reveal bounded batches with stable IDs
   assert.equal(find('Show more tasks').hidden, true);
   assert.equal(mode.value, 'assigned');
   assert.equal(filter.value, 'T-4');
+});
+
+test('order planning moves, appends and writes only changed records', () => {
+  const values = [
+    { id: 'm-1', title: 'A', executionOrder: 1 },
+    { id: 'm-2', title: 'B', executionOrder: 2 },
+    { id: 'm-3', title: 'C', executionOrder: 3 },
+    { id: 'm-4', title: 'D' },
+  ];
+  assert.deepEqual(planMilestoneOrder(values, 'm-3', 'm-2', 'before'), [
+    { id: 'm-3', executionOrder: 2 },
+    { id: 'm-2', executionOrder: 3 },
+  ]);
+  assert.deepEqual(planMilestoneOrder(values, 'm-4', null), [{ id: 'm-4', executionOrder: 4 }]);
+  assert.deepEqual(planMilestoneOrder(values, 'm-1', 'm-3', 'after'), [
+    { id: 'm-2', executionOrder: 1 },
+    { id: 'm-3', executionOrder: 2 },
+    { id: 'm-1', executionOrder: 3 },
+  ]);
+  assert.deepEqual(planMilestoneOrder([{ id: 'm-9', title: 'Z' }], ['m-9'], null), [{ id: 'm-9', executionOrder: 1 }]);
+});
+
+test('Alt+Up reorders as one batch with captured revisions and reports a partial failure', async () => {
+  const records = [
+    { id: 'm-1', title: 'First', executionOrder: 1, revision: 'r1' },
+    { id: 'm-2', title: 'Second', executionOrder: 2, revision: 'r2' },
+  ];
+  const writes = [];
+  const { panel, container } = setup({
+    api: async (route, options) => {
+      if (options) {
+        writes.push({ route, body: options.body });
+        if (route === '/milestones/m-1') throw new Error('Milestone changed');
+        return {};
+      }
+      if (route.startsWith('/tasks')) return [];
+      if (route === '/milestones') return records.map(r => ({ ...r }));
+      return records[0];
+    },
+  });
+  await panel.refresh();
+  const list = container.all().find(el => el.role === 'listbox');
+  const row = container.all().find(el => el.dataset.milestone === 'm-2');
+  await list.listeners.keydown({ key: 'ArrowUp', altKey: true, target: row, preventDefault() {} });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(writes, [
+    { route: '/milestones/m-2', body: { expectedRevision: 'r2', executionOrder: 1 } },
+    { route: '/milestones/m-1', body: { expectedRevision: 'r1', executionOrder: 2 } },
+  ]);
+  assert.ok(
+    container
+      .all()
+      .some(el => /Order saved for 1 of 2\. Not saved: First \(Milestone changed\)/.test(el.textContent || '')),
+  );
+});
+
+test('reordering is fenced while writes are blocked', async () => {
+  let writes = 0;
+  const { panel, container } = setup({
+    canWrite: () => false,
+    writeBlockedReason: () => 'Editing paused while an agent is active or queued.',
+    api: async (route, options) => {
+      if (options) writes++;
+      if (route.startsWith('/tasks')) return [];
+      return [
+        { id: 'm-1', title: 'First', executionOrder: 1, revision: 'r1' },
+        { id: 'm-2', title: 'Second', executionOrder: 2, revision: 'r2' },
+      ];
+    },
+  });
+  await panel.refresh();
+  const list = container.all().find(el => el.role === 'listbox');
+  const row = container.all().find(el => el.dataset.milestone === 'm-2');
+  await list.listeners.keydown({ key: 'ArrowUp', altKey: true, target: row, preventDefault() {} });
+  assert.equal(writes, 0);
+  assert.ok(container.all().some(el => el.textContent === 'Editing paused while an agent is active or queued.'));
+});
+
+test('closing an unchanged editor keeps no draft and shows no unsaved banner', async () => {
+  const drafts = new Map();
+  const { panel, find, container } = setup({ drafts, api: async () => milestone });
+  await panel.open('m-20');
+  find('Edit').listeners.click();
+  assert.equal(find('Load latest; keep my draft').hidden, true);
+  assert.equal(find('Compare').hidden, true);
+  await find('Cancel').listeners.click();
+  assert.equal(drafts.has('p:m-20'), false);
+  assert.equal(
+    container.all().some(el => el.textContent === 'You have unsaved edits to this milestone.'),
+    false,
+  );
+  find('Edit').listeners.click();
+  container.all().find(el => el.name === 'title').value = 'Changed';
+  container
+    .all()
+    .find(el => el.tagName === 'form')
+    .listeners.input();
+  assert.equal(drafts.get('p:m-20').title, 'Changed');
+  assert.ok(find('Unsaved changes · kept in this tab'));
+});
+
+test('next up ranks ready tasks by priority, then ordinal, then numeric ID', () => {
+  const linked = [
+    { id: 'T-10', status: 'Ready', ordinal: 1 },
+    { id: 'T-9', status: 'Ready', priority: 'high', ordinal: 5 },
+    { id: 'T-2', status: 'Ready', priority: 'high', ordinal: 5 },
+  ];
+  assert.equal(nextUp(linked, linked, [milestone]).task.id, 'T-2');
 });
