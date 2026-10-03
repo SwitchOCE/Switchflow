@@ -75,7 +75,11 @@ test('record bookmarks retain explicit project identity and known workspace view
     initiative: null,
     record: null,
   });
-  assert.equal(workspaceLocation('http://localhost/?view=unsupported').view, 'board');
+  assert.equal(workspaceLocation('http://localhost/?view=unsupported').view, 'overview');
+  // Earlier view ids still open the renamed views.
+  assert.equal(workspaceLocation('http://localhost/?project=p&view=board').view, 'overview');
+  assert.equal(workspaceLocation('http://localhost/?project=p&view=statistics').view, 'insights');
+  assert.equal(workspaceLocation('http://localhost/?project=p&view=insights').view, 'insights');
   assert.deepEqual(workspaceLocation('http://localhost/?project=p&view=skills&record=intake%2FSKILL.md'), {
     project: 'p',
     view: 'skills',

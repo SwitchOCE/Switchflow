@@ -20,7 +20,7 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <a class="skip-link" href="#workspace-board">Skip to workspace content</a>
+    <a class="skip-link" href="#workspace-overview">Skip to workspace content</a>
     <svg class="icon-sprite" aria-hidden="true" focusable="false">
       <symbol id="i-overview" viewBox="0 0 24 24">
         <rect x="3" y="3" width="7" height="9" rx="1.5" />
@@ -144,7 +144,7 @@
       <div class="workspace-tabs">
         <div class="nav-group">
           <span class="nav-group-title">Work</span
-          ><button class="nav-tab" data-view="board" aria-current="page" title="Overview">
+          ><button class="nav-tab" data-view="overview" aria-current="page" title="Overview">
             <svg class="icon"><use href="#i-overview" /></svg><span class="nav-label">Overview</span
             ><span class="nav-count attention" id="nav-attention" hidden></span></button
           ><button class="nav-tab" data-view="initiatives" title="Initiatives">
@@ -171,7 +171,7 @@
         </div>
         <div class="nav-group">
           <span class="nav-group-title">Project tools</span
-          ><button class="nav-tab" data-view="statistics" title="Insights">
+          ><button class="nav-tab" data-view="insights" title="Insights">
             <svg class="icon"><use href="#i-insights" /></svg><span class="nav-label">Insights</span></button
           ><button class="nav-tab" data-view="skills" title="Skills">
             <svg class="icon"><use href="#i-skills" /></svg><span class="nav-label">Skills</span></button
@@ -209,7 +209,7 @@
         <button id="offline-retry" class="button quiet" type="button">Retry now</button>
       </section>
       <div id="notice-banner" class="banner" role="status" hidden></div>
-      <div id="workspace-board">
+      <div id="workspace-overview">
         <header class="page-header">
           <div>
             <h1 id="page-title">Overview</h1>
@@ -245,7 +245,7 @@
       <section id="workspace-tasks" hidden aria-label="Project tasks"></section>
       <section id="workspace-decisions" hidden aria-label="Project decisions"></section>
       <section id="workspace-drafts" hidden aria-label="Project drafts"></section>
-      <section id="workspace-statistics" hidden aria-label="Project insights"></section>
+      <section id="workspace-insights" hidden aria-label="Project insights"></section>
       <section id="workspace-settings" hidden aria-label="Project settings"></section>
     </main>
     <dialog id="project-dialog" class="create-dialog" aria-labelledby="project-dialog-title">

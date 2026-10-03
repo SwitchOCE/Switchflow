@@ -1,4 +1,4 @@
-/* Insights (view=statistics) and Settings (view=settings). Tokens and system.css primitives only. */
+/* Insights (view=insights) and Settings (view=settings). Tokens and system.css primitives only. */
 .insights-view {
   color: var(--text-1);
   max-width: none;

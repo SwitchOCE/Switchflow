@@ -32,7 +32,9 @@
   --shadow-2: 0 4px 12px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
   --shadow-3: 0 16px 48px rgb(16 24 40 / 0.18);
 
-  --claude: #c26a3d;
+  --claude: #b05c30;
+  /* Text on a provider mark: white on the light marks, page ink on the paler dark-theme marks. */
+  --on-provider: #ffffff;
   --codex: #3a4252;
   --status-backlog: #8a94a6;
   --status-ready: var(--accent);
@@ -105,6 +107,7 @@ html[data-theme='dark'] {
   --shadow-2: 0 4px 14px rgb(0 0 0 / 0.4);
   --shadow-3: 0 18px 56px rgb(0 0 0 / 0.55);
   --claude: #d98a5f;
+  --on-provider: #0d1219;
   --codex: #a7b4c9;
   --status-backlog: #7d889b;
   --status-progress: #e0a23a;

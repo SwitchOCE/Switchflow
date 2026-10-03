@@ -1184,9 +1184,14 @@ main {
   border-color: transparent;
   background: transparent;
 }
-.shell-collapsed .nav-live {
+/* "An agent is working" stays visible on the Agents icon, in the same corner as the attention dot. */
+.shell-collapsed .nav-live:not([hidden]) {
   position: absolute;
-  margin: -16px 0 0 18px;
+  top: 6px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  margin: 0;
 }
 .shell-collapsed .nav-tab {
   position: relative;
@@ -1210,6 +1215,26 @@ main {
 }
 .shell-collapsed .sidebar-foot .connection::before {
   margin: 0;
+}
+/* Short screens (800px laptops, 1366x768): tighter rhythm so every label fits without a sidebar scrollbar. */
+@media (min-width: 761px) and (max-height: 860px) {
+  .workspace-nav {
+    padding-top: 10px;
+    gap: 10px;
+  }
+  .nav-group {
+    margin-bottom: 6px;
+  }
+  .nav-group:last-child {
+    margin-bottom: 0;
+  }
+  .nav-group-title {
+    padding-block: 3px;
+  }
+  .nav-tab {
+    min-height: 32px;
+    padding-block: 5px;
+  }
 }
 
 /* Narrow screens: slim bar plus a modal drawer. */

@@ -20,7 +20,7 @@ test('workspace search models preserve record routes and distinguish matches wit
   assert.deepEqual(
     matches.map(item => [item.type, item.view]),
     [
-      ['initiative', 'board'],
+      ['initiative', 'overview'],
       ['task', 'tasks'],
       ['document', 'documents'],
     ],
