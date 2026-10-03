@@ -359,7 +359,30 @@ export function taskEditor({
       .join(
         '',
       )}<div class="sf-read-add">${missing.map(([name, label]) => `<button type="button" class="sf-add-row" data-add-content="${name}">+ ${label}</button>`).join('')}</div></div>`;
-    form.querySelector('.sf-task-reading').innerHTML = `<div class="sf-detail-layout">${main}${rail}</div>`;
+    const reading = form.querySelector('.sf-task-reading');
+    const kept = reading.querySelector('.sf-quick-status')?.closest('dl > div');
+    if (!kept) reading.innerHTML = `<div class="sf-detail-layout">${main}${rail}</div>`;
+    else {
+      // Keep the Status row node in place so focus and the reading position survive a quick status change.
+      const next = document.createElement('div');
+      next.innerHTML = `${main}${rail}`;
+      const nextKept = next.querySelector('.sf-quick-status').closest('dl > div'),
+        siblings = [...nextKept.parentElement.children],
+        at = siblings.indexOf(nextKept),
+        oldList = kept.parentElement,
+        oldRail = oldList.closest('.sf-read-rail');
+      reading.querySelector('.sf-read-main').replaceWith(next.querySelector('.sf-read-main'));
+      for (const child of [...oldList.children]) if (child !== kept) child.remove();
+      kept.before(...siblings.slice(0, at));
+      kept.after(...siblings.slice(at + 1));
+      for (const child of [...oldRail.children]) if (child !== oldList) child.remove();
+      oldRail.append(...[...next.querySelector('.sf-read-rail').children].filter(child => child.tagName !== 'DL'));
+      const status = statusKey(task.status);
+      kept.querySelector('.sf-quick-status').dataset.status = status;
+      kept.querySelector('.sf-quick-status .status-dot').dataset.status = status;
+      const select = kept.querySelector('[data-quick-status]');
+      if (select.value !== task.status) select.value = task.status;
+    }
     // CSP forbids inline style attributes; size progress through the CSSOM.
     for (const bar of form.querySelectorAll('.sf-task-reading [data-progress]'))
       bar.style.width = `${bar.dataset.progress}%`;
@@ -413,8 +436,18 @@ export function taskEditor({
       const body = taskPayload({ ...initialValues, status: next }, original);
       const result = await api(`/tasks/${encodeURIComponent(task.id)}`, { method: 'PUT', body });
       if (!alive) return;
+      let fresh = null;
+      try {
+        fresh = await api(`/task/${encodeURIComponent(task.id)}`);
+      } catch {}
+      if (!alive) return;
+      if (!fresh?.revision && result?.revision) fresh = { ...task, ...result, status: next };
       busy = false;
-      if (afterSave) afterSave(result, { status: next });
+      // Update this sheet in place: a rebuild would lose the reading position and move focus.
+      if (fresh?.revision && fresh.id === task.id) {
+        applySavedStatus(fresh);
+        saved(result);
+      } else if (afterSave) afterSave(result, { status: next });
       else {
         saved(result);
         dialog.close();
@@ -433,6 +466,26 @@ export function taskEditor({
       busy = false;
       if (alive) sync();
     }
+  }
+  function applySavedStatus(fresh) {
+    const top = dialog.scrollTop;
+    task = fresh;
+    original = structuredClone(fresh);
+    renderRead();
+    dialog.scrollTop = top;
+    const pill = head.querySelector('.sf-sheet-ident .status-pill');
+    if (pill) {
+      pill.textContent = fresh.status || 'No status';
+      pill.dataset.status = statusKey(fresh.status);
+    }
+    // Edits kept in this tab must not put the old status back on their next save.
+    if (form.elements.status && [...form.elements.status.options].some(option => option.value === fresh.status))
+      form.elements.status.value = fresh.status;
+    initialValues.status = fresh.status;
+    try {
+      if (sessionStorage.getItem(key)) stash();
+    } catch {}
+    info(`Status changed to ${fresh.status}.`);
   }
   function policy() {
     if (!canWrite())
