@@ -16,11 +16,11 @@ import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
-  ['intake', 'Intake', 'Human checkpoint 01'],
-  ['planning', 'Planning', 'Human checkpoint 02'],
-  ['delivery', 'Delivery', 'Agents at work'],
-  ['uat', 'UAT', 'Human checkpoint 03'],
-  ['complete', 'Complete', 'Accepted outcomes'],
+  ['intake', 'Intake', 'You approve the scope'],
+  ['planning', 'Planning', 'You approve the plan'],
+  ['delivery', 'Delivery', 'Agents deliver'],
+  ['uat', 'UAT', 'You accept the result'],
+  ['complete', 'Complete', 'Accepted'],
 ];
 const labels = {
   'awaiting-human': 'Your review',
@@ -367,7 +367,7 @@ function renderBoard() {
   board.replaceChildren();
   board.setAttribute('aria-busy', 'false');
   for (const [stage, title, subtitle] of stages) {
-    const column = el('section', 'column');
+    const column = el('section', 'column lane');
     column.dataset.stage = stage;
     column.setAttribute('aria-label', title);
     const heading = el('div', 'column-heading');
@@ -383,9 +383,11 @@ function renderBoard() {
       card.dataset.initiativeId = item.id;
       card.setAttribute('aria-label', `${item.title}. ${labels[item.status] || item.status}. ${nextAction(item)}`);
       const meta = el('div', 'card-meta');
-      meta.append(el('span', `badge ${item.status}`, runPresentation(item, state?.activeRun).label));
+      const pill = el('span', 'status-pill', runPresentation(item, state?.activeRun).label);
+      pill.dataset.status = initiativeTone(item);
+      meta.append(pill);
       const next = el('div', 'card-next');
-      next.append(el('span', '', nextAction(item)), el('span', 'arrow', '↗'));
+      next.append(el('span', '', nextAction(item)), el('span', 'arrow', '→'));
       card.append(meta, el('h4', 'card-title', item.title), el('p', 'card-summary', statusSummary(item)), next);
       card.addEventListener('click', () => openDetail(item.id, card));
       list.append(card);
@@ -399,17 +401,10 @@ function renderBoard() {
     [...board.querySelectorAll('button')]
       .find(node => node.dataset.initiativeId === focusedId)
       ?.focus({ preventScroll: true });
+  const waiting = overviewGroups(state).decisions.length;
   $('#board-count').textContent =
-    `${all.length} initiative${all.length === 1 ? '' : 's'} · ${overviewGroups(state).decisions.length} initiative decisions · ${overviewGroups(state).humanTasks.length} Ready Human tasks`;
+    `${all.length} initiative${all.length === 1 ? '' : 's'}${waiting ? ` · ${waiting} waiting on you` : ''}`;
   $('#empty-state').hidden = all.length > 0 || !!query;
-  const active = all.find(item => runPresentation(item, state?.activeRun).label === 'Agent working');
-  $('#activity-title').textContent = active ? 'Agent working' : 'Agent activity';
-  $('#activity-summary').textContent = active
-    ? `${active.title} · ${statusSummary(active)}`
-    : all.length
-      ? 'No agent run is active. Your next decision is shown on each card.'
-      : 'Ready for your first initiative.';
-  renderTaskBoard();
   renderOverview();
   renderNavCounts();
 }
@@ -427,59 +422,106 @@ function renderNavCounts() {
   $('#nav-agents-live').hidden = !state?.activeRun;
   $('#nav-agents-live').title = state?.activeRun ? 'An agent is working' : '';
 }
+function initiativeTone(item) {
+  const label = runPresentation(item, state?.activeRun).label;
+  if (label === 'Agent working') return 'running';
+  if (['Recovery hold', 'Run state unresolved'].includes(label)) return 'blocked';
+  return (
+    {
+      'awaiting-human': 'ready',
+      blocked: 'blocked',
+      failed: 'blocked',
+      complete: 'done',
+      cancelled: 'backlog',
+    }[item.status] || 'backlog'
+  );
+}
+const overviewSlug = title => title.toLowerCase().replace(/\s+/g, '-');
+const overviewTiles = [
+  ['Needs you', overview => `${overview.decisions.length} decisions · ${overview.humanTasks.length} your tasks`],
+  ['Running now', () => (state?.activeRun?.status === 'running' ? 'An agent is working' : 'No agent running')],
+  ['Up next', () => 'Ready in an approved plan'],
+  ['Waiting', () => 'Blocked, queued or unresolved'],
+];
 function renderOverview() {
   const container = $('#overview-queues');
+  const stats = $('#overview-stats');
   const focused = document.activeElement?.dataset?.overviewKey;
   const expanded = [...container.querySelectorAll('details[open]')].map(n => n.dataset.group);
   container.replaceChildren();
+  stats.replaceChildren();
   if (state?.boardError)
     container.append(
-      el(
-        'p',
-        'inline-error',
-        `Tasks are unavailable: ${state.boardError}. Initiative decisions remain available; refresh to retry.`,
-      ),
+      el('p', 'inline-error', `Tasks are unavailable: ${state.boardError}. Initiatives still work; refresh to retry.`),
     );
   const overview = overviewGroups(state);
+  const groups = new Map(overview.groups.map(group => [overviewSlug(group.title), group]));
+  for (const [title, caption] of overviewTiles) {
+    const key = overviewSlug(title);
+    const count = groups.get(key)?.items.length || 0;
+    const tile = el('button', 'stat-tile');
+    tile.type = 'button';
+    tile.dataset.group = key;
+    tile.dataset.empty = String(!count);
+    tile.append(
+      el('span', 'stat-label', title),
+      el('strong', 'stat-value', count),
+      el('span', 'stat-caption', caption(overview)),
+    );
+    tile.addEventListener('click', () => {
+      const target = container.querySelector(`[data-group="${key}"]`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target?.querySelector('button')?.focus({ preventScroll: true });
+    });
+    stats.append(tile);
+  }
+  const stageName = id => stages.find(([stage]) => stage === id)?.[1] || id;
   for (const group of overview.groups) {
-    const block = el('section', 'overview-queue');
-    block.dataset.group = group.title.toLowerCase().replace(/\s+/g, '-');
-    block.append(el('h2', '', `${group.title} · ${group.items.length}`));
-    if (group.title === 'Needs you')
-      block.append(
-        el(
-          'p',
-          'muted',
-          `${overview.decisions.length} initiative decisions · ${state?.boardError ? 'Ready Human tasks unavailable' : `${overview.humanTasks.length} Ready Human tasks`}`,
-        ),
-      );
-    if (!group.items.length) block.append(el('p', 'muted', group.empty));
-    if (group.title === 'Up next') {
-      const milestones = overviewMilestones.get(selectedProjectId);
-      block.append(
-        el(
-          'p',
-          'gate-note',
-          milestones?.value
-            ? milestoneOrderSummary(milestones.value)
-            : milestones?.error
-              ? `Milestone order is unavailable: ${milestones.error}. Open Milestones to retry.`
-              : 'Checking recorded milestone order…',
-        ),
-      );
-      block.append(button('Open Milestones', () => showView('milestones')));
-    }
-    const older = detail(`Show ${Math.max(0, group.items.length - 4)} more`, el('div'));
+    const key = overviewSlug(group.title);
+    const block = el('section', 'overview-queue panel');
+    block.dataset.group = key;
+    const head = el('header', 'panel-header');
+    head.append(el('h2', '', group.title), el('span', 'count', group.items.length));
+    block.append(head);
+    const list = el('div', 'overview-list');
+    if (!group.items.length) list.append(el('p', 'overview-empty', group.empty));
+    const older = detail(`Show ${Math.max(0, group.items.length - 5)} more`, el('div'));
     older.dataset.group = group.title;
     older.open = expanded.includes(group.title);
     group.items.forEach((item, index) => {
       const row = button('', () => (item.kind === 'task' ? openTask(item.id) : openDetail(item.id, row)));
       row.className = 'overview-row';
       row.dataset.overviewKey = `${group.title}:${item.id}`;
-      row.append(el('strong', '', item.title), el('span', '', item.reason));
-      (index < 4 ? block : older.lastElementChild).append(row);
+      const initiative = item.kind === 'initiative' ? state?.initiatives?.find(i => i.id === item.id) : null;
+      const marker = el('span', 'status-dot');
+      marker.dataset.status = initiative
+        ? initiativeTone(initiative)
+        : String(state?.tasks?.find(t => t.id === item.id)?.status || '').toLowerCase();
+      const text = el('span', 'overview-row-text');
+      text.append(el('strong', '', item.title), el('span', '', item.reason));
+      const tag = el('span', 'overview-row-tag', initiative ? stageName(initiative.stage) : item.id);
+      row.append(marker, text, tag);
+      (index < 5 ? list : older.lastElementChild).append(row);
     });
-    if (group.items.length > 4) block.append(older);
+    block.append(list);
+    if (group.items.length > 5) list.append(older);
+    if (group.title === 'Up next') {
+      const milestones = overviewMilestones.get(selectedProjectId);
+      const foot = el('footer', 'overview-foot');
+      foot.append(
+        el(
+          'p',
+          'muted',
+          milestones?.value
+            ? milestoneOrderSummary(milestones.value)
+            : milestones?.error
+              ? `Milestone order is unavailable: ${milestones.error}.`
+              : 'Checking milestone order…',
+        ),
+        button('Milestones →', () => showView('milestones')),
+      );
+      block.append(foot);
+    }
     container.append(block);
   }
   if (focused)
@@ -1356,52 +1398,6 @@ $('#refresh').addEventListener('click', () => refresh(true));
 function agentsBusy() {
   return !!state?.activeRun || (state?.initiatives || []).some(isRunning);
 }
-function taskEditable(task) {
-  return (
-    task.atomicRevision !== false &&
-    !agentsBusy() &&
-    ['backlog', 'ready', 'blocked'].includes(String(task.status).toLowerCase())
-  );
-}
-function renderTaskBoard() {
-  const container = $('#tasks-list');
-  const focusedId = document.activeElement?.dataset?.taskId;
-  container.replaceChildren();
-  const tasks = state?.tasks || [];
-  $('#task-count').textContent = `${tasks.length} task${tasks.length === 1 ? '' : 's'}`;
-  if (!tasks.length) {
-    container.append(el('p', 'muted', 'No delivery tasks have been recorded yet.'));
-    return;
-  }
-  for (const task of tasks.slice(0, 8)) {
-    const card = el('button', 'initiative-card task-card');
-    card.type = 'button';
-    card.dataset.taskId = task.id;
-    const meta = el('div', 'card-meta');
-    meta.append(el('span', 'card-id', task.id), el('span', 'badge', task.status || 'Unspecified'));
-    const footer = el('div', 'card-next');
-    footer.append(
-      el('span', '', taskEditable(task) ? 'Inspect or edit task' : 'Inspect task'),
-      el('span', 'arrow', '↗'),
-    );
-    card.append(meta, el('h3', 'card-title', task.title));
-    if (task.blockReason)
-      card.append(
-        el(
-          'p',
-          'task-block-reason',
-          task.blockReason === 'dependent' ? 'Waiting for dependencies' : `Blocked: ${task.blockReason}`,
-        ),
-      );
-    card.append(footer);
-    card.addEventListener('click', () => openTask(task.id));
-    container.append(card);
-  }
-  if (focusedId)
-    [...container.querySelectorAll('button')]
-      .find(node => node.dataset.taskId === focusedId)
-      ?.focus({ preventScroll: true });
-}
 async function openTask(id, trigger = document.activeElement) {
   const epoch = projectEpoch;
   taskOrigin = {
@@ -1437,7 +1433,6 @@ function taskClosed() {
     } else if (origin.trigger?.isConnected) origin.trigger.focus({ preventScroll: true });
   });
 }
-$('#all-tasks').addEventListener('click', () => showView('tasks'));
 $('#operations-close').addEventListener('click', () => $('#operations-dialog').close());
 $('#operations-dialog').addEventListener('close', () => $('#operations-open').focus());
 async function openOperations() {
@@ -1686,7 +1681,6 @@ async function switchProject(id, { preserveLocation = false } = {}) {
   $('#review-mode').checked = saved.review || false;
   $('#filter').value = saved.filter || '';
   $('#board').replaceChildren(el('p', 'muted', 'Loading project…'));
-  $('#tasks-list').replaceChildren();
   for (const view of views.filter(v => !shellViews.includes(v))) $(`#workspace-${view}`).replaceChildren();
   $('#project-select').value = id;
   renderProjectHint();

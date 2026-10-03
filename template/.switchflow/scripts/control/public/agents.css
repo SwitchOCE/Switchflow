@@ -452,3 +452,20 @@
     max-height: 60dvh;
   }
 }
+/* Running sessions recede; sessions that need you stand out. */
+.group-running .agents-row:not([aria-current='true']) {
+  opacity: 0.72;
+}
+.group-needs-you .agents-group-title {
+  color: var(--danger-text);
+}
+details.agents-group > summary {
+  cursor: pointer;
+  list-style: none;
+}
+details.agents-group > summary::before {
+  content: '▸ ';
+}
+details.agents-group[open] > summary::before {
+  content: '▾ ';
+}

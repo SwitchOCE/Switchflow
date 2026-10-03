@@ -499,3 +499,6 @@ main {
     padding: var(--space-5) var(--space-4) var(--space-6);
   }
 }
+dialog.sheet::backdrop {
+  backdrop-filter: none;
+}

@@ -66,7 +66,32 @@ function statusPill(status) {
   return pill;
 }
 
-export function mountAgents(container, { request, send, canWrite, writeBlockedReason, onOpenTask }) {
+const attention = new Set(['failed', 'interrupted', 'waiting']);
+const settleAfterMs = 3 * 24 * 60 * 60 * 1000;
+
+export function mountAgents(container, { request, send, canWrite, writeBlockedReason, onOpenTask, projectId }) {
+  // Settling is a per-browser inbox marker: it hides a handled session and never changes project records.
+  const settleKey = `switchflow:settled:${projectId || 'project'}`;
+  let settled = {};
+  try {
+    settled = JSON.parse(localStorage.getItem(settleKey) || '{}');
+  } catch {}
+  const isSettled = session =>
+    !!settled[session.id] ||
+    (!live.has(session.status) &&
+      !attention.has(session.status) &&
+      Date.now() - Date.parse(session.updatedAt || session.startedAt || 0) > settleAfterMs);
+  function setSettled(session, value) {
+    if (value) settled[session.id] = Date.now();
+    else delete settled[session.id];
+    try {
+      localStorage.setItem(settleKey, JSON.stringify(settled));
+    } catch {}
+    renderList();
+    const head = renderHead(session);
+    headNode?.replaceWith(head);
+    headNode = head;
+  }
   let data = null;
   let selected = null;
   let events = [];
@@ -81,6 +106,7 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
   let feedNode = null;
   let headNode = null;
   let renderedFor = null;
+  let settledOpen = false;
 
   container.replaceChildren();
   const header = el('header', 'agents-header');
@@ -188,19 +214,38 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       return;
     }
     const roots = all.filter(session => !session.parentId || !all.some(other => other.id === session.parentId));
-    const groups = [
-      [
-        'Live',
-        roots.filter(session => live.has(session.status) || childrenOf(session.id).some(c => live.has(c.status))),
-      ],
-      [
-        'Recent',
-        roots.filter(session => !(live.has(session.status) || childrenOf(session.id).some(c => live.has(c.status)))),
-      ],
-    ];
+    const tree = session => [session, ...childrenOf(session.id)];
+    const bucket = session => {
+      const family = tree(session);
+      if (family.some(s => attention.has(s.status) && !settled[s.id])) return 'Needs you';
+      if (family.some(s => live.has(s.status))) return 'Running';
+      return family.every(isSettled) ? 'Settled' : 'Done';
+    };
+    const groups = ['Needs you', 'Running', 'Done', 'Settled'].map(title => [
+      title,
+      roots.filter(session => bucket(session) === title),
+    ]);
     for (const [title, members] of groups) {
       if (!members.length) continue;
-      const group = el('div', 'agents-group');
+      const group = el(
+        title === 'Settled' ? 'details' : 'div',
+        `agents-group group-${title.toLowerCase().replace(/\s+/g, '-')}`,
+      );
+      if (title === 'Settled') {
+        group.open = settledOpen || members.some(m => tree(m).some(s => s.id === selected));
+        group.addEventListener('toggle', () => {
+          settledOpen = group.open;
+        });
+        const summary = el('summary', 'agents-group-title', `Settled · ${members.length}`);
+        group.append(summary);
+        const walk = (session, depth) => {
+          group.append(sessionRow(session, depth));
+          for (const child of childrenOf(session.id)) walk(child, depth + 1);
+        };
+        members.forEach(session => walk(session, 0));
+        list.append(group);
+        continue;
+      }
       group.append(el('h2', 'agents-group-title', `${title} · ${members.length}`));
       const walk = (session, depth) => {
         group.append(sessionRow(session, depth));
@@ -331,6 +376,14 @@ export function mountAgents(container, { request, send, canWrite, writeBlockedRe
       up.title = `Go to ${parent.title || 'orchestrator'}`;
       up.addEventListener('click', () => select(parent.id));
       actions.append(up);
+    }
+    if (!live.has(session.status)) {
+      const done = !!settled[session.id];
+      const settle = el('button', 'button quiet', done ? 'Unsettle' : 'Settle');
+      settle.type = 'button';
+      settle.title = done ? 'Move back to your inbox' : 'Mark handled and move out of your inbox';
+      settle.addEventListener('click', () => setSettled(session, !done));
+      actions.append(settle);
     }
     if (live.has(session.status)) {
       const stop = el('button', 'button danger', 'Stop');

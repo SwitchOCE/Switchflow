@@ -28,6 +28,7 @@ const staticFiles = Object.fromEntries(
     'tokens.css',
     'styles.css',
     'system.css',
+    'workspace.css',
     'documents.js',
     'documents.css',
     'milestones.js',
