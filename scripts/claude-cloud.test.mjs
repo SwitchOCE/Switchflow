@@ -239,6 +239,64 @@ test('submit pushes the start commit and task, then creates, clears and runs the
   await assert.rejects(unconfigured.submit({ key: 't-3-abcdef12', task: 'T-3', prompt: 'x', head }), /not configured/);
 });
 
+test('workers reuse one routine per environment, across restarts, and replace a deleted one', async t => {
+  const { local, base } = await repoWithRemote(t);
+  const stateDir = path.join(base, 'state');
+  const head = git(local, 'rev-parse', 'HEAD');
+  const { dispatch, calls } = fakeDispatch();
+  const env = createClaudeCloudEnvironment({ config: CONFIG, projectRoot: local, stateDir, dispatch });
+  // Two workers starting together: the second waits for the first run, then updates the same routine.
+  const [one, two] = await Promise.all([
+    env.submit({ key: 't-1-abcdef12', task: 'T-1', prompt: 'x', head, cwd: local }),
+    env.submit({ key: 't-2-abcdef12', task: 'T-2', prompt: 'y', head, cwd: local }),
+  ]);
+  assert.equal(one.triggerId, two.triggerId);
+  assert.deepEqual(
+    calls.map(c => c.action),
+    ['create', 'update', 'run', 'update', 'run'],
+  );
+  // Either worker may reach the routine first; each run follows its own job.
+  const job = call => call.body.job_config.ccr.events[0].data.message.content.match(/t-\d-abcdef12/)[0];
+  assert.deepEqual([job(calls[0]), job(calls[3])].sort(), ['t-1-abcdef12', 't-2-abcdef12']);
+  assert.equal(calls[3].body.clear_mcp_connections, true);
+
+  // After a service restart the recorded routine is still reused.
+  const later = fakeDispatch();
+  const restarted = createClaudeCloudEnvironment({
+    config: CONFIG,
+    projectRoot: local,
+    stateDir,
+    dispatch: later.dispatch,
+  });
+  await restarted.submit({ key: 't-3-abcdef12', task: 'T-3', prompt: 'z', head, cwd: local });
+  assert.deepEqual(
+    later.calls.map(c => [c.action, c.trigger_id ?? null]),
+    [
+      ['update', 'trig_01TESTTESTTEST'],
+      ['run', 'trig_01TESTTESTTEST'],
+    ],
+  );
+
+  // A routine the owner deleted fails its update; a new one is created and recorded.
+  const deleted = fakeDispatch();
+  const replacing = createClaudeCloudEnvironment({
+    config: CONFIG,
+    projectRoot: local,
+    stateDir,
+    dispatch: async input => {
+      if (input.action === 'update' && input.trigger_id === 'trig_01TESTTESTTEST') throw new Error('HTTP 404');
+      if (input.action === 'create') return { id: 'trig_01REPLACEMENT' };
+      return deleted.dispatch(input);
+    },
+  });
+  const handle = await replacing.submit({ key: 't-4-abcdef12', task: 'T-4', prompt: 'w', head, cwd: local });
+  assert.equal(handle.triggerId, 'trig_01REPLACEMENT');
+  const recorded = JSON.parse(
+    await fs.readFile(path.join(stateDir, 'environments', 'claude-cloud-routines.json'), 'utf8'),
+  );
+  assert.equal(recorded[CONFIG.environmentId], 'trig_01REPLACEMENT');
+});
+
 test('poll reports new log lines once, and worker questions from the notes branch', async t => {
   const { local, remote, base } = await repoWithRemote(t);
   const later = `${SUMMARY}\n[2026-10-03T14:30:00Z] assistant: Writing now.`;
@@ -316,7 +374,7 @@ test('a cloud session gates writes on the approach, follows up in-session and co
   assert.throws(() => git(remote, 'rev-parse', '--verify', 'refs/heads/sf-task/t-1-abcdef12'));
   assert.throws(() => git(remote, 'rev-parse', '--verify', 'refs/heads/sf-inbox/t-1-abcdef12'));
   assert.ok(git(remote, 'rev-parse', '--verify', 'refs/heads/claude/sf-t-1-abcdef12'), 'the result branch is kept');
-  assert.ok(events.some(e => e.kind === 'notice' && /Disabled cloud routine trig_01TESTTESTTEST/.test(e.text)));
+  assert.ok(!events.some(e => e.kind === 'notice' && /routine/i.test(e.text)), 'the shared routine is not reported');
 });
 
 test('a push during the read-only approach turn fails the turn', async t => {

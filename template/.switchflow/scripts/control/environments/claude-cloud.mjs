@@ -1,5 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { claudeExecutable } from '../providers/claude-cli.mjs';
 import { oneLine, readLines, stopTree } from '../providers/process.mjs';
@@ -18,8 +20,10 @@ import { oneLine, readLines, stopTree } from '../providers/process.mjs';
  * - `get_run_log` returns a condensed text log (tool calls, messages, result), read by polling.
  * - A routine's allowed_tools does not restrict the session (a probe wrote and pushed), so the
  *   read-only approach turn is enforced by instruction plus a host check that nothing was pushed.
- * - There is no interrupt and no routine delete: cancel tells the worker to stop and disables the
- *   routine; the owner deletes disabled routines at claude.ai/code/routines.
+ * - There is no interrupt and no routine delete: cancel tells the worker to stop. So that routines do
+ *   not pile up, each environment reuses one routine: `update` replaces its job (verified: the
+ *   stored session request follows it) and `run` starts a new session from it. Running sessions
+ *   keep the job they started with.
  */
 
 export const KIND = 'claude-cloud';
@@ -129,7 +133,7 @@ export function taskDocument({ key, task, prompt, writable }) {
   ].join('\n');
 }
 
-/** The routines API body for one one-off worker. */
+/** The routines API body for a worker run. */
 export function routineBody({ name, environmentId, repository, model, prompt, allowedTools }) {
   return {
     name: oneLine(name, 120),
@@ -428,10 +432,63 @@ export function createClaudeCloudEnvironment({
   git = createGit(),
   run = runProcess,
   executable = claudeExecutable(),
+  stateDir = null,
 } = {}) {
   const { config, problems } = validateCloudConfig(input);
   const remote = config.remote;
   const ref = (key, name) => `refs/switchflow/cloud/${key}/${name}`;
+
+  // The environment's one reusable routine, recorded per cloud environment ID.
+  const routineFile = stateDir && path.join(stateDir, 'environments', 'claude-cloud-routines.json');
+  const readRoutines = async () => {
+    if (!routineFile) return {};
+    try {
+      return JSON.parse(await readFile(routineFile, 'utf8'));
+    } catch {
+      return {};
+    }
+  };
+  let routineId = null;
+  async function recordRoutine(id) {
+    routineId = id;
+    if (!routineFile) return;
+    const routines = { ...(await readRoutines()), [config.environmentId]: id };
+    await mkdir(path.dirname(routineFile), { recursive: true });
+    await writeFile(`${routineFile}.tmp`, `${JSON.stringify(routines, null, 2)}\n`);
+    await rename(`${routineFile}.tmp`, routineFile);
+  }
+  // Updating the shared routine and running it must not interleave with another worker's start.
+  let starting = Promise.resolve();
+  function startRun(body) {
+    const next = starting.then(async () => {
+      routineId ??= (await readRoutines())[config.environmentId] ?? null;
+      // A bare [] is ignored by the API; clear_mcp_connections removes the account's connectors.
+      const job = { ...body, mcp_connections: [], clear_mcp_connections: true };
+      let triggerId = null;
+      if (TRIGGER_ID.test(String(routineId))) {
+        // A routine the owner deleted (or any failed update) is replaced rather than retried.
+        const updated = await dispatch({ action: 'update', trigger_id: routineId, body: job }).catch(() => null);
+        if (updated) triggerId = routineId;
+      }
+      if (!triggerId) {
+        const created = await dispatch({ action: 'create', body });
+        triggerId = created?.id ?? created?.trigger?.id;
+        if (!TRIGGER_ID.test(String(triggerId))) fail('The routines API did not return a routine ID.');
+        await recordRoutine(triggerId);
+        await dispatch({
+          action: 'update',
+          trigger_id: triggerId,
+          body: { mcp_connections: [], clear_mcp_connections: true },
+        });
+      }
+      const fired = await dispatch({ action: 'run', trigger_id: triggerId });
+      const sessionId = fired?.session_id;
+      if (!SESSION_ID.test(String(sessionId))) fail(`Routine ${triggerId} ran but returned no session ID.`);
+      return { triggerId, sessionId };
+    });
+    starting = next.catch(() => {});
+    return next;
+  }
 
   const adapter = {
     id: KIND,
@@ -506,30 +563,17 @@ export function createClaudeCloudEnvironment({
         `Switchflow task ${task}`,
       );
       await git.push(cwd, remote, inbox, b.inbox);
-      const created = await dispatch({
-        action: 'create',
-        body: routineBody({
-          name: `Switchflow ${task} ${key}`,
+      const { triggerId, sessionId } = await startRun(
+        routineBody({
+          name: `Switchflow workers (${config.environmentId})`,
           environmentId: config.environmentId,
           repository: config.repository,
           model: config.model,
           prompt: routinePrompt(key, { writable }),
           allowedTools: writable ? WRITE_TOOLS : READ_ONLY_TOOLS,
         }),
-      });
-      const triggerId = created?.id ?? created?.trigger?.id;
-      if (!TRIGGER_ID.test(String(triggerId))) fail('The routines API did not return a routine ID.');
-      handle.triggerId = triggerId;
-      // A bare [] is ignored by the API; clear_mcp_connections removes the account's connectors.
-      await dispatch({
-        action: 'update',
-        trigger_id: triggerId,
-        body: { mcp_connections: [], clear_mcp_connections: true },
-      });
-      const fired = await dispatch({ action: 'run', trigger_id: triggerId });
-      const sessionId = fired?.session_id;
-      if (!SESSION_ID.test(String(sessionId))) fail(`Routine ${triggerId} ran but returned no session ID.`);
-      Object.assign(handle, { sessionId, url: `https://claude.ai/code/${sessionId}` });
+      );
+      Object.assign(handle, { triggerId, sessionId, url: `https://claude.ai/code/${sessionId}` });
       handle.runs.push({ triggerId, sessionId });
       return handle;
     },
@@ -595,7 +639,7 @@ export function createClaudeCloudEnvironment({
       return pushed;
     },
 
-    /** No call stops a running cloud turn: ask the worker to stop and disable the routine. */
+    /** No call stops a running cloud turn: ask the worker to stop. The shared routine stays. */
     async cancel(handle) {
       const problemsSeen = [];
       await adapter
@@ -604,10 +648,6 @@ export function createClaudeCloudEnvironment({
           'STOP. Switchflow cancelled this worker. Do not start new steps; push what you have committed and end now.',
         )
         .catch(error => problemsSeen.push(oneLine(error.message, 200)));
-      for (const entry of handle.runs)
-        await dispatch({ action: 'update', trigger_id: entry.triggerId, body: { enabled: false } }).catch(error =>
-          problemsSeen.push(oneLine(error.message, 200)),
-        );
       return {
         stopped: false,
         note: `Asked the cloud worker to stop. It ends at its next step; archive ${handle.url} to stop it at once.`,
@@ -639,13 +679,9 @@ export function createClaudeCloudEnvironment({
       };
     },
 
-    /** Disables the routine and deletes the start, inbox and notes branches (and the result if asked). */
+    /** Deletes the start, inbox and notes branches (and the result if asked). The routine is reused. */
     async cleanup(handle, { keepResult = true } = {}) {
       const problemsSeen = [];
-      for (const entry of handle.runs)
-        await dispatch({ action: 'update', trigger_id: entry.triggerId, body: { enabled: false } }).catch(error =>
-          problemsSeen.push(oneLine(error.message, 200)),
-        );
       const branches = [handle.branches.task, handle.branches.inbox, handle.branches.notes];
       if (!keepResult) branches.push(handle.branches.result);
       for (const branch of branches)
@@ -655,8 +691,7 @@ export function createClaudeCloudEnvironment({
             .catch(error => problemsSeen.push(oneLine(error.message, 200)));
       for (const name of ['notes', 'result'])
         await git.git(handle.cwd, ['update-ref', '-d', ref(handle.key, name)]).catch(() => {});
-      // The routines API has no delete; disabled one-off routines stay listed until the owner deletes them.
-      return { routines: handle.runs.map(entry => entry.triggerId), problems: problemsSeen };
+      return { problems: problemsSeen };
     },
   };
   return adapter;
@@ -792,13 +827,7 @@ export async function openCloudSession({
       closed = true;
       if (active) active.cancelled = true;
       if (handle) {
-        const cleaned = await adapter.cleanup(handle).catch(error => ({ problems: [error.message], routines: [] }));
-        if (cleaned.routines.length)
-          await onEvent({
-            kind: 'notice',
-            level: 'info',
-            text: `Disabled cloud routine ${cleaned.routines.join(', ')}; delete it at claude.ai/code/routines when its log is no longer needed.`,
-          });
+        const cleaned = await adapter.cleanup(handle).catch(error => ({ problems: [error.message] }));
         for (const problem of cleaned.problems) await onEvent({ kind: 'notice', level: 'warning', text: problem });
       }
       await onEvent({ kind: 'session.closed' });

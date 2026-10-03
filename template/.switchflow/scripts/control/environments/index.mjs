@@ -76,7 +76,7 @@ function validateClaudeCloud(config) {
 }
 export function createClaudeCloudAdapter(config, deps = {}) {
   const { stateDir, projectRoot, ...rest } = deps;
-  const adapter = createClaudeCloudEnvironment({ config, projectRoot, ...rest });
+  const adapter = createClaudeCloudEnvironment({ config, projectRoot, stateDir, ...rest });
   adapter.openSession = options => openCloudSession({ adapter, ...options });
   return Object.assign(adapter, { id: config.id ?? adapter.id ?? 'claude-cloud', remote: true, provider: 'claude' });
 }
