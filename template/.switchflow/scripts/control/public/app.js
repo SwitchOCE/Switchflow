@@ -14,6 +14,7 @@ import { createNativeClient, workspaceLocation } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
+import { createRefreshControl } from './refresh-control.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'You approve the scope'],
@@ -1384,8 +1385,7 @@ async function refresh(forceDetail = false) {
     renderBoard();
     void refreshOverviewMilestones();
     void refreshAgentRouting();
-    $('#updated-at').textContent =
-      `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    for (const control of shellRefresh) control.loaded();
     if (selectedId && current()) {
       const editing =
         $('#detail-dialog').contains(document.activeElement) &&
@@ -1423,6 +1423,7 @@ async function refresh(forceDetail = false) {
     if (epoch !== projectEpoch) return;
     connected = false;
     setConnection('Connection lost', 'offline');
+    for (const control of shellRefresh) control.failed(error);
     showError(
       `${error.message} Your entries are preserved. Check that the local control server is running, then refresh.`,
     );
@@ -1481,7 +1482,12 @@ $('#create-form').addEventListener('submit', async event => {
   }
 });
 $('#filter').addEventListener('input', renderBoard);
-$('#refresh').addEventListener('click', () => refresh(true));
+// Overview and Initiatives both show the shell state, so each header gets a control over the same load.
+const shellRefresh = ['#workspace-board', '#workspace-initiatives'].map(section => {
+  const control = createRefreshControl(() => refresh(true));
+  $(`${section} .page-actions`).append(control.create());
+  return control;
+});
 
 function agentsBusy() {
   return !!state?.activeRun || (state?.initiatives || []).some(isRunning);
@@ -2046,6 +2052,11 @@ mountSearch({
       run: () => tab.click(),
     })),
     { label: 'New initiative', hint: 'Start intake for a new outcome', run: openCreate },
+    {
+      label: 'Refresh view',
+      hint: 'Reload what this view shows',
+      run: () => $(`#workspace-${activeView} .refresh-control-button`)?.click(),
+    },
     {
       label: 'Create task',
       hint: 'Tasks',

@@ -339,6 +339,43 @@ label {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+/* Refresh control: the last item in every view's .page-actions (refresh-control.js).
+   Markup: <div class="refresh-control" data-state="idle|ready|busy|error">
+   <span class="refresh-control-time">Updated 14:02</span><button class="icon-button refresh-control-button">…</button></div> */
+.refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  /* Stays at the right end when narrow headers wrap it onto its own line. */
+  margin-left: auto;
+}
+.refresh-control-time {
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.refresh-control[data-state='error'] .refresh-control-time {
+  color: var(--danger-text);
+}
+.refresh-control-button[aria-disabled='true'] {
+  cursor: progress;
+}
+.refresh-control[data-state='busy'] .refresh-control-button .icon {
+  animation: refresh-spin 0.8s linear infinite;
+}
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refresh-control[data-state='busy'] .refresh-control-button .icon {
+    animation: none;
+    opacity: 0.45;
+  }
+}
 .toolbar {
   display: flex;
   align-items: center;
