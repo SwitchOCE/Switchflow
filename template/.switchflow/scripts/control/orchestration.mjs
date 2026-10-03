@@ -7,11 +7,14 @@ import { ControlError } from './lifecycle.mjs';
 import { resolveProvider } from './agent-settings.mjs';
 import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
 import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
+import { DEFAULT_MAX_WORKERS as DEFAULT_BOX_WORKERS } from './environments/ssh.mjs';
 
 const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
 /** A worker in one of these states has not finished its current step. */
 const BUSY = new Set(['queued', 'starting', 'working']);
 const MAX_INSTRUCTIONS = 50000;
+/** The admission lane of an environment: "local" for this PC, otherwise the environment's id. */
+const laneOf = environment => (!environment || environment.kind === 'local' ? 'local' : environment.id);
 const SUITE_TTL_MINUTES = 30;
 
 /** Instructions for a worker re-delegated after a service restart. */
@@ -242,10 +245,14 @@ export class Orchestration {
     if (!worker) throw new ControlError('Unknown worker for this run.', 404);
     return worker;
   }
-  /** Workers counted against limits.maxWorkers: starting or in a turn. Idle and queued ones are not. */
-  liveCount() {
+  /**
+   * Workers starting or in a turn on one lane: this PC (counted against limits.maxWorkers) or an
+   * SSH box (counted against its own maxWorkers). Idle, queued and cloud workers are not counted.
+   */
+  liveCount(lane = 'local') {
     return [...this.workers.values()].filter(
-      worker => !worker.remote && ['starting', 'working'].includes(worker.status),
+      worker =>
+        !worker.remote && laneOf(worker.environment) === lane && ['starting', 'working'].includes(worker.status),
     ).length;
   }
 
@@ -387,21 +394,32 @@ export class Orchestration {
         approval: worker.approval,
         resumedFrom,
       });
-      // Remote workers use no local memory or worker slot, so they start at once.
+      // Cloud workers use no local memory or worker slot, so they start at once.
       if (remote) {
         worker.launching = this.launch(worker, routed, entry).catch(error => this.launchFailed(worker, error));
         admission = {};
-      } else
+      } else {
+        // Workers on an SSH box use none of this PC's memory and queue against the box's own limit.
+        const lane = laneOf(environment);
+        const limit = lane === 'local' ? settings.limits.maxWorkers : (environment.maxWorkers ?? DEFAULT_BOX_WORKERS);
         admission = await this.host.capacity.request({
           id: worker.id,
           runId: this.runId,
           task,
           kind,
-          maxWorkers: settings.limits.maxWorkers,
-          slotFree: () => this.liveCount() < settings.limits.maxWorkers,
+          maxWorkers: limit,
+          slotFree: () => this.liveCount(lane) < limit,
           start: () => (worker.launching = this.launch(worker, routed, entry)),
           onFailure: error => this.launchFailed(worker, error),
+          ...(lane === 'local'
+            ? {}
+            : {
+                lane,
+                memory: false,
+                limitReason: `${limit} worker${limit === 1 ? ' is' : 's are'} running on ${environment.label ?? lane}, its limit (maxWorkers)`,
+              }),
         });
+      }
     } catch (error) {
       // A worker that could not start at once leaves no record behind, as before queuing existed.
       this.workers.delete(worker.id);
