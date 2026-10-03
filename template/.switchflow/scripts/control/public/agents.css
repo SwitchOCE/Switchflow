@@ -150,7 +150,8 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
-  overflow: hidden;
+  /* clip, not hidden: the composer must stay sticky to the viewport. */
+  overflow: clip;
 }
 .agents-list {
   overflow-y: auto;
@@ -402,10 +403,34 @@
 .agents-note.is-error {
   color: var(--danger-text);
 }
+/* Sticky: when banners push the page past the viewport, the composer stays in view. */
 .agents-composer {
-  padding: 12px 18px 14px;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
   background: var(--surface);
+}
+.agents-composer-blocked,
+.agents-composer-error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+.agents-composer-blocked:empty,
+.agents-composer-error:empty {
+  display: none;
+}
+.agents-composer-blocked {
+  background: var(--warning-soft);
+  color: var(--text-1);
+}
+.agents-composer-error {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-weight: 600;
 }
 .agents-composer-row {
   display: flex;
@@ -504,12 +529,20 @@ details.agents-group[open] > summary::before {
 }
 
 .agents-ended {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
   margin: 0;
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-2);
   font-size: var(--text-sm);
+}
+.agents-ended p {
+  margin: 0;
 }
 .agents-back {
   display: none;
@@ -530,5 +563,23 @@ details.agents-group[open] > summary::before {
   }
   .agents-detail h2:focus {
     outline: none;
+  }
+  /* Reading a session: compact the page header so the transcript and composer get the room. */
+  #workspace-agents[data-agents-pane='detail'] {
+    gap: var(--space-2);
+  }
+  #workspace-agents[data-agents-pane='detail'] .agents-header {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  #workspace-agents[data-agents-pane='detail'] .agents-header .muted,
+  #workspace-agents[data-agents-pane='detail'] .agents-providers {
+    display: none;
+  }
+  #workspace-agents[data-agents-pane='detail'] .agents-header h1 {
+    font-size: var(--text-lg);
+  }
+  .agents-composer {
+    padding-inline: var(--space-3);
   }
 }

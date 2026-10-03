@@ -1,6 +1,7 @@
 const nativeLimit = 40;
 const types = [
   ['initiative', 'Initiatives'],
+  ['milestone', 'Milestones'],
   ['task', 'Tasks'],
   ['document', 'Documents'],
   ['decision', 'Decisions'],
@@ -41,11 +42,15 @@ export function matchedSnippet(item, query, maximum = 180) {
   return `${start ? '…' : ''}${source.slice(start, start + maximum).trim()}${start + maximum < source.length ? '…' : ''}`;
 }
 
-export function buildSearchMatches(response, localInitiatives, query) {
+export function buildSearchMatches(response, localInitiatives, query, milestones = []) {
   const needle = query.toLocaleLowerCase();
   const matches = (localInitiatives || [])
     .filter(item => `${text(item.title)} ${text(item.request)}`.toLocaleLowerCase().includes(needle))
     .map(item => ({ type: 'initiative', item, view: 'board', id: item.id }));
+  // The native search covers tasks and documents only; milestones match on title and ID here.
+  for (const item of Array.isArray(milestones) ? milestones : [])
+    if (item?.id && `${text(item.id)} ${text(item.title)}`.toLocaleLowerCase().includes(needle))
+      matches.push({ type: 'milestone', item, view: 'milestones', record: item.id });
   for (const result of Array.isArray(response) ? response : []) {
     const item = result.task || result.document || result.decision;
     if (!item || !['task', 'document', 'decision'].includes(result.type)) continue;
@@ -99,7 +104,16 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     query = '',
     nativeCount = 0,
     commandMatches = [],
+    milestoneCache = null,
     selected = -1;
+  // One milestone list per project for a short while, so typing does not refetch it per keystroke.
+  const loadMilestones = async projectId => {
+    if (milestoneCache?.project === projectId && Date.now() - milestoneCache.at < 15000) return milestoneCache.value;
+    const value = await api('/milestones');
+    const list = Array.isArray(value) ? value : value?.milestones || [];
+    milestoneCache = { project: projectId, at: Date.now(), value: list };
+    return list;
+  };
   const matchCommands = () => {
     const words = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return commands().filter(command => words.every(word => command.label.toLowerCase().includes(word)));
@@ -196,19 +210,23 @@ export function mountSearch({ dialog, trigger, project, api, initiatives, naviga
     commandMatches = matchCommands();
     if (query.length < 2) {
       renderCommands();
-      status.textContent = 'Type to search tasks, documents, decisions and initiatives.';
+      status.textContent = 'Type to search tasks, milestones, documents, decisions and initiatives.';
       return;
     }
     status.textContent = 'Searching this project…';
     dialog.setAttribute('aria-busy', 'true');
     try {
       const scopes = selectedTypes();
-      const response = [...scopes].some(type => type !== 'initiative')
-        ? await api(`/search?query=${encodeURIComponent(query)}&limit=${nativeLimit}`)
-        : [];
+      const [response, milestones] = await Promise.all([
+        [...scopes].some(type => !['initiative', 'milestone'].includes(type))
+          ? api(`/search?query=${encodeURIComponent(query)}&limit=${nativeLimit}`)
+          : [],
+        // Older Backlog runtimes without a milestone route still search everything else.
+        scopes.has('milestone') ? loadMilestones(projectId).catch(() => []) : [],
+      ]);
       if (ticket !== generation || projectId !== project() || !dialog.open) return;
       nativeCount = Array.isArray(response) ? response.length : 0;
-      loaded = buildSearchMatches(response, scopes.has('initiative') ? initiatives() : [], query);
+      loaded = buildSearchMatches(response, scopes.has('initiative') ? initiatives() : [], query, milestones);
       render();
     } catch (error) {
       if (ticket === generation && dialog.open)

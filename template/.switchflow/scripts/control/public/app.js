@@ -1379,6 +1379,7 @@ function openDetail(id, trigger, { navigate = true } = {}) {
   $('#detail-content').replaceChildren();
   renderDetail();
   if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
+  updateTitle();
   detailScroller().scrollTop = 0;
   if (navigate && !followingRoute && workspaceLocation(location.href).initiative !== id)
     writeLocation({ view: activeView, initiative: id });
@@ -1399,6 +1400,7 @@ $('#detail-dialog').addEventListener('close', () => {
   selectedId = null;
   displayedRevision = null;
   displayedActivity = null;
+  updateTitle();
   const card = [...document.querySelectorAll('[data-initiative-id]')].find(node => node.dataset.initiativeId === id);
   (card || returnFocus || $('#new-initiative')).focus({ preventScroll: true });
 });
@@ -1416,7 +1418,7 @@ async function refresh(forceDetail = false) {
     $('#offline-state').hidden = true;
     sharedToken = state.csrfToken;
     connected = true;
-    document.title = `${state.project.name} · Switchflow`;
+    updateTitle();
     if (Date.now() - projectsRefreshedAt > 8000) loadProjects().catch(() => {});
     setConnection('Connected locally', 'connected');
     $('#project-name').textContent = state.project?.name || 'Project control';
@@ -1663,6 +1665,7 @@ function writeLocation(values, replace = false) {
       '',
       url,
     );
+  updateTitle();
 }
 function nativeClient(id) {
   return createNativeClient({
@@ -1675,8 +1678,27 @@ function nativeClient(id) {
     },
   });
 }
+// The tab names where you are: the open initiative or record, the view, then the project.
+function updateTitle() {
+  const view = document.querySelector(`.nav-tab[data-view="${activeView}"] .nav-label`)?.textContent.trim();
+  const route = workspaceLocation(location.href);
+  const record =
+    route.view !== activeView
+      ? ''
+      : route.task
+        ? state?.tasks?.find(task => task.id === route.task)?.title || route.task
+        : route.record
+          ? (activeView === 'milestones' &&
+              overviewMilestones.get(selectedProjectId)?.value?.find(item => item.id === route.record)?.title) ||
+            route.record
+          : '';
+  const initiative =
+    $('#detail-dialog').open && selectedId ? state?.initiatives?.find(item => item.id === selectedId)?.title : '';
+  document.title = [initiative || record, view, state?.project?.name, 'Switchflow'].filter(Boolean).join(' · ');
+}
 function showView(view, updateLocation = true) {
   activeView = views.includes(view) ? view : 'board';
+  updateTitle();
   if (matchMedia('(max-width:760px)').matches) setDrawer(false);
   $('.skip-link').href = `#workspace-${activeView}`;
   $('.skip-link').textContent = 'Skip to workspace content';
@@ -1769,6 +1791,10 @@ function showView(view, updateLocation = true) {
       request: route => readProject(route, id),
       send: (route, method, body) => writeProject(route, method, body, id),
       initiativeTitle: initiativeId => state?.initiatives?.find(item => item.id === initiativeId)?.title || '',
+      onOpenInitiative: initiativeId => {
+        if (state?.initiatives?.some(item => item.id === initiativeId))
+          openDetail(initiativeId, document.activeElement);
+      },
     });
   else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
@@ -2119,7 +2145,10 @@ mountSearch({
       if (item.task) {
         await panel.refresh();
         await panel.openTask(item.task);
-      } else await panel.open(item.record);
+      } else {
+        await panel.open(item.record);
+        if (item.view === 'milestones') writeLocation({ view: 'milestones', record: item.record }, true);
+      }
     }
   },
 });
