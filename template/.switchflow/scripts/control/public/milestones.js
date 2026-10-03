@@ -1,6 +1,5 @@
 import { renderMarkdown, bindProseInteractions } from './documents.js';
-// Namespace import: taskRank is shared with the Overview; the local fallback keeps the same order if it is absent.
-import * as overviewModel from './overview-model.js';
+import { taskRank } from './overview-model.js';
 // Host callbacks supply project-scoped APIs and CSRF; drafts never cross project keys.
 export const sortMilestones = values =>
   [...values].sort(
@@ -85,17 +84,9 @@ export function statusCounts(linked) {
   return counts;
 }
 // The first unfinished Ready task, or why nothing is ready.
-const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
-const fallbackRank = () => {
-  const priority = task => PRIORITY_RANK[String(task.priority || '').toLowerCase()] ?? 3;
-  const idNumber = task => Number(String(task.id || '').match(/(\d+)/)?.[1] ?? Infinity);
-  return (a, b) =>
-    priority(a) - priority(b) || (a.ordinal ?? Infinity) - (b.ordinal ?? Infinity) || idNumber(a) - idNumber(b);
-};
-// Ranks like the Overview: priority, then ordinal, then numeric ID within one milestone.
+// Ranks like the Overview (taskRank): within one milestone, priority, then ordinal, then numeric ID.
 export function nextUp(linked, allTasks = [], milestones = []) {
-  const rank = typeof overviewModel.taskRank === 'function' ? overviewModel.taskRank(milestones) : fallbackRank();
-  const ordered = [...linked].sort(rank);
+  const ordered = [...linked].sort(taskRank(milestones));
   const ready = ordered.find(task => taskBucket(task.status) === 'ready');
   if (ready) return { task: ready };
   if (!linked.length) return { reason: 'Link tasks to this milestone to see what comes next.' };
