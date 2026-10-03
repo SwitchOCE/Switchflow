@@ -173,7 +173,7 @@ The host enforces:
 
 The suite lock is one project-wide lock so parallel workers do not run the full test or build suite at the same time. Each worker gets its own MCP server with only the two lock tools and its own token. The lock is released explicitly, when its holder's session ends, or after 30 minutes.
 
-`GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `cancelled` with an error, and their events stay readable.
+`GET /state` keeps its shape; `capabilities` is now `{ "codex": <provider>, "claude": <provider> }`. After a restart, sessions that were open are listed as `failed` (under Needs you) with an error naming their process, and their events stay readable. Their processes are fenced as described in [Recovery](#recovery).
 
 ## Where data lives
 
@@ -197,7 +197,24 @@ Scratch's default write-only use is a role boundary, not an operating-system ACL
 
 ## Recovery
 
-A normal cancel stops the owned process tree and records the interruption. Restart never treats an interrupted process as completed. A still-live recorded PID fences new work. A missing PID retains an unknown-process hold: inspect the previous process and checkpoint, then explicitly confirm it has stopped in the board before releasing recovery. The server does not kill a possibly reused or unknown PID. Retry is an explicit action after recovery, not automatic replay of uncertain work.
+A normal cancel stops the owned process tree and records the interruption. Restart never treats an interrupted process as completed. Retry is an explicit action after recovery, not automatic replay of uncertain work.
+
+The restart fence covers every agent process of the active run: the stage agent and each delegated worker or reviewer. A worker gets a durable entry in `control.json` (`activeRun.workers`: session, kind, provider, task, PID, time recorded) before its provider starts, and its PID is written as soon as the process exists: Codex app-server before its handshake, Claude CLI before its first input, `codex exec` at each turn's start. A cleanly closed worker's entry is removed. On restart each recorded process is classified:
+
+| State | Meaning | Effect |
+| --- | --- | --- |
+| `running` | PID is alive and its start time is no later than when it was recorded | Holds the run until it stops or the owner stops it |
+| `unverified` | PID is alive but its start time cannot be read | Holds the run until the owner confirms it stopped |
+| `unknown` | No PID was recorded, for example a crash during startup | Holds the run until the owner confirms it stopped |
+| gone | PID is not alive, or a later process reused it | No hold |
+
+The hold lists each process (provider, stage or worker kind, task, PID) in `activeRun.held` and in the initiative's next action, and the Agents view lists those sessions as `failed`. Owner actions on the initiative:
+
+- `stop-processes` ends the tree (`taskkill /T /F` on Windows, the process group elsewhere) of each process whose identity is verified again at that moment. Unverified and unknown entries are never stopped by the service. The hold is released when nothing remains.
+- `recover-run` with `confirmedStopped: true` releases a hold whose remaining entries are unverified or unknown. It is refused while a verified process is still running.
+- Any other action is refused while the hold remains; once every recorded process has stopped, the next action releases it.
+
+The service does not stop these processes on its own at startup. Recovery runs whenever a project attaches, possibly without the owner present, and acts on state written by a previous service; stopping is irreversible and the owner may want to inspect the worker's work first. When the service dies its agents' stdin closes; idle Codex app-server and Claude CLI processes exit on that (checked 2026-10-03), so the hold usually clears by itself once any running turn ends. Start-time verification makes a stop request safe against PID reuse; it costs one PowerShell `Get-Process` call (about 0.3 s) per live PID, only during recovery.
 
 Native Backlog and MCP editing timeouts and invalid transport responses retain their request and write-admission lock until the owned child emits closure. Sending a termination signal alone does not establish that the writer stopped. If termination cannot be confirmed, the request remains pending and new writes remain fenced; inspect and stop that exact child before recovery. No replacement child starts while its predecessor is uncertain.
 

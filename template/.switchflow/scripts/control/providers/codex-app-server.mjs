@@ -165,6 +165,7 @@ export async function openCodexSession({
   effort,
   limits = {},
   onEvent = () => {},
+  onProcess = async () => {},
   signal,
   mcpServers = {},
   rawLogPath,
@@ -404,6 +405,13 @@ export async function openCodexSession({
   }, timeoutMs);
   signal?.addEventListener('abort', abort, { once: true });
 
+  try {
+    // The host records the PID before the handshake, so a crash cannot leave it unaccounted for.
+    await onProcess(child.pid ?? null);
+  } catch (error) {
+    await close();
+    throw error;
+  }
   try {
     await request(
       'initialize',

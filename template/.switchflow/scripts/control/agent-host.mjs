@@ -82,6 +82,7 @@ function openExecSession({
   temporaryRoot,
   limits,
   onEvent,
+  onProcess = async () => {},
   signal,
   runDirectory,
   execRunner,
@@ -113,6 +114,8 @@ function openExecSession({
       const directory = turns++ === 0 ? runDirectory : path.join(runDirectory, `turn-${turns}`);
       try {
         await onEvent({ kind: 'turn.started', turnId: null });
+        // Each turn is a new process; the previous PID no longer identifies this session.
+        await onProcess(null);
         const result = await execRunner({
           projectRoot: cwd,
           runDirectory: directory,
@@ -127,6 +130,7 @@ function openExecSession({
           ...(executable ? { executable } : {}),
           onEvent: async entry => {
             if (entry.type === 'thread.started') threadId = entry.thread_id;
+            if (entry.type === 'runner.started') await onProcess(entry.pid ?? null);
             const normalized = normalizeExecEvent(entry);
             if (normalized) await onEvent(normalized);
           },
@@ -251,6 +255,12 @@ export class AgentHost {
       await this.registry.record(meta.id, entry);
       await forward(entry, meta);
     };
+    // Workers are fenced across restarts like the stage agent. The record exists before the
+    // process does, so a crash before its PID is known still leaves an unidentified entry.
+    const tracked = kind !== 'stage' && Boolean(this.engine);
+    const onProcess = async pid => {
+      if (tracked) await this.engine.trackProcess(runId, meta.id, { pid });
+    };
     if (fallback)
       await onEvent({
         kind: 'notice',
@@ -268,11 +278,13 @@ export class AgentHost {
       effort,
       limits,
       onEvent,
+      onProcess,
       signal,
       rawLogPath: this.registry.rawLogPath(meta),
     };
     let handle;
     try {
+      if (tracked) await this.engine.trackProcess(runId, meta.id, { kind, role, provider, task, pid: null });
       if (provider === 'claude')
         handle = await this.providers.claude({
           ...common,
@@ -304,6 +316,8 @@ export class AgentHost {
         }
       }
     } catch (error) {
+      // Providers stop their own process when opening fails, so the fence entry can go.
+      if (tracked) await this.engine.untrackProcess(runId, meta.id).catch(() => {});
       await this.registry.finish(meta.id, { status: signal?.aborted ? 'cancelled' : 'failed', error: error.message });
       throw error;
     }
@@ -314,6 +328,8 @@ export class AgentHost {
   async closeSession(meta, handle, { status, error = null, result = null }) {
     try {
       await handle?.close();
+      // Only a close that completed proves the process ended; otherwise the fence entry stays.
+      if (meta.kind !== 'stage' && this.engine) await this.engine.untrackProcess(meta.runId, meta.id);
     } finally {
       await this.registry.finish(meta.id, { status, error, ...(result ? { result } : {}) });
     }
