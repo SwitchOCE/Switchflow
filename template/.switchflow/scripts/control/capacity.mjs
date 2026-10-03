@@ -235,10 +235,11 @@ export class CapacityManager {
   // ---- Admission -------------------------------------------------------------------------
 
   /**
-   * Asks to start a worker. entry: { id, runId, task, kind, maxWorkers, slotFree(), start(), onFailure(error) }.
-   * start() must mark the worker as starting before its first await. Strictly first in, first out:
-   * a new request never overtakes a queued one. Returns { admitted: true, note? } once start()
-   * succeeded, or { admitted: false, position, reason } when queued.
+   * Asks to start a worker. entry: { id, runId, task, kind, maxWorkers, slotFree(), start(), onFailure(error) },
+   * plus for a worker on another machine { lane: environment id, memory: false, limitReason }.
+   * start() must mark the worker as starting before its first await. Strictly first in, first out
+   * within a lane: a new request never overtakes a queued one of its lane. Returns
+   * { admitted: true, note? } once start() succeeded, or { admitted: false, position, reason } when queued.
    */
   async request(entry) {
     Object.assign(entry, { since: this.clock(), reason: null, awaiting: true });
@@ -262,15 +263,20 @@ export class CapacityManager {
   async pump() {
     if (!this.queue.length) return;
     const profile = await this.profile();
-    // From here to the end nothing awaits, so two pumps cannot admit past a limit.
-    while (this.queue.length) {
-      const head = this.queue[0];
+    // From here to the end nothing awaits, so two pumps cannot admit past a limit. Each lane (this
+    // PC, or one remote environment) is first in, first out on its own, so a full SSH box never
+    // holds up local workers.
+    const blocked = new Set();
+    for (const head of [...this.queue]) {
+      const lane = head.lane ?? 'local';
+      if (blocked.has(lane)) continue;
       const decision = this.decide(head, profile);
       if (!decision.ok) {
         head.reason = decision.reason;
-        break;
+        blocked.add(lane);
+        continue;
       }
-      this.queue.shift();
+      this.queue.splice(this.queue.indexOf(head), 1);
       head.note = decision.note ?? null;
       if (decision.reserve) this.pool.reserve(`worker:${head.id}`, decision.reserve);
       head.startPromise = head.start().catch(error => {
@@ -280,14 +286,23 @@ export class CapacityManager {
       });
       head.startPromise.catch(() => {});
     }
-    this.queue.forEach((entry, index) => {
+    const ahead = new Map();
+    for (const entry of this.queue) {
+      const lane = entry.lane ?? 'local';
+      const index = ahead.get(lane) ?? 0;
       if (index) entry.reason = `waiting behind ${index} earlier worker${index === 1 ? '' : 's'}`;
-    });
+      ahead.set(lane, index + 1);
+    }
     this.scheduleRecheck();
   }
   decide(entry, profile) {
     if (!entry.slotFree())
-      return { ok: false, reason: `${entry.maxWorkers} workers are running, the limit (limits.maxWorkers)` };
+      return {
+        ok: false,
+        reason: entry.limitReason ?? `${entry.maxWorkers} workers are running, the limit (limits.maxWorkers)`,
+      };
+    // A worker on another machine uses none of this PC's memory.
+    if (entry.memory === false) return { ok: true, reserve: 0 };
     const { admission, workerIdleGB, headroomGB } = profile.memory;
     if (!admission) return { ok: true, reserve: 0 };
     const snapshot = this.pool.snapshot(headroomGB);

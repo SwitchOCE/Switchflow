@@ -50,7 +50,9 @@ const CONFIG_KEYS = [
   'workRoot',
   'wake',
   'keepAwake',
+  'maxWorkers',
 ];
+export const DEFAULT_MAX_WORKERS = 2;
 const CONNECT_TIMEOUT_SECONDS = 10;
 const PID_MARK = 'SWITCHFLOW_REMOTE_PID ';
 
@@ -90,7 +92,19 @@ export function validateSshConfig(config) {
   // WSL stops a distro with no wsl.exe client attached, even with ssh sessions open: a long-running
   // local command (for example "wsl.exe -d Ubuntu -- sleep infinity") holds it up while agents run.
   const keepAwake = parseWake(config.keepAwake, 'keepAwake', 'wsl.exe -d Ubuntu -- sleep infinity');
-  return { host, port, user, identityFile, workRoot, ...(wake ? { wake } : {}), ...(keepAwake ? { keepAwake } : {}) };
+  // Workers running on the box at once (they skip this PC's memory admission and worker limit).
+  const maxWorkers = config.maxWorkers ?? DEFAULT_MAX_WORKERS;
+  if (!Number.isInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 16) throw new Error('maxWorkers must be 1–16.');
+  return {
+    host,
+    port,
+    user,
+    identityFile,
+    workRoot,
+    ...(wake ? { wake } : {}),
+    ...(keepAwake ? { keepAwake } : {}),
+    ...(config.maxWorkers !== undefined ? { maxWorkers } : {}),
+  };
 }
 
 export function defaultSshExecutable(platform = process.platform, env = process.env) {
@@ -386,6 +400,7 @@ export function createSshEnvironment(
     kind: 'ssh',
     label: config.label ?? config.id,
     config,
+    maxWorkers: config.maxWorkers ?? DEFAULT_MAX_WORKERS,
     capabilities: Object.freeze({
       stream: true,
       steer: true,

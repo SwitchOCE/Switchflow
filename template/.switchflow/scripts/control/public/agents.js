@@ -45,7 +45,32 @@ const sshFields = [
   ['identityFile', 'Private key file (absolute path)', 'text', 'C:\\Users\\me\\.ssh\\id_ed25519'],
   ['workRoot', 'Work root on the box', 'text', '/home/me/switchflow'],
   ['wake', 'Wake command (optional)', 'text', 'wsl.exe -d Ubuntu -- true'],
+  [
+    'keepAwake',
+    'Keep-awake command (optional)',
+    'text',
+    'wsl.exe -d Ubuntu -- sleep infinity',
+    'Runs on this PC while agents work on the box. WSL needs it, or it stops the distro.',
+  ],
+  ['maxWorkers', 'Workers at once', 'number', '2', 'Box workers skip this PC’s memory check and worker limit.'],
 ];
+// The fields environments/claude-cloud.mjs validates; `remote` keeps its default (origin).
+const cloudFields = [
+  ['id', 'Name (id)', 'text', 'claude-cloud'],
+  ['label', 'Label', 'text', 'Claude cloud'],
+  ['environmentId', 'Environment ID', 'text', 'env_…', 'From claude.ai/code. Create environments there.'],
+  [
+    'repository',
+    'GitHub repository URL',
+    'text',
+    'https://github.com/owner/repo',
+    'The Claude GitHub App must have access to it.',
+  ],
+  ['model', 'Model', 'text', 'claude-opus-5-5'],
+  ['pollSeconds', 'Poll interval (seconds)', 'number', '60', 'Each status poll is a small Haiku turn.'],
+];
+const numberFields = new Set(['port', 'maxWorkers', 'pollSeconds']);
+const editorFields = { ssh: sshFields, 'claude-cloud': cloudFields };
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -863,7 +888,12 @@ export function mountAgents(
       el(
         'p',
         'muted',
-        'Workers run on this PC unless you place them on an SSH box. Code goes only to the boxes you add here. An unavailable box makes the task wait with its reason; Switchflow never falls back to this PC.',
+        'Workers run on this PC unless you place them on an SSH box or in Claude cloud. Code goes only to the boxes and GitHub repositories you add here. An unavailable environment makes the task wait with its reason; Switchflow never falls back to this PC.',
+      ),
+      el(
+        'p',
+        'muted',
+        'Claude cloud workers run at claude.ai/code and bill to your Claude subscription. Each status poll is a small Haiku turn.',
       ),
     );
     const list = el('ul', 'agents-environment-list');
@@ -875,15 +905,7 @@ export function mountAgents(
       const text = el('div', 'agents-environment-text');
       text.append(
         el('strong', '', environment.label || environment.id),
-        el(
-          'span',
-          'muted',
-          `${
-            environment.kind === 'ssh'
-              ? `ssh · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot}`
-              : `${environment.kind} · ${environment.repository || environment.environmentId || ''}`
-          }${environment.enabled === false ? ' · disabled' : ''}`,
-        ),
+        el('span', 'muted', `${environmentSummary(environment)}${environment.enabled === false ? ' · disabled' : ''}`),
       );
       const result = environmentTests[environment.id];
       if (result)
@@ -936,22 +958,34 @@ export function mountAgents(
         environmentEditing = null;
         renderRouting();
       });
-      // Only SSH environments are edited here; others keep their fields and can be tested or removed.
-      tools.append(test, ...(environment.kind === 'ssh' ? [editButton] : []), remove);
+      // SSH and Claude cloud environments are edited here; others can be tested or removed.
+      tools.append(test, ...(editorFields[environment.kind] ? [editButton] : []), remove);
       item.append(text, tools);
       list.append(item);
     });
     form.append(intro, list);
-    if (environmentEditing !== null) form.append(environmentEditor(environmentDraft[environmentEditing] || null));
+    if (environmentEditing !== null)
+      form.append(
+        typeof environmentEditing === 'number'
+          ? environmentEditor(environmentDraft[environmentEditing].kind, environmentDraft[environmentEditing])
+          : environmentEditor(environmentEditing.slice('new:'.length), null),
+      );
     else {
-      const add = el('button', 'button quiet', 'Add SSH environment');
-      add.type = 'button';
-      add.disabled = !!blocked;
-      add.addEventListener('click', () => {
-        environmentEditing = 'new';
-        renderRouting();
-      });
-      form.append(add);
+      const adds = el('div', 'agents-environment-tools');
+      for (const [kind, text] of [
+        ['ssh', 'Add SSH environment'],
+        ['claude-cloud', 'Add Claude cloud environment'],
+      ]) {
+        const add = el('button', 'button quiet', text);
+        add.type = 'button';
+        add.disabled = !!blocked;
+        add.addEventListener('click', () => {
+          environmentEditing = `new:${kind}`;
+          renderRouting();
+        });
+        adds.append(add);
+      }
+      form.append(adds);
     }
     const placement = el('div', 'agents-routing-grid agents-placement');
     for (const [role, label] of placeable) {
@@ -962,7 +996,8 @@ export function mountAgents(
       select.name = `placement-${role}`;
       select.disabled = !!blocked;
       for (const environment of [{ id: 'local', label: 'This PC' }, ...environmentDraft]) {
-        const option = el('option', '', environment.label || environment.id);
+        const name = environment.label || environment.id;
+        const option = el('option', '', environment.kind === 'claude-cloud' ? `${name} (Claude only)` : name);
         option.value = environment.id;
         option.selected = (settings.placement?.[role] || 'local') === environment.id;
         select.append(option);
@@ -1002,34 +1037,69 @@ export function mountAgents(
     });
     return form;
   }
-  function environmentEditor(existing) {
+  function environmentSummary(environment) {
+    if (environment.kind === 'ssh')
+      return `ssh · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot} · ${environment.maxWorkers ?? 2} at once`;
+    if (environment.kind === 'claude-cloud')
+      return `Claude cloud · ${String(environment.repository || '').replace(/^https:\/\/github\.com\//, '')} · ${
+        environment.environmentId
+      } · polls every ${environment.pollSeconds ?? 60} s${environment.push ? '' : ' · no push grant'}`;
+    return `${environment.kind} · ${environment.repository || environment.environmentId || ''}`;
+  }
+  function environmentEditor(kind, existing) {
+    const cloud = kind === 'claude-cloud';
     const box = el('fieldset', 'agents-environment-editor');
-    box.append(el('legend', '', existing ? `Edit ${existing.label || existing.id}` : 'New SSH environment'));
+    box.append(
+      el(
+        'legend',
+        '',
+        existing
+          ? `Edit ${existing.label || existing.id}`
+          : cloud
+            ? 'New Claude cloud environment'
+            : 'New SSH environment',
+      ),
+    );
     const inputs = {};
-    for (const [name, label, type, placeholder] of sshFields) {
+    for (const [name, label, type, placeholder, hint] of editorFields[kind]) {
       const wrap = el('label', '', label);
       const input = el('input');
       input.type = type;
-      input.name = `ssh-${name}`;
+      input.name = `${kind}-${name}`;
       input.placeholder = placeholder;
       const value = existing?.[name];
       input.value = Array.isArray(value) ? value.join(' ') : (value ?? '');
       if (name === 'id' && existing) input.readOnly = true;
       inputs[name] = input;
       wrap.append(input);
+      if (hint) wrap.append(el('small', 'agents-environment-hint', hint));
       box.append(wrap);
     }
-    const enabled = el('label', 'agents-environment-check');
-    const check = el('input');
-    check.type = 'checkbox';
-    check.checked = existing?.enabled !== false;
-    enabled.append(check, document.createTextNode(' Enabled'));
+    const checkbox = (text, checked, className = 'agents-environment-check') => {
+      const wrap = el('label', className);
+      const input = el('input');
+      input.type = 'checkbox';
+      input.checked = checked;
+      wrap.append(input, document.createTextNode(` ${text}`));
+      box.append(wrap);
+      return input;
+    };
+    const enabled = checkbox('Enabled', existing?.enabled !== false);
+    // The push grant: without it the host refuses to submit cloud work.
+    const push = cloud
+      ? checkbox(
+          'Let workers push to this repository. The host pushes sf-task/ and sf-inbox/ branches; workers push claude/sf- branches with their results.',
+          existing?.push === true,
+          'agents-environment-check agents-environment-wide',
+        )
+      : null;
     box.append(
-      enabled,
       el(
         'p',
         'muted',
-        'Use a key-only login. Switchflow keeps its own known-hosts file and accepts a new host key once; no passwords or secrets are stored.',
+        cloud
+          ? 'Cloud workers are Claude only and bill to your Claude subscription. Code goes to this GitHub repository and to Anthropic.'
+          : 'Use a key-only login. Switchflow keeps its own known-hosts file and accepts a new host key once; no passwords or secrets are stored.',
       ),
     );
     const tools = el('div', 'agents-environment-tools');
@@ -1037,17 +1107,21 @@ export function mountAgents(
     done.type = 'button';
     done.addEventListener('click', () => {
       const value = name => inputs[name].value.trim();
+      // Optional fields are left out when empty so the service applies its defaults.
+      const optional = Object.fromEntries(
+        editorFields[kind]
+          .map(([name]) => name)
+          .filter(name => !['id', 'label'].includes(name) && value(name))
+          .map(name => [name, numberFields.has(name) ? Number(value(name)) : value(name)]),
+      );
       const config = {
+        ...(cloud && existing?.remote ? { remote: existing.remote } : {}),
         id: value('id'),
-        kind: 'ssh',
+        kind,
         label: value('label') || value('id'),
-        host: value('host'),
-        port: Number(value('port') || 22),
-        user: value('user'),
-        identityFile: value('identityFile'),
-        workRoot: value('workRoot'),
-        enabled: check.checked,
-        ...(value('wake') ? { wake: value('wake') } : {}),
+        ...optional,
+        ...(cloud ? { push: push.checked } : { port: Number(value('port') || 22) }),
+        enabled: enabled.checked,
       };
       if (existing) environmentDraft[environmentEditing] = config;
       else environmentDraft.push(config);
