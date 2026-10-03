@@ -15,6 +15,7 @@ import { createOrchestrationFactory } from './orchestration.mjs';
 import { normalizeCapabilities, probeCapabilities } from './agent-settings.mjs';
 import * as protocol from './agent-protocol.mjs';
 import { previewUatArtifact } from './artifacts.mjs';
+import { PreviewManager } from './preview.mjs';
 import { listSkills, readSkill } from './skills.mjs';
 import { listDocuments, readDocument } from './documents.mjs';
 import { sharedServiceContext, canonicalProject, acquireProjectService, ProjectRegistry } from './projects.mjs';
@@ -52,6 +53,8 @@ const staticFiles = Object.fromEntries(
     'agents.css',
     'overview-model.js',
     'ui-date.js',
+    'preview.js',
+    'preview.css',
   ].map(file => [
     `/${file}`,
     [file, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript'],
@@ -108,6 +111,7 @@ export async function createControlServer({
   backlog,
   backlogFactory = createBacklogAdapter,
   nativeFactory = createNativeBacklog,
+  previewFactory = (context, options) => new PreviewManager(context, options),
   capabilities: suppliedCapabilities,
   persistProjects = false,
   lockProjects = false,
@@ -158,6 +162,12 @@ export async function createControlServer({
       });
       agents.bind(engine);
       await engine.recover();
+      const preview = previewFactory(candidate, { engine });
+      try {
+        await preview.recover();
+      } catch (error) {
+        preview.notice = `The previous preview record could not be checked: ${error.message}`;
+      }
       const project = {
         id: candidate.id,
         name: projectConfig.projectName || path.basename(candidate.governanceRoot),
@@ -171,6 +181,7 @@ export async function createControlServer({
         adapter,
         engine,
         agents,
+        preview,
         project,
         release,
         native: nativeFactory(candidate),
@@ -456,8 +467,25 @@ export async function createControlServer({
           ),
         );
       }
+      const previewRoute = /^\/api\/initiatives\/([a-f0-9-]{36})\/preview(?:\/(start|stop))?$/.exec(url.pathname);
+      if (previewRoute && !previewRoute[2] && req.method === 'GET')
+        return json(res, 200, await session.preview.status(previewRoute[1]));
+      if (previewRoute?.[2] === 'start' && req.method === 'POST')
+        return json(res, 202, { runtime: await session.preview.start(previewRoute[1], await body(req)) });
+      if (previewRoute?.[2] === 'stop' && req.method === 'POST') {
+        if (Object.keys(await body(req)).length) throw new ControlError('Stop takes no fields.');
+        // One preview runs per project, so Stop ends it whichever initiative started it.
+        return json(res, 200, { runtime: await session.preview.stop() });
+      }
       if (req.method === 'POST' && action) {
-        const state = await engine.action(action[1], await body(req));
+        const input = await body(req);
+        const state = await engine.action(action[1], input);
+        const ended = {
+          'accept-uat': 'Stopped because you accepted the delivery.',
+          'request-rework': 'Stopped because you requested rework.',
+          'scope-change': 'Stopped because the scope changed.',
+        }[input.action];
+        if (ended) await session.preview.stop(action[1], ended).catch(() => {});
         return json(res, 200, { initiative: state.initiatives.find(i => i.id === action[1]) });
       }
       if (req.method === 'GET' && url.pathname === '/api/skills')
@@ -510,6 +538,8 @@ export async function createControlServer({
     const outcomes = await Promise.allSettled(
       [...projects.values()].map(async session => {
         if (session.released) return;
+        // A preview is the service's own child; never leave it behind on shutdown.
+        await session.preview.close();
         // Both writers must settle before admission is released. A rejected
         // native close does not prove its child stopped, so retain that fence.
         await session.engine.close();

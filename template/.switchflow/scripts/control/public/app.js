@@ -14,6 +14,7 @@ import { createNativeClient, workspaceLocation } from './workspace-client.js';
 import { mountSearch } from './workspace-search.js';
 import { createMilestonePanel } from './milestones.js';
 import { initiativeTasks } from './initiative-tasks.js';
+import { createPreviewBar } from './preview.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const stages = [
   ['intake', 'Intake', 'You approve the scope'],
@@ -1200,6 +1201,17 @@ function renderDetail() {
   if (item.stage === 'uat' && normalGate && !item.approvedUat) {
     const note = el('p', 'gate-note');
     decision.append(note);
+    const projectId = selectedProjectId;
+    body.append(
+      createPreviewBar({
+        initiativeId: item.id,
+        path: route => scopedPath(route, projectId),
+        token: () => state?.csrfToken,
+        canWrite: () => projectId === selectedProjectId && connected && !agentsBusy() && !busy,
+        writeBlockedReason: () =>
+          !connected ? 'Connection lost.' : agentsBusy() ? 'Paused while an agent is active or queued.' : '',
+      }),
+    );
     if (renderUat(item, body, { note, actions }))
       actions.prepend(
         button('Request rework…', () => {

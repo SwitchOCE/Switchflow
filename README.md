@@ -20,7 +20,7 @@ I built this for one person directing several agents on a codebase they care abo
 
 1. **Intake:** describe the outcome in the browser. The agent checks what already exists, retains discovery state, and brings back questions or a proposed scope. Accept that scope.
 2. **Planning:** review the ordered work and its acceptance evidence. Approving the plan authorizes agents to deliver every listed phase, obtain independent review, and prepare UAT.
-3. **UAT:** follow a short walkthrough against the real candidate. Accept the result or describe the rework it needs.
+3. **UAT:** follow a short walkthrough against the real candidate. Accept the result or describe the rework it needs. With a [preview command](docs/browser-control.md#uat-preview) in `.switchflow/preview.json`, the checklist starts the delivered candidate locally and links to it.
 
 Phase starts and technical milestone acceptance belong to the agents. Scope changes revoke the current plan grant and return to Intake; project updates are durable input for the next checkpoint. Genuine missing access or an interrupted process is an exception shown with its next action. A plan grant does not authorize remote pushes, deployment, credentials, or live-data changes.
 
