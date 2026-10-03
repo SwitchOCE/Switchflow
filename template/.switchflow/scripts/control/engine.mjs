@@ -75,6 +75,26 @@ function resumeHeldWorkers(item, input) {
   );
 }
 
+/**
+ * An environment the placement uses is not ready: delivery holds with the reason instead of
+ * letting workers queue silently. Retry ("Test again") checks again before starting.
+ */
+function holdForEnvironments(item, readiness) {
+  const failing = readiness.environments.filter(entry => !entry.ok);
+  item.pending = false;
+  item.status = 'blocked';
+  item.environmentHold = { checkedAt: readiness.checkedAt, environments: failing };
+  item.nextAction =
+    'Delivery is waiting for where its workers run. Fix the environment or its placement, then test again.';
+  item.revision++;
+  item.updatedAt = now();
+  event(
+    item,
+    'environment-hold',
+    `Delivery held: ${failing.map(entry => `${entry.label} is not ready (${entry.reason})`).join('; ')}. Switchflow does not fall back to this PC.`,
+  );
+}
+
 export class ControlEngine {
   constructor(
     context,
@@ -87,6 +107,8 @@ export class ControlEngine {
       processStarted = processStartTime,
       stopProcess = stopProcessTree,
       bridgeFactory = startGitBridge,
+      // Environment readiness before a delivery run starts (AgentHost.readiness); null skips it.
+      preflight = null,
     },
   ) {
     this.context = context;
@@ -101,6 +123,7 @@ export class ControlEngine {
     this.processStarted = processStarted;
     this.stopProcess = stopProcess;
     this.bridgeFactory = bridgeFactory;
+    this.preflight = preflight;
   }
   async read() {
     const state = await readState(this.context, 'control', initial);
@@ -380,10 +403,29 @@ export class ControlEngine {
       let selected;
       const snapshot = await this.read();
       if (snapshot.activeRun || !snapshot.initiatives.some(i => i.pending)) return;
+      // Delivery waits for the environments its placement uses; it never falls back to this PC.
+      const next = snapshot.initiatives.find(i => i.pending);
+      const readiness =
+        next.stage === 'delivery' && this.preflight
+          ? await this.preflight({ initiativeId: next.id }).catch(error => ({
+              ok: false,
+              checkedAt: now(),
+              environments: [{ id: null, label: 'Environment check', ok: false, reason: error.message }],
+            }))
+          : null;
+      let held = false;
       await this.mutate(s => {
         if (s.activeRun || this.closed) return;
         const item = s.initiatives.find(i => i.pending);
         if (!item) return;
+        // The check belongs to the snapshot it ran on; anything changed means check again.
+        if (item.id !== next.id || item.revision !== next.revision) return void (held = true);
+        if (readiness && !readiness.ok) {
+          holdForEnvironments(item, readiness);
+          held = true;
+          return;
+        }
+        if (readiness) item.environmentHold = null;
         const run = {
           id: randomUUID(),
           initiativeId: item.id,
@@ -411,6 +453,7 @@ export class ControlEngine {
         });
         this.current = { initiativeId: item.id, controller, promise };
       });
+      if (held) this.schedule();
       if (!selected) return;
       if (this.closed) this.current.controller.abort();
       launched = true;
