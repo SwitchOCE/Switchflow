@@ -10,6 +10,7 @@ import { AgentSessionRegistry } from './agent-sessions.mjs';
 import { confirmRefusal } from './orchestration.mjs';
 import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
+import { EnvironmentRegistry } from './environments/index.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -186,6 +187,7 @@ export class AgentHost {
       orchestrationFactory = null,
       capacity = {},
       processes = {},
+      environments = {},
     } = {},
   ) {
     this.context = context;
@@ -200,6 +202,11 @@ export class AgentHost {
     // Memory admission, leases and worker caps (capacity.mjs); leftover-process cleanup (process-tree.mjs).
     this.capacity = new CapacityManager(this, capacity);
     this.processes = processes instanceof ProcessTracker ? processes : new ProcessTracker(processes);
+    // Where workers run: this PC or an owner-configured environment (environments/index.mjs).
+    this.environments =
+      environments instanceof EnvironmentRegistry
+        ? environments
+        : new EnvironmentRegistry({ stateDir: context.stateDir, ...environments });
     this.run = this.run.bind(this);
   }
   async init() {
@@ -210,6 +217,24 @@ export class AgentHost {
   }
   settings() {
     return readAgentSettings(this.context);
+  }
+  /** The environment with this id under the owner's settings; throws when missing or disabled. */
+  environment(id, settings) {
+    try {
+      return this.environments.get(id, settings);
+    } catch (error) {
+      throw new ControlError(error.message, 409);
+    }
+  }
+  /** The Agents view's "Test connection": a health check that starts no agent. */
+  async testEnvironment(id) {
+    if (typeof id !== 'string' || id.length > 40) throw new ControlError('Unknown environment.', 404);
+    const settings = await this.settings();
+    const configured = settings.environments.find(item => item.id === id);
+    if (!configured && id !== 'local') throw new ControlError('Unknown environment.', 404);
+    const environment = this.environments.get(id, { environments: [{ ...configured, enabled: true }] });
+    const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
+    return { id, checkedAt: new Date().toISOString(), ...health };
   }
   limitsFor(settings) {
     return { timeoutMs: settings.limits.timeoutMinutes * 60 * 1000, maxTurns: settings.limits.maxTurns };
@@ -242,9 +267,13 @@ export class AgentHost {
     mcpConfigPath,
     gitHelperPath,
     approval = null,
+    environment = null,
+    workspace = null,
     forward = async () => {},
   }) {
     const settings = await this.settings();
+    const environmentId = environment?.id ?? 'local';
+    const remote = Boolean(environment && environment.kind !== 'local');
     const model = settings.models[provider] ?? undefined;
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
@@ -265,6 +294,7 @@ export class AgentHost {
       reviewRound,
       fallback,
       approval,
+      environment: environmentId,
     });
     const onEvent = async entry => {
       await this.registry.record(meta.id, entry);
@@ -275,8 +305,13 @@ export class AgentHost {
     // process does, so a crash before its PID is known still leaves an unidentified entry.
     const tracked = kind !== 'stage' && Boolean(this.engine);
     const onProcess = async pid => {
-      this.processes.track(meta.id, pid);
+      // A remote CLI's local PID is its ssh client; the process tree to clean up lives on the box.
+      if (!remote) this.processes.track(meta.id, pid);
       if (tracked) await this.engine.trackProcess(runId, meta.id, { pid });
+    };
+    // The remote PID is fenced too, with its environment, so a restart can name what to stop.
+    const onRemoteProcess = async remotePid => {
+      if (tracked) await this.engine.trackProcess(runId, meta.id, { environment: environmentId, remotePid });
     };
     if (fallback)
       await onEvent({
@@ -299,26 +334,38 @@ export class AgentHost {
       signal,
       rawLogPath: this.registry.rawLogPath(meta),
       env,
+      ...(remote ? { spawnProcess: environment.spawnFor(workspace, { onRemoteProcess }) } : {}),
     };
+    // Remote environments name their own CLIs; the host's Windows paths mean nothing there.
+    const executables = remote ? (environment.executables ?? {}) : this.executables;
     let handle;
     try {
-      if (tracked) await this.engine.trackProcess(runId, meta.id, { kind, role, provider, task, pid: null });
+      if (tracked)
+        await this.engine.trackProcess(runId, meta.id, {
+          kind,
+          role,
+          provider,
+          task,
+          pid: null,
+          environment: environmentId,
+        });
       if (provider === 'claude')
         handle = await this.providers.claude({
           ...common,
           mcpConfigPath,
           gitHelperPath,
-          ...(this.executables.claude ? { executable: this.executables.claude } : {}),
+          ...(executables.claude ? { executable: executables.claude } : {}),
         });
       else {
         try {
           handle = await this.providers.codex({
             ...common,
             mcpServers,
-            ...(this.executables.codex ? { executable: this.executables.codex } : {}),
+            ...(executables.codex ? { executable: executables.codex } : {}),
           });
         } catch (error) {
-          if (!error.handshake || signal?.aborted) throw error;
+          // The exec fallback runs locally, so a remote session never takes it.
+          if (!error.handshake || signal?.aborted || remote) throw error;
           await onEvent({
             kind: 'notice',
             level: 'warning',
@@ -493,6 +540,7 @@ export class AgentHost {
       settings,
       routing: this.routing(settings),
       capacity,
+      environments: this.environments.list(settings),
       activeRun: run
         ? { id: run.id, initiativeId: run.initiativeId, stage: run.stage, status: run.status ?? 'running' }
         : null,

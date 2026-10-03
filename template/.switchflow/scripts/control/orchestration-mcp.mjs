@@ -20,6 +20,11 @@ export const TOOLS = [
         instructions: { type: 'string', description: 'Dispatch note: environment receipt, base, scope reminders.' },
         worktree: { type: 'string', description: 'Candidate name or absolute path created by the Git helper.' },
         provider: { type: 'string', enum: ['claude', 'codex'], description: 'Optional override of role routing.' },
+        environment: {
+          type: 'string',
+          description:
+            'Optional override of where the worker runs: "local" or an environment id the owner enabled. Defaults to the owner placement for the role. An unavailable environment is refused with its reason, never replaced by this PC.',
+        },
       },
       required: ['task', 'kind', 'instructions', 'worktree'],
       additionalProperties: false,

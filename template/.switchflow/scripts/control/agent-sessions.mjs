@@ -80,6 +80,8 @@ export class AgentSessionRegistry {
       threadId: null,
       task: fields.task ?? null,
       worktree: fields.worktree ?? null,
+      // Where it runs (environments/index.mjs): "local", or an owner-configured environment id.
+      environment: fields.environment ?? 'local',
       sandbox: fields.sandbox ?? null,
       reviewRound: fields.reviewRound ?? null,
       // Delivery workers only: drafting, awaiting-confirmation or confirmed (see orchestration.mjs).
