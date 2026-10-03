@@ -116,6 +116,9 @@ export async function createControlServer({
   capabilities: suppliedCapabilities,
   persistProjects = false,
   lockProjects = false,
+  // Test seams: memory probe/pool and clock for admission and leases, process listing for cleanup.
+  capacity = {},
+  processes = {},
 } = {}) {
   const context = suppliedContext || (await canonicalProject(projectRoot));
   const sharedContext = sharedServiceContext(context);
@@ -147,6 +150,9 @@ export async function createControlServer({
         capabilities,
         ...(providers ? { providers } : {}),
         executables: agentExecutables,
+        // Every project shares one machine-wide memory pool (capacity.mjs sharedMemoryPool by default).
+        capacity,
+        processes,
         orchestrationFactory: orchestrationFactory?.({ serviceUrl: () => baseUrl, projectId: candidate.id, adapter }),
       });
       await agents.init();
@@ -425,6 +431,9 @@ export async function createControlServer({
       if (req.method === 'GET' && url.pathname === '/api/agents') return json(res, 200, await agents.list());
       if (req.method === 'PUT' && url.pathname === '/api/agents/settings')
         return json(res, 200, await agents.updateSettings(await body(req)));
+      const environmentTest = /^\/api\/agents\/environments\/([a-z0-9-]{1,32})\/test$/.exec(url.pathname);
+      if (environmentTest && req.method === 'POST')
+        return json(res, 200, await agents.testEnvironment(environmentTest[1]));
       const agentRoute = /^\/api\/agents\/([a-f0-9-]{36})\/(events|steer|interrupt)$/.exec(url.pathname);
       if (agentRoute?.[2] === 'events' && req.method === 'GET') {
         const after = url.searchParams.get('after') ?? '0';

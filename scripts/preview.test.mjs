@@ -1,3 +1,4 @@
+import './git-test-home.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -588,7 +589,8 @@ test('the real listener check stops a server bound to every interface and keeps 
     assert.equal(runtime.network.state, expected, runtime.network.error || '');
     if (expected === 'exposed') {
       assert.equal(runtime.state, 'stopped');
-      assert.match(runtime.network.exposed[0], /^0\.0\.0\.0:\d+$/);
+      // Windows and ss report 0.0.0.0, lsof reports the wildcard as *.
+      assert.match(runtime.network.exposed[0], /^(0\.0\.0\.0|\*):\d+$/);
       await until(() => {
         try {
           process.kill(runtime.pid, 0);

@@ -31,6 +31,46 @@ const statusLabel = {
   cancelled: 'Cancelled',
 };
 const roleLabel = Object.fromEntries(roles.map(([id, label]) => [id, label]));
+// Workers that can run in another environment (agent-settings PLACEABLE_ROLES).
+const placeable = [
+  ['delivery', 'Task delivery workers'],
+  ['review', 'Review workers'],
+];
+const sshFields = [
+  ['id', 'Name (id)', 'text', 'wsl-box'],
+  ['label', 'Label', 'text', 'WSL box'],
+  ['host', 'Host', 'text', 'localhost'],
+  ['port', 'Port', 'number', '22'],
+  ['user', 'User', 'text', 'me'],
+  ['identityFile', 'Private key file (absolute path)', 'text', 'C:\\Users\\me\\.ssh\\id_ed25519'],
+  ['workRoot', 'Work root on the box', 'text', '/home/me/switchflow'],
+  ['wake', 'Wake command (optional)', 'text', 'wsl.exe -d Ubuntu -- true'],
+  [
+    'keepAwake',
+    'Keep-awake command (optional)',
+    'text',
+    'wsl.exe -d Ubuntu -- sleep infinity',
+    'Runs on this PC while agents work on the box. WSL needs it, or it stops the distro.',
+  ],
+  ['maxWorkers', 'Workers at once', 'number', '2', 'Box workers skip this PC’s memory check and worker limit.'],
+];
+// The fields environments/claude-cloud.mjs validates; `remote` keeps its default (origin).
+const cloudFields = [
+  ['id', 'Name (id)', 'text', 'claude-cloud'],
+  ['label', 'Label', 'text', 'Claude cloud'],
+  ['environmentId', 'Environment ID', 'text', 'env_…', 'From claude.ai/code. Create environments there.'],
+  [
+    'repository',
+    'GitHub repository URL',
+    'text',
+    'https://github.com/owner/repo',
+    'The Claude GitHub App must have access to it.',
+  ],
+  ['model', 'Model', 'text', 'claude-opus-5-5'],
+  ['pollSeconds', 'Poll interval (seconds)', 'number', '60', 'Each status poll is a small Haiku turn.'],
+];
+const numberFields = new Set(['port', 'maxWorkers', 'pollSeconds']);
+const editorFields = { ssh: sshFields, 'claude-cloud': cloudFields };
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -160,6 +200,11 @@ export function mountAgents(
   routing.hidden = true;
   routing.setAttribute('aria-label', 'Provider routing');
 
+  // Machine capacity: memory, admitted and queued workers, and leases on shared resources.
+  const capacityStrip = el('section', 'agents-capacity');
+  capacityStrip.hidden = true;
+  capacityStrip.setAttribute('aria-label', 'Capacity');
+
   const message = el('p', 'agents-message');
   message.setAttribute('role', 'status');
 
@@ -169,7 +214,7 @@ export function mountAgents(
   const detail = el('section', 'agents-detail');
   detail.setAttribute('aria-live', 'off');
   layout.append(list, detail);
-  container.append(header, routing, message, layout);
+  container.append(header, capacityStrip, routing, message, layout);
   // Phones show one pane at a time; the page header compacts while a session is open.
   const setPane = pane => {
     layout.dataset.pane = pane;
@@ -207,6 +252,88 @@ export function mountAgents(
     }
   }
 
+  const kindLabel = kind => ({ deliver: 'delivery', review: 'review', orchestrator: 'orchestrator' })[kind] || kind;
+  const gb = value => `${Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} GB`;
+  function renderCapacity() {
+    const capacity = data?.capacity;
+    capacityStrip.hidden = !capacity?.memory;
+    if (capacityStrip.hidden) return;
+    capacityStrip.replaceChildren();
+    const { memory, workers = {}, queue = [], leases = [], resources = [] } = capacity;
+    const row = el('div', 'capacity-row');
+
+    const used = memory.totalGB ? Math.min(1, Math.max(0, 1 - memory.freeGB / memory.totalGB)) : 0;
+    const memoryItem = el('div', 'capacity-item');
+    const bar = el('span', `capacity-bar${used > 0.85 ? ' is-high' : ''}`);
+    const fill = el('span', 'capacity-bar-fill');
+    // CSSOM, not a style attribute, so the page's CSP holds.
+    fill.style.setProperty('--used', used.toFixed(3));
+    bar.append(fill);
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', `${Math.round(used * 100)}% of memory in use`);
+    memoryItem.append(
+      el('span', 'capacity-label', 'Memory'),
+      bar,
+      el('span', '', `${gb(memory.freeGB)} free of ${gb(memory.totalGB)}`),
+    );
+    memoryItem.title = memory.admission
+      ? `New workers need ${gb(memory.workerIdleGB)} (${gb(memory.workerGatingGB)} while gating). Available after ${gb(memory.headroomGB)} headroom${memory.reservedGB ? ` and ${gb(memory.reservedGB)} reserved` : ''}: ${gb(Math.max(0, memory.availableGB))}.`
+      : 'Memory admission is off in this project’s capacity profile.';
+
+    const workerItem = el('div', 'capacity-item');
+    workerItem.append(
+      el('span', 'capacity-label', 'Workers'),
+      el('span', '', `${workers.admitted ?? 0} running`),
+      ...(workers.queued ? [el('span', 'capacity-queued', `${workers.queued} queued`)] : []),
+    );
+    if (workers.maxWorkers)
+      workerItem.title = `At most ${workers.maxWorkers} work at once (Routing → Parallel workers).`;
+
+    const leaseItem = el('div', 'capacity-item');
+    leaseItem.append(el('span', 'capacity-label', 'Leases'));
+    for (const resource of resources) {
+      if (resource.name === 'suite' && !resource.held) continue;
+      const chip = el(
+        'span',
+        `capacity-chip${resource.held >= resource.count ? ' is-full' : resource.held ? ' is-held' : ''}`,
+        `${resource.name} ${resource.held}/${resource.count}`,
+      );
+      chip.title = `${resource.name}: ${resource.held} of ${resource.count} held${resource.waiting ? `, ${resource.waiting} waiting` : ''}${resource.gating ? '. Gating: holding it reserves gate memory.' : '.'}`;
+      leaseItem.append(chip);
+    }
+    row.append(memoryItem, workerItem, leaseItem);
+    capacityStrip.append(row);
+
+    if (queue.length || leases.length) {
+      const details = el('ul', 'capacity-list');
+      for (const entry of queue) {
+        const item = el('li');
+        item.append(
+          el('span', 'agent-status status-queued', `Queued #${entry.position}`),
+          el('strong', '', `${entry.task} ${kindLabel(entry.kind)}`),
+          el('span', 'muted', entry.reason || 'Waiting for capacity'),
+        );
+        details.append(item);
+      }
+      for (const lease of leases) {
+        const item = el('li');
+        item.append(
+          el('span', 'capacity-chip is-held', lease.name),
+          el('strong', '', lease.kind === 'orchestrator' ? 'Orchestrator' : `${lease.task} ${kindLabel(lease.kind)}`),
+          el('span', 'muted', `${lease.minutesLeft} min left`),
+        );
+        details.append(item);
+      }
+      capacityStrip.append(details);
+    }
+    if (capacity.profile?.error)
+      capacityStrip.append(el('p', 'capacity-error', `Using default capacity settings: ${capacity.profile.error}`));
+  }
+
+  function environmentLabel(id) {
+    if (!id || id === 'local') return 'This PC';
+    return (data?.environments || []).find(environment => environment.id === id)?.label || id;
+  }
   function sessionRow(session, depth) {
     const row = el('button', 'agents-row');
     row.type = 'button';
@@ -219,6 +346,9 @@ export function mountAgents(
     meta.append(
       statusPill(session.status, session),
       el('span', '', [roleLabel[session.role] || session.role, taskOf(session)].filter(Boolean).join(' · ')),
+      ...(session.environment && session.environment !== 'local'
+        ? [el('span', 'agents-env-chip', `on ${environmentLabel(session.environment)}`)]
+        : []),
       el(
         'span',
         'agents-row-time',
@@ -412,6 +542,7 @@ export function mountAgents(
     facts.append(
       statusPill(session.status, session),
       el('span', '', roleLabel[session.role] || session.role || ''),
+      el('span', 'agents-env-fact', `Runs on ${environmentLabel(session.environment)}`),
       ...(session.model ? [el('span', '', session.model)] : []),
       ...(session.startedAt
         ? [el('span', '', duration(session.startedAt, live.has(session.status) ? null : session.updatedAt))]
@@ -740,7 +871,272 @@ export function mountAgents(
         save.disabled = false;
       }
     });
-    routing.append(form);
+    routing.append(form, renderEnvironments(blocked));
+  }
+
+  // Environments: where workers run. The owner's settings live in the service, not the checkout.
+  let environmentDraft = null;
+  let environmentEditing = null;
+  const environmentTests = {};
+  function renderEnvironments(blocked) {
+    const settings = data?.settings || {};
+    environmentDraft ??= structuredClone(settings.environments || []);
+    const form = el('form', 'agents-environments');
+    const intro = el('div', 'agents-routing-intro');
+    intro.append(
+      el('h2', '', 'Where workers run'),
+      el(
+        'p',
+        'muted',
+        'Workers run on this PC unless you place them on an SSH box or in Claude cloud. Code goes only to the boxes and GitHub repositories you add here. An unavailable environment makes the task wait with its reason; Switchflow never falls back to this PC.',
+      ),
+      el(
+        'p',
+        'muted',
+        'Claude cloud workers run at claude.ai/code and bill to your Claude subscription. Each status poll is a small Haiku turn.',
+      ),
+    );
+    const list = el('ul', 'agents-environment-list');
+    const localItem = el('li', 'agents-environment');
+    localItem.append(el('strong', '', 'This PC'), el('span', 'muted', 'local · always available'));
+    list.append(localItem);
+    environmentDraft.forEach((environment, index) => {
+      const item = el('li', 'agents-environment');
+      const text = el('div', 'agents-environment-text');
+      text.append(
+        el('strong', '', environment.label || environment.id),
+        el('span', 'muted', `${environmentSummary(environment)}${environment.enabled === false ? ' · disabled' : ''}`),
+      );
+      const result = environmentTests[environment.id];
+      if (result)
+        text.append(
+          el(
+            'span',
+            result.ok ? 'agents-environment-ok' : 'agents-route-error',
+            result.pending
+              ? 'Testing…'
+              : result.ok
+                ? `Connected. ${['codex', 'claude']
+                    .filter(name => result.providers?.[name]?.available)
+                    .map(name => `${providers[name].name} ${result.providers[name].version || ''}`.trim())
+                    .join(', ')}`
+                : result.reason || 'Not reachable.',
+          ),
+        );
+      const tools = el('div', 'agents-environment-tools');
+      const test = el('button', 'button quiet', 'Test connection');
+      test.type = 'button';
+      const saved = (settings.environments || []).some(other => other.id === environment.id);
+      test.disabled = !saved;
+      if (!saved) test.title = 'Save first, then test.';
+      test.addEventListener('click', async () => {
+        environmentTests[environment.id] = { pending: true };
+        renderRouting();
+        try {
+          environmentTests[environment.id] = await send(
+            `/agents/environments/${encodeURIComponent(environment.id)}/test`,
+            'POST',
+            {},
+          );
+        } catch (error) {
+          environmentTests[environment.id] = { ok: false, reason: error.message };
+        }
+        renderRouting();
+      });
+      const editButton = el('button', 'button quiet', 'Edit');
+      editButton.type = 'button';
+      editButton.disabled = !!blocked;
+      editButton.addEventListener('click', () => {
+        environmentEditing = index;
+        renderRouting();
+      });
+      const remove = el('button', 'button quiet', 'Remove');
+      remove.type = 'button';
+      remove.disabled = !!blocked;
+      remove.addEventListener('click', () => {
+        environmentDraft.splice(index, 1);
+        environmentEditing = null;
+        renderRouting();
+      });
+      // SSH and Claude cloud environments are edited here; others can be tested or removed.
+      tools.append(test, ...(editorFields[environment.kind] ? [editButton] : []), remove);
+      item.append(text, tools);
+      list.append(item);
+    });
+    form.append(intro, list);
+    if (environmentEditing !== null)
+      form.append(
+        typeof environmentEditing === 'number'
+          ? environmentEditor(environmentDraft[environmentEditing].kind, environmentDraft[environmentEditing])
+          : environmentEditor(environmentEditing.slice('new:'.length), null),
+      );
+    else {
+      const adds = el('div', 'agents-environment-tools');
+      for (const [kind, text] of [
+        ['ssh', 'Add SSH environment'],
+        ['claude-cloud', 'Add Claude cloud environment'],
+      ]) {
+        const add = el('button', 'button quiet', text);
+        add.type = 'button';
+        add.disabled = !!blocked;
+        add.addEventListener('click', () => {
+          environmentEditing = `new:${kind}`;
+          renderRouting();
+        });
+        adds.append(add);
+      }
+      form.append(adds);
+    }
+    const placement = el('div', 'agents-routing-grid agents-placement');
+    for (const [role, label] of placeable) {
+      const row = el('label', 'agents-route');
+      const text = el('span');
+      text.append(el('strong', '', label), el('small', '', 'Runs on'));
+      const select = el('select');
+      select.name = `placement-${role}`;
+      select.disabled = !!blocked;
+      for (const environment of [{ id: 'local', label: 'This PC' }, ...environmentDraft]) {
+        const name = environment.label || environment.id;
+        const option = el('option', '', environment.kind === 'claude-cloud' ? `${name} (Claude only)` : name);
+        option.value = environment.id;
+        option.selected = (settings.placement?.[role] || 'local') === environment.id;
+        select.append(option);
+      }
+      row.append(text, select);
+      placement.append(row);
+    }
+    const footer = el('div', 'agents-routing-footer');
+    const status = el('span', 'muted');
+    status.setAttribute('role', 'status');
+    status.textContent = blocked;
+    const save = el('button', 'button primary', 'Save environments');
+    save.type = 'submit';
+    save.disabled = !!blocked || environmentEditing !== null;
+    footer.append(status, save);
+    form.append(placement, footer);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const values = new FormData(form);
+      const next = {
+        environments: environmentDraft,
+        placement: Object.fromEntries(placeable.map(([role]) => [role, values.get(`placement-${role}`) || 'local'])),
+        ...(Number.isInteger(settings.revision) ? { expectedRevision: settings.revision } : {}),
+      };
+      save.disabled = true;
+      status.textContent = 'Saving…';
+      try {
+        const saved = await send('/agents/settings', 'PUT', next);
+        data = { ...data, settings: saved?.settings || data?.settings, routing: saved?.routing || data?.routing };
+        environmentDraft = null;
+        renderRouting();
+        refresh();
+      } catch (error) {
+        status.textContent = error.message;
+        save.disabled = false;
+      }
+    });
+    return form;
+  }
+  function environmentSummary(environment) {
+    if (environment.kind === 'ssh')
+      return `ssh · ${environment.user}@${environment.host}:${environment.port ?? 22} · ${environment.workRoot} · ${environment.maxWorkers ?? 2} at once`;
+    if (environment.kind === 'claude-cloud')
+      return `Claude cloud · ${String(environment.repository || '').replace(/^https:\/\/github\.com\//, '')} · ${
+        environment.environmentId
+      } · polls every ${environment.pollSeconds ?? 60} s${environment.push ? '' : ' · no push grant'}`;
+    return `${environment.kind} · ${environment.repository || environment.environmentId || ''}`;
+  }
+  function environmentEditor(kind, existing) {
+    const cloud = kind === 'claude-cloud';
+    const box = el('fieldset', 'agents-environment-editor');
+    box.append(
+      el(
+        'legend',
+        '',
+        existing
+          ? `Edit ${existing.label || existing.id}`
+          : cloud
+            ? 'New Claude cloud environment'
+            : 'New SSH environment',
+      ),
+    );
+    const inputs = {};
+    for (const [name, label, type, placeholder, hint] of editorFields[kind]) {
+      const wrap = el('label', '', label);
+      const input = el('input');
+      input.type = type;
+      input.name = `${kind}-${name}`;
+      input.placeholder = placeholder;
+      const value = existing?.[name];
+      input.value = Array.isArray(value) ? value.join(' ') : (value ?? '');
+      if (name === 'id' && existing) input.readOnly = true;
+      inputs[name] = input;
+      wrap.append(input);
+      if (hint) wrap.append(el('small', 'agents-environment-hint', hint));
+      box.append(wrap);
+    }
+    const checkbox = (text, checked, className = 'agents-environment-check') => {
+      const wrap = el('label', className);
+      const input = el('input');
+      input.type = 'checkbox';
+      input.checked = checked;
+      wrap.append(input, document.createTextNode(` ${text}`));
+      box.append(wrap);
+      return input;
+    };
+    const enabled = checkbox('Enabled', existing?.enabled !== false);
+    // The push grant: without it the host refuses to submit cloud work.
+    const push = cloud
+      ? checkbox(
+          'Let workers push to this repository. The host pushes sf-task/ and sf-inbox/ branches; workers push claude/sf- branches with their results.',
+          existing?.push === true,
+          'agents-environment-check agents-environment-wide',
+        )
+      : null;
+    box.append(
+      el(
+        'p',
+        'muted',
+        cloud
+          ? 'Cloud workers are Claude only and bill to your Claude subscription. Code goes to this GitHub repository and to Anthropic.'
+          : 'Use a key-only login. Switchflow keeps its own known-hosts file and accepts a new host key once; no passwords or secrets are stored.',
+      ),
+    );
+    const tools = el('div', 'agents-environment-tools');
+    const done = el('button', 'button', existing ? 'Apply' : 'Add');
+    done.type = 'button';
+    done.addEventListener('click', () => {
+      const value = name => inputs[name].value.trim();
+      // Optional fields are left out when empty so the service applies its defaults.
+      const optional = Object.fromEntries(
+        editorFields[kind]
+          .map(([name]) => name)
+          .filter(name => !['id', 'label'].includes(name) && value(name))
+          .map(name => [name, numberFields.has(name) ? Number(value(name)) : value(name)]),
+      );
+      const config = {
+        ...(cloud && existing?.remote ? { remote: existing.remote } : {}),
+        id: value('id'),
+        kind,
+        label: value('label') || value('id'),
+        ...optional,
+        ...(cloud ? { push: push.checked } : { port: Number(value('port') || 22) }),
+        enabled: enabled.checked,
+      };
+      if (existing) environmentDraft[environmentEditing] = config;
+      else environmentDraft.push(config);
+      environmentEditing = null;
+      renderRouting();
+    });
+    const cancel = el('button', 'button quiet', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => {
+      environmentEditing = null;
+      renderRouting();
+    });
+    tools.append(done, cancel);
+    box.append(tools);
+    return box;
   }
 
   async function loadEvents(force = false) {
@@ -803,6 +1199,7 @@ export function mountAgents(
         eventsFor = null;
       }
       renderProviders();
+      renderCapacity();
       renderList();
       if (showRouting && !routing.contains(document.activeElement)) renderRouting();
       const key = renderKey(current());

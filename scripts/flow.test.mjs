@@ -67,7 +67,7 @@ test('discovery questions and intake parents stay outside delivery queues and ph
 
 test(
   'PowerShell wrapper forwards flow options and makes only read calls',
-  { skip: process.platform !== 'win32' },
+  { skip: process.platform !== 'win32' && 'Needs Windows PowerShell (powershell.exe)' },
   () => {
     const root = mkdtempSync(path.join(tmpdir(), 'switchflow-flow-'));
     const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../template/.switchflow/scripts');

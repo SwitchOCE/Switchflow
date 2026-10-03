@@ -187,6 +187,7 @@ const actionSaved = {
   'scope-change': 'Scope change recorded. The initiative returns to intake.',
   start: 'Intake started.',
   retry: 'Retrying from the current checkpoint.',
+  'resume-workers': 'Resuming the held workers. Delivery restarts with them first.',
   cancel: 'Run cancelled.',
 };
 function readable(value) {
@@ -1274,6 +1275,7 @@ function renderDetail() {
   if (displayedPlan?.length || (displayedPlan && !Array.isArray(displayedPlan)))
     body.append(section('Delivery plan', renderPlan(displayedPlan)));
   const actions = el('div', 'detail-actions');
+  const heldWorkers = Array.isArray(item.heldWorkers?.workers) ? item.heldWorkers.workers : [];
   if (recoveryHold) {
     // Older state has no list; its hold is one unidentified stage process.
     const held = state.activeRun.held || [{ kind: 'stage', role: item.stage, pid: null, state: 'unknown' }];
@@ -1334,9 +1336,32 @@ function renderDetail() {
         if (confirmation.checked) act('recover-run', { confirmedStopped: true });
       });
     }
+    if (heldWorkers.length)
+      recovery.append(
+        el(
+          'p',
+          'muted',
+          `When the hold is released you can resume the ${heldWorkers.length === 1 ? 'worker' : `${heldWorkers.length} workers`} that were in flight in one step.`,
+        ),
+      );
     recovery.append(controls);
     recovery.classList.add('recovery-form');
     decision.append(recovery);
+  }
+  // Workers that were queued or open when the service stopped; resuming re-delegates them.
+  if (
+    !recoveryHold &&
+    heldWorkers.length &&
+    item.stage === 'delivery' &&
+    ['failed', 'cancelled', 'blocked'].includes(item.status)
+  ) {
+    const count = heldWorkers.length;
+    decision.append(
+      gateNote(`${count === 1 ? 'One worker was' : `${count} workers were`} in flight when the service stopped.`, [
+        `Resume starts ${count === 1 ? 'it' : 'them'} again with the original instructions, within the capacity limits: ${heldWorkers.map(worker => `${worker.task} ${worker.kind === 'review' ? 'review' : 'delivery'}`).join(', ')}. Retry starts delivery without them.`,
+      ]),
+    );
+    actions.append(actionButton(`Resume ${count === 1 ? 'held worker' : `${count} held workers`}`, 'resume-workers'));
   }
   const normalGate = !isRunning(item) && !['failed', 'cancelled', 'blocked', 'complete'].includes(item.status);
   if (
@@ -1378,7 +1403,9 @@ function renderDetail() {
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
     actions.append(actionButton('Start intake →', 'start'));
   if (!recoveryHold && ['failed', 'cancelled', 'blocked'].includes(item.status))
-    actions.append(actionButton('Retry from the current checkpoint', 'retry'));
+    actions.append(
+      actionButton('Retry from the current checkpoint', 'retry', undefined, heldWorkers.length ? 'quiet' : 'primary'),
+    );
   if (isRunning(item) && !recoveryHold)
     actions.append(actionButton('Cancel active run', 'cancel', undefined, 'danger'));
   if (item.stage === 'uat' && normalGate && !item.approvedUat) {

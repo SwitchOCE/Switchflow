@@ -3,11 +3,15 @@ import { promisify } from 'node:util';
 import { readState, updateState } from '../operations/storage.mjs';
 import { ControlError } from './lifecycle.mjs';
 import { claudeExecutable } from './providers/claude-cli.mjs';
+import { LOCAL_ID, validateEnvironmentConfig } from './environments/index.mjs';
 
 const exec = promisify(execFile);
 export const PROVIDERS = Object.freeze(['claude', 'codex']);
 /** execution = phase orchestrator; delivery = task worker; review = independent reviewer. */
 export const ROLES = Object.freeze(['intake', 'planning', 'execution', 'delivery', 'review', 'uat']);
+/** Roles that can run in another environment: delegated workers. Stage agents run on this PC. */
+export const PLACEABLE_ROLES = Object.freeze(['delivery', 'review']);
+const MAX_ENVIRONMENTS = 8;
 const LIMITS = Object.freeze({
   timeoutMinutes: [1, 1440],
   maxWorkers: [1, 8],
@@ -32,6 +36,10 @@ export function defaultAgentSettings() {
     models: { claude: null, codex: null },
     efforts: { claude: null, codex: null },
     limits: { timeoutMinutes: 60, maxWorkers: 2, maxReviewRounds: 2, maxTurns: 200 },
+    // Where workers run (environments/index.mjs). Owner-only, stored service-side: an agent that
+    // could edit these could send workers and code to a host of its choosing.
+    environments: [],
+    placement: { delivery: LOCAL_ID, review: LOCAL_ID },
   };
 }
 
@@ -45,6 +53,8 @@ function mergeStored(stored) {
     models: { ...base.models, ...stored.models },
     efforts: { ...base.efforts, ...stored.efforts },
     limits: { ...base.limits, ...stored.limits },
+    environments: Array.isArray(stored.environments) ? stored.environments : [],
+    placement: { ...base.placement, ...stored.placement },
   };
 }
 
@@ -60,7 +70,7 @@ const plainObject = value => value && typeof value === 'object' && !Array.isArra
 /** Applies a partial browser update. Unknown keys and values are refused rather than ignored. */
 export function applySettingsPatch(current, input) {
   if (!plainObject(input)) fail('A settings object is required.');
-  const allowed = ['roles', 'models', 'efforts', 'limits', 'expectedRevision'];
+  const allowed = ['roles', 'models', 'efforts', 'limits', 'environments', 'placement', 'expectedRevision'];
   if (Object.keys(input).some(key => !allowed.includes(key))) fail(`Only ${allowed.join(', ')} can be supplied.`);
   if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision)
     throw new ControlError('Agent settings changed. Refresh and review them before saving.', 409);
@@ -96,6 +106,39 @@ export function applySettingsPatch(current, input) {
         fail(`limits.${key} must be an integer from ${min} to ${max}.`);
       next.limits[key] = value;
     }
+  }
+  if (input.environments !== undefined) {
+    if (!Array.isArray(input.environments) || input.environments.length > MAX_ENVIRONMENTS)
+      fail(`environments must be a list of at most ${MAX_ENVIRONMENTS}.`);
+    const seen = new Set();
+    next.environments = input.environments.map(config => {
+      let valid;
+      try {
+        valid = validateEnvironmentConfig(config);
+      } catch (error) {
+        fail(`Environment ${String(config?.id ?? '?').slice(0, 40)}: ${error.message}`);
+      }
+      if (seen.has(valid.id)) fail(`Environment ids must be unique: ${valid.id}.`);
+      seen.add(valid.id);
+      return valid;
+    });
+  }
+  if (input.placement !== undefined) {
+    if (!plainObject(input.placement)) fail('placement must be an object.');
+    for (const [role, id] of Object.entries(input.placement)) {
+      if (!PLACEABLE_ROLES.includes(role)) fail(`Only ${PLACEABLE_ROLES.join(' and ')} workers can be placed.`);
+      if (typeof id !== 'string') fail(`placement.${role} must be an environment id.`);
+      next.placement[role] = id;
+    }
+  }
+  for (const [role, id] of Object.entries(next.placement)) {
+    if (id === LOCAL_ID) continue;
+    const environment = next.environments.find(item => item.id === id);
+    if (!environment) fail(`placement.${role} names ${id}, which is not a configured environment.`);
+    if (!environment.enabled) fail(`placement.${role} names ${id}, which is disabled.`);
+    // Codex cloud has no follow-up, so it cannot hold the approach-before-edit gate every delivery worker needs.
+    if (role === 'delivery' && environment.kind === 'codex-cloud')
+      fail(`placement.delivery names ${id}: Codex cloud takes reviews only, because it cannot hold the approach gate.`);
   }
   next.revision = current.revision + 1;
   next.updatedAt = new Date().toISOString();

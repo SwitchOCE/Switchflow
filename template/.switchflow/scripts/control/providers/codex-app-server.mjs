@@ -5,6 +5,7 @@ import { CODEX_FEATURE_OVERRIDES } from '../codex-runner.mjs';
 import {
   TurnInterruptedError,
   childEnvironment,
+  codexEnvironmentOverrides,
   emptyUsage,
   oneLine,
   openRawLog,
@@ -44,7 +45,12 @@ export class HandshakeError extends Error {
  * Process-wide overrides. They repeat codexArguments() so the user's config.toml cannot
  * loosen approval, sandbox, writable roots, temp access or the notify hook.
  */
-export function codexAppServerArguments({ sandbox = 'workspace-write', writableRoots = [], temporaryRoot } = {}) {
+export function codexAppServerArguments({
+  sandbox = 'workspace-write',
+  writableRoots = [],
+  temporaryRoot,
+  env = {},
+} = {}) {
   const roots = validatePolicy({ sandbox, writableRoots, temporaryRoot });
   const args = ['app-server', '-c', 'notify=[]', '-c', 'approval_policy="never"', '-c', `sandbox_mode="${sandbox}"`];
   args.push(
@@ -61,6 +67,7 @@ export function codexAppServerArguments({ sandbox = 'workspace-write', writableR
   if (temporaryRoot)
     for (const name of ['TMP', 'TEMP', 'TMPDIR'])
       args.push('-c', `shell_environment_policy.set.${name}=${JSON.stringify(temporaryRoot)}`);
+  args.push(...codexEnvironmentOverrides(env));
   return args;
 }
 
@@ -178,12 +185,13 @@ export async function openCodexSession({
   spawnProcess = spawn,
   handshakeTimeoutMs = 30000,
   isolateUserMcp = true,
+  env: workerEnv = {},
 }) {
   const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000)
     throw new Error('Invalid run timeout');
   if (signal?.aborted) throw new Error('Agent session cancelled');
-  const args = codexAppServerArguments({ sandbox, writableRoots, temporaryRoot });
+  const args = codexAppServerArguments({ sandbox, writableRoots, temporaryRoot, env: workerEnv });
   const policy = sandboxPolicy({ sandbox, writableRoots, temporaryRoot });
   const raw = await openRawLog(rawLogPath);
   const child = spawnProcess(executable, args, {
@@ -192,7 +200,7 @@ export async function openCodexSession({
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: childEnvironment(temporaryRoot),
+    env: childEnvironment(temporaryRoot, {}, workerEnv),
   });
   let nextId = 0;
   const pending = new Map();

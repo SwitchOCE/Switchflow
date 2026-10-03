@@ -1,6 +1,6 @@
 # Agent environments: design
 
-Status: proposed, 2026-10-03. Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
+Status: proposed, 2026-10-03. Phases 1–4 built 2026-10-04 (see Phases). Evidence: [webatrice-trial.md](webatrice-trial.md), [claude-cloud.md](claude-cloud.md), [codex-cloud-and-remote.md](codex-cloud-and-remote.md).
 
 ## The problem, from the Cockatrice parity run
 
@@ -33,7 +33,7 @@ Provider (Claude or Codex) stays the choice of *who*; environment becomes the ch
 | **Local** (today) | CLIs on this PC | yes / yes / yes | local worktree | subscriptions | nowhere |
 | **SSH box** (home server, VPS, codespace) | the same CLIs over `ssh` stdio, worktrees on the box | yes / yes / yes | branch pushed to a git remote both sides reach (the box itself can be that remote) | subscriptions + the box | your box only |
 | **Claude self-hosted environment** (`claude --environment ccpool_…`) | Anthropic-controlled session executing on your box | to verify | to verify | subscription | your box (conversation via Anthropic, as today) |
-| **Claude Code cloud** (`claude --cloud`, claude.ai/code) | Anthropic sandbox, GitHub repo | to verify (attach, teleport exist) | `claude/*` branch on GitHub | subscription | GitHub + Anthropic |
+| **Claude Code cloud** (routines started through the CLI, claude.ai/code) | Anthropic sandbox, GitHub repo | polled log (~1 min) / message into the session (~2 s, taken at the next turn boundary) / no | `claude/*` branch on GitHub, fetched into the local candidate | subscription | GitHub + Anthropic |
 | **Claude Managed Agents** (API) | Anthropic sandbox, programmable environments | yes / yes / yes (events API) | branch on GitHub | API key, per token | GitHub + Anthropic |
 | **Codex cloud** | OpenAI VM per task | no / no / no (submit, poll, diff, apply) | diff applied into a local worktree | ChatGPT allowance (cloud costs more) | GitHub + OpenAI |
 
@@ -43,10 +43,26 @@ Adapter contract: `health()`, `capabilities`, `prepare(workspace)`, `start(task)
 
 ## Phases
 
-1. **Local capacity management** (above). No decisions needed; removes the crash class seen in the trial.
-2. **Environment abstraction + SSH box.** Move process spawning behind a local environment adapter with no behaviour change, then add SSH. Full capabilities; code stays on hardware the owner controls; no GitHub requirement (the box can host the git remote).
-3. **Claude subscription cloud.** Probe `--cloud`, attach, teleport and self-hosted `--environment` on a throwaway private repo, then build the adapter for whatever is controllable.
-4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling).
+1. **Local capacity management** (above). No decisions needed; removes the crash class seen in the trial. **Status: built 2026-10-04** except shared dependency installs, which remain a follow-up (with per-worktree compose projects and ports). What shipped, documented in `docs/browser-control.md` "Capacity":
+   - `.switchflow/capacity.json` profile, strictly validated; defaults (1.5 GB idle, 6 GB gating, 3 GB headroom; leases `gate` 2, `e2e` 1, `suite` 1) apply when it is absent or invalid.
+   - Memory admission: `delegate_task` queues first in first out with a reason ("needs 1.5 GB, 0.8 GB available") instead of overcommitting, and queued workers start by themselves.
+   - Leases `acquire_lease` / `release_lease` / `list_leases` with counts, time limits, gating memory, release on any session end, and persistence across restarts (kept while the restart fence holds their run). The suite lock is the lease `suite`.
+   - `workerEnv` caps injected into every agent process, under a deny policy for paths, homes, agent and Git configuration, loaders and secrets.
+   - Process cleanup of each closed session's leftover processes, guarded by start times.
+   - "Resume N held workers" after a restart: the next execution run re-delegates the interrupted run's queued and open workers with their original instructions. Provider-level session resume is not used yet.
+   - A capacity strip in the Agents view.
+2. **Environment abstraction + SSH box.** Move process spawning behind a local environment adapter with no behaviour change, then add SSH. Full capabilities; code stays on hardware the owner controls; no GitHub requirement (the box can host the git remote). **Status: built 2026-10-04**, documented in `docs/browser-control.md` "Environments and SSH boxes"; real runs in [ssh-real-run.md](ssh-real-run.md).
+   - `environments/index.mjs`: the contract and the one registry (local, ssh, claude-cloud). Local is today's spawn, unchanged.
+   - `environments/ssh.mjs`: CLIs over `ssh -T` under a `setsid` wrapper that records the remote PID (fenced with the environment id); kill over a second connection; bare mirror on the box, remote worktree per worker, host commits each writable turn and fast-forwards the local candidate.
+   - Environments and `placement` (delivery, review) are owner agent settings; unhealthy or unconfigured environments are refused with their reason, never replaced by local.
+   - Agents view: "Where workers run" with Test connection, SSH add/edit and "Runs on"; sessions show their environment.
+   - Found in the real run: WSL stops an idle distro even with ssh sessions open, hence `keepAwake`.
+   - SSH workers skip local memory admission and queue against the box's own `maxWorkers` (default 2). They get no lease tools: the lease server is a host-local stdio process on loopback, and leases describe this PC's resources.
+3. **Claude subscription cloud.** **Status: adapter built 2026-10-04** (`environments/claude-cloud.mjs`, documented in `docs/browser-control.md` "Claude cloud workers"). Probe results with Claude Code 2.1.288: `claude -p --cloud "<task>"` is refused (new cloud sessions are interactive only); a headless `claude -p --tools RemoteTrigger` turn drives the routines API with the CLI's sign-in (create, update, run, list_runs, get_run_log; no delete); `claude -p --cloud <session_id>` delivers follow-ups into a routine session in about 2 s; a routine's `allowed_tools` does not restrict the session, so the approach turn is read-only by instruction plus a host push check. Self-hosted `--environment ccpool_…` was not probed.
+4. **Codex cloud**, opt-in, fire-and-forget, behind a flag (the relaunch on 2026-09-29 is still settling). **Status: adapter built 2026-10-04** (`environments/codex-cloud.mjs`, documented in `docs/browser-control.md` "Codex cloud workers"). It was checked against the codex-cli 0.153.4 help and the cloud-tasks source; no task was submitted.
+   - Opt-in per entry (`experimental: true`). It submits with `codex cloud exec --env --branch sf-task/<key>` (the host pushes under the owner's `push` grant), polls `codex cloud status`, and reads `codex cloud diff`. The host applies the diff with `git apply --check` first and commits it in the clean candidate.
+   - No CLI command returns the worker's messages, so its JSON reply travels in the diff as `.switchflow-result.json`, which is never applied.
+   - No approach turn (`approachGate: false`), so `delegate_task` refuses delivery there. Reviews run read-only on every turn, and their diffs are never applied. A Claude provider is refused on codex-cloud, and a Codex provider on claude-cloud.
 5. **Managed Agents API** only if per-token billing is wanted.
 
 ## Decisions for the owner
