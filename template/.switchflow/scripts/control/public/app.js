@@ -126,6 +126,25 @@ async function readProject(route, projectId = selectedProjectId) {
   if (!response.ok) throw new Error(data.error || `Unable to load project (${response.status}).`);
   return data;
 }
+// Provider routing, shown where the owner approves work. Absent on services without agent routing.
+let agentRouting = null;
+let agentRoutingAt = 0;
+async function refreshAgentRouting() {
+  if (Date.now() - agentRoutingAt < 30000) return;
+  agentRoutingAt = Date.now();
+  try {
+    agentRouting = (await readProject('/agents'))?.settings || null;
+  } catch {
+    agentRouting = null;
+  }
+}
+function routingSummary() {
+  const roles = agentRouting?.roles;
+  if (!roles) return '';
+  const name = id => ({ claude: 'Claude', codex: 'Codex' })[id] || id;
+  const review = roles.review && roles.review !== 'auto' ? name(roles.review) : 'the other provider';
+  return `${name(roles.execution)} will orchestrate, ${name(roles.delivery)} will deliver tasks, and ${review} will review each one.`;
+}
 async function writeProject(route, method, body, projectId = selectedProjectId) {
   const response = await fetch(scopedPath(route, projectId), {
     method,
@@ -1045,6 +1064,18 @@ function renderDetail() {
         'Approving this plan authorizes the agent to carry out its delivery phases and bring the result back for UAT.',
       ),
     );
+    const routing = routingSummary();
+    if (routing) {
+      const note = el('p', 'gate-note routing-note', `${routing} `);
+      const change = el('button', 'text-link', 'Change routing');
+      change.type = 'button';
+      change.addEventListener('click', () => {
+        $('#detail-dialog').close();
+        showView('agents');
+      });
+      note.append(change);
+      decision.append(note);
+    }
     actions.append(actionButton('Approve plan & start delivery →', 'approve-plan'));
   }
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
@@ -1225,6 +1256,7 @@ async function refresh(forceDetail = false) {
     $('#project-name').textContent = state.project?.name || 'Project control';
     renderBoard();
     void refreshOverviewMilestones();
+    void refreshAgentRouting();
     $('#updated-at').textContent =
       `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     if (selectedId && current()) {
@@ -1640,6 +1672,8 @@ async function switchProject(id, { preserveLocation = false } = {}) {
   refreshing = false;
   selectedId = null;
   state = null;
+  agentRouting = null;
+  agentRoutingAt = 0;
   connected = false;
   const saved = projectDrafts.get(id) || restorePageDrafts(id);
   for (const [key, draft] of saved.milestoneDrafts || [])

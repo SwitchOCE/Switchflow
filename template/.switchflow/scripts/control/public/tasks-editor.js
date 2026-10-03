@@ -296,7 +296,7 @@ export function taskEditor({
           ? 'No revision available. Reload before editing.'
           : editing
             ? 'Unsaved edits stay in this tab when you close. Discard restores the saved record; recovery remains available in this tab.'
-            : 'Saved record · Edit to change task content.';
+            : 'Saved.';
   }
   function edit() {
     editing = true;

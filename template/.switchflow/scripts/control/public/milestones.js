@@ -176,7 +176,7 @@ export function createMilestonePanel({
       card.append(
         node(
           'span',
-          `${milestone.id} · ${milestone.executionOrder == null ? 'Order not established' : `Order ${milestone.executionOrder}`}`,
+          `${milestone.id} · ${milestone.executionOrder == null ? 'No order yet' : `Order ${milestone.executionOrder}`}`,
           'muted',
         ),
         node('h3', milestone.title),

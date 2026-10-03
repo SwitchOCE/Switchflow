@@ -1829,3 +1829,12 @@ main h1 + p {
 .workspace-search-result.is-command span {
   margin: 0;
 }
+button.text-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--teal);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
