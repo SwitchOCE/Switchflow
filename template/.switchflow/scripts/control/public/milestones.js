@@ -1,4 +1,6 @@
 import { renderMarkdown, bindProseInteractions } from './documents.js';
+// Namespace import: taskRank is shared with the Overview; the local fallback keeps the same order if it is absent.
+import * as overviewModel from './overview-model.js';
 // Host callbacks supply project-scoped APIs and CSRF; drafts never cross project keys.
 export const sortMilestones = values =>
   [...values].sort(
@@ -83,11 +85,17 @@ export function statusCounts(linked) {
   return counts;
 }
 // The first unfinished Ready task, or why nothing is ready.
-export function nextUp(linked, allTasks = []) {
-  const ordered = linked
-    .map((task, index) => ({ task, index }))
-    .sort((a, b) => (a.task.ordinal ?? Infinity) - (b.task.ordinal ?? Infinity) || a.index - b.index)
-    .map(entry => entry.task);
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+const fallbackRank = () => {
+  const priority = task => PRIORITY_RANK[String(task.priority || '').toLowerCase()] ?? 3;
+  const idNumber = task => Number(String(task.id || '').match(/(\d+)/)?.[1] ?? Infinity);
+  return (a, b) =>
+    priority(a) - priority(b) || (a.ordinal ?? Infinity) - (b.ordinal ?? Infinity) || idNumber(a) - idNumber(b);
+};
+// Ranks like the Overview: priority, then ordinal, then numeric ID within one milestone.
+export function nextUp(linked, allTasks = [], milestones = []) {
+  const rank = typeof overviewModel.taskRank === 'function' ? overviewModel.taskRank(milestones) : fallbackRank();
+  const ordered = [...linked].sort(rank);
   const ready = ordered.find(task => taskBucket(task.status) === 'ready');
   if (ready) return { task: ready };
   if (!linked.length) return { reason: 'Link tasks to this milestone to see what comes next.' };
@@ -125,7 +133,7 @@ const GROUPS = [
   { key: 'Delivery tasks complete', label: 'Done', status: 'done', filter: 'done' },
 ];
 const FILTERS = [
-  ['active', 'Active'],
+  ['active', 'In progress'],
   ['upcoming', 'Upcoming'],
   ['done', 'Done'],
   ['all', 'All'],
@@ -134,6 +142,21 @@ const PAGE = 25,
   DONE_PAGE = 10,
   TASK_PAGE = 20;
 
+// Moves milestones within the execution order and returns only the records whose order changes.
+// Numbering stays contiguous from the lowest existing order (or 1), so a move writes as few records as possible.
+export function planMilestoneOrder(values, movedIds, targetId = null, position = 'after') {
+  const moving = [movedIds].flat();
+  const ordered = sortMilestones(values.filter(m => m.executionOrder != null));
+  const start = ordered.length ? Math.min(...ordered.map(m => Number(m.executionOrder))) : 1;
+  const ids = ordered.map(m => m.id).filter(id => !moving.includes(id));
+  let index = targetId == null ? ids.length : ids.indexOf(targetId);
+  if (index < 0) index = ids.length;
+  else if (targetId != null && position === 'after') index++;
+  ids.splice(index, 0, ...moving);
+  return ids
+    .map((id, i) => ({ id, executionOrder: start + i }))
+    .filter(change => values.find(m => m.id === change.id)?.executionOrder !== change.executionOrder);
+}
 export function createMilestonePanel({
   container,
   read,
@@ -165,6 +188,7 @@ export function createMilestonePanel({
     pages = {},
     listSignature = '',
     rows = [],
+    drag = null,
     refreshFailed = false,
     busy = false;
   const node = (tag, text, className) => {
@@ -342,6 +366,31 @@ export function createMilestonePanel({
       blocked.title = `${state.blocked} blocked`;
     }
     row.append(order, name, bar, count, blocked);
+    if (milestone.executionOrder != null) row.dataset.ordered = 'true';
+    if (!showArchived) {
+      // Pointer-only drag handle; keyboard users reorder with Alt+Up/Down on the row.
+      const handle = node('span', undefined, 'ms-handle');
+      handle.setAttribute('aria-hidden', 'true');
+      handle.title = 'Drag to reorder';
+      handle.addEventListener('pointerdown', () => {
+        row.draggable = reorderable();
+      });
+      row.prepend?.(handle);
+      row.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
+      row.addEventListener('dragstart', event => {
+        if (!row.draggable) return event.preventDefault();
+        drag = { id: milestone.id, target: null };
+        row.dataset.dragging = 'true';
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', milestone.id);
+      });
+      row.addEventListener('dragend', () => {
+        row.draggable = false;
+        delete row.dataset.dragging;
+        drag = null;
+        clearDropMarkers();
+      });
+    }
     row.setAttribute(
       'aria-label',
       [
@@ -367,6 +416,8 @@ export function createMilestonePanel({
       `${m.id} ${m.title} ${m.description || ''} ${(m.labels || []).join(' ')}`.toLowerCase().includes(query),
     );
     const signature = JSON.stringify([
+      busy,
+      canWrite(),
       filter,
       query,
       showArchived,
@@ -422,6 +473,25 @@ export function createMilestonePanel({
       const open = !collapsible || doneOpen;
       const label = node('span', section.label, 'ms-group-label');
       const count = node('span', String(section.items.length), 'count');
+      let orderAll = null;
+      if (section.key === 'Order not established' && api) {
+        orderAll = fence(
+          button(
+            'Order these',
+            () =>
+              reorder(
+                planMilestoneOrder(
+                  milestones,
+                  section.items.map(m => m.id),
+                  null,
+                ),
+                `${section.items.length} milestone${section.items.length === 1 ? '' : 's'} added to the end of the order.`,
+              ),
+            'button quiet button-small ms-order-all',
+          ),
+        );
+        orderAll.title = canWrite() ? 'Add these to the end of the order, as listed' : blockedText();
+      }
       if (collapsible) {
         const toggleDone = button(
           '',
@@ -435,6 +505,7 @@ export function createMilestonePanel({
         toggleDone.append(node('span', open ? '▾' : '▸', 'ms-caret'), label, count);
         head.append(toggleDone);
       } else head.append(label, count);
+      if (orderAll) head.append(orderAll);
       group.setAttribute('aria-label', `${section.label}, ${section.items.length}`);
       group.append(head);
       if (open) {
@@ -491,6 +562,11 @@ export function createMilestonePanel({
   list.addEventListener('keydown', event => {
     const index = rows.indexOf(event.target);
     if (index < 0) return;
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      moveByKeyboard(event.target.dataset.milestone, event.key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
     let next = null;
     if (event.key === 'ArrowDown') next = rows[Math.min(rows.length - 1, index + 1)];
     else if (event.key === 'ArrowUp') next = rows[Math.max(0, index - 1)];
@@ -509,6 +585,116 @@ export function createMilestonePanel({
     // Wide screens follow the selection; narrow screens open on Enter.
     if (wide()) choose(next.dataset.milestone, { focus: false, navigate: false });
   });
+  // Reordering --------------------------------------------------------------------
+  function reorderable() {
+    return !!api && !showArchived && !busy && canWrite() && detail.dataset.mode !== 'edit';
+  }
+  function clearDropMarkers() {
+    for (const row of rows) delete row.dataset.drop;
+  }
+  list.addEventListener('dragover', event => {
+    if (!drag) return;
+    const target = event.target.closest?.('.ms-row');
+    clearDropMarkers();
+    drag.target = null;
+    if (!target || target.dataset.milestone === drag.id || target.dataset.ordered !== 'true') return;
+    event.preventDefault();
+    const box = target.getBoundingClientRect();
+    const position = event.clientY < box.top + box.height / 2 ? 'before' : 'after';
+    target.dataset.drop = position;
+    drag.target = { id: target.dataset.milestone, position };
+    event.dataTransfer.dropEffect = 'move';
+  });
+  list.addEventListener('dragleave', event => {
+    if (drag && !list.contains(event.relatedTarget)) clearDropMarkers();
+  });
+  list.addEventListener('drop', event => {
+    event.preventDefault();
+    const moved = drag?.id,
+      target = drag?.target;
+    clearDropMarkers();
+    if (!moved || !target) return;
+    const name = milestones.find(m => m.id === moved)?.title || moved;
+    reorder(planMilestoneOrder(milestones, moved, target.id, target.position), `${name} moved.`, moved);
+  });
+  function moveByKeyboard(id, direction) {
+    const milestone = milestones.find(m => m.id === id);
+    if (!milestone || showArchived) return;
+    const ordered = sortMilestones(milestones.filter(m => m.executionOrder != null)).map(m => m.id);
+    if (milestone.executionOrder == null)
+      return reorder(planMilestoneOrder(milestones, id, null), `${milestone.title} added to the end of the order.`, id);
+    const neighbour = ordered[ordered.indexOf(id) + direction];
+    if (!neighbour) {
+      message.textContent = `${milestone.title} is already ${direction < 0 ? 'first' : 'last'}.`;
+      return;
+    }
+    reorder(
+      planMilestoneOrder(milestones, id, neighbour, direction < 0 ? 'before' : 'after'),
+      `${milestone.title} moved ${direction < 0 ? 'up' : 'down'}.`,
+      id,
+    );
+  }
+  // Writes each changed order with that milestone's own revision. A failed write is reported and
+  // rolled back locally; the others are kept.
+  async function reorder(changes, doneText, focusId = null) {
+    if (!changes.length) return;
+    if (busy) return;
+    const ticket = generation,
+      project = projectKey();
+    try {
+      assertWritable();
+      if (!api && !write) throw new Error('A revision-aware server is required for editing.');
+      if (detail.dataset.mode === 'edit') throw new Error('Close the editor before changing the order.');
+    } catch (error) {
+      message.textContent = errorText(error);
+      return;
+    }
+    busy = true;
+    const previous = new Map(milestones.map(m => [m.id, m.executionOrder]));
+    for (const change of changes) {
+      const milestone = milestones.find(m => m.id === change.id);
+      if (milestone) milestone.executionOrder = change.executionOrder;
+    }
+    renderList();
+    if (focusId) rows.find(row => row.dataset.milestone === focusId)?.focus?.({ preventScroll: true });
+    const failed = [];
+    let saved = 0;
+    for (const [index, change] of changes.entries()) {
+      if (!current(ticket, project)) return;
+      const milestone = milestones.find(m => m.id === change.id);
+      message.textContent = `Saving order… ${index + 1} of ${changes.length}`;
+      try {
+        if (!canWrite()) throw new Error(blockedText());
+        if (!milestone) throw new Error('Milestone not found.');
+        const revision = milestone.revision || unwrap(await load(change.id)).revision;
+        if (!revision || (!api && !milestone.atomicRevision))
+          throw new Error('A revision-aware server is required for editing.');
+        const body = { expectedRevision: revision, executionOrder: change.executionOrder };
+        if (api) await api(route(change.id), { method: 'PUT', body });
+        else await write(`/api${route(change.id)}`, body);
+        saved++;
+      } catch (error) {
+        if (milestone) milestone.executionOrder = previous.get(change.id);
+        failed.push(`${milestone?.title || change.id} (${errorText(error)})`);
+      }
+    }
+    if (!current(ticket, project)) return;
+    busy = false;
+    const summary = failed.length
+      ? `Order saved for ${saved} of ${changes.length}. Not saved: ${failed.join('; ')}. Refresh and try again.`
+      : doneText;
+    message.textContent = summary;
+    try {
+      await onSaved();
+      if (!current(ticket, project)) return;
+      await refresh();
+      if (current(ticket, project) && selected && detail.dataset.mode === 'read')
+        await show(selected, { focus: false });
+    } catch (error) {
+      if (current(ticket, project)) message.textContent = `${summary} Refresh failed: ${errorText(error)}`;
+    }
+    if (current(ticket, project)) message.textContent = summary;
+  }
   function markSelected() {
     for (const row of rows) {
       row.setAttribute('aria-selected', String(row.dataset.milestone === selected));
@@ -594,13 +780,15 @@ export function createMilestonePanel({
     markSelected();
     setPane('detail');
     detail.dataset.mode = 'edit';
+    detail.scrollTop = 0;
     const top = node('div', undefined, 'ms-detail-head');
-    const title = node('h2', isNew ? 'New milestone' : `Edit ${milestone.id}`, 'ms-detail-title');
+    const titles = node('div', undefined, 'ms-titles');
+    if (!isNew) titles.append(node('span', milestone.id, 'ms-id'));
+    const title = node('h2', isNew ? 'New milestone' : `Edit · ${milestone.title}`, 'ms-detail-title');
     title.tabIndex = -1;
-    top.append(title);
-    const form = node('form', undefined, 'ms-form'),
-      notice = node('p', undefined, 'ms-notice');
-    notice.setAttribute('role', 'alert');
+    titles.append(title);
+    top.append(titles);
+    const form = node('form', undefined, 'ms-form');
     const input = (name, label, value, multiline = false, parent = form) => {
       const wrap = node('label', label, 'ms-field'),
         field = node(multiline ? 'textarea' : 'input');
@@ -627,6 +815,24 @@ export function createMilestonePanel({
     order.step = '1';
     order.placeholder = 'Not ordered';
     form.append(node('p', 'Lower numbers come first. Leave the order blank if it is not decided.', 'ms-hint'));
+    // A draft is kept only while it differs from the saved record.
+    const baseline = isNew
+      ? { title: '', description: '', labels: [], executionOrder: '' }
+      : {
+          title: milestone.title,
+          description: milestone.description || '',
+          labels: milestone.labels || [],
+          executionOrder: milestone.executionOrder ?? '',
+        };
+    const comparable = value =>
+      JSON.stringify([
+        String(value.title ?? ''),
+        String(value.description ?? ''),
+        (value.labels || []).join(','),
+        String(value.executionOrder ?? ''),
+      ]);
+    let dirty = false,
+      conflict = false;
     const preserve = () => {
       const value = {
         ...draft,
@@ -638,15 +844,41 @@ export function createMilestonePanel({
           .filter(Boolean),
         executionOrder: order.value,
       };
-      if (current(editorTicket, editorProject)) drafts.set(`${editorProject}:${milestone.id}`, value);
+      dirty = comparable(value) !== comparable(baseline);
+      if (current(editorTicket, editorProject)) {
+        if (dirty) drafts.set(`${editorProject}:${milestone.id}`, value);
+        else drafts.delete(`${editorProject}:${milestone.id}`);
+      }
       return value;
     };
-    form.addEventListener('input', preserve);
-    const controls = node('div', undefined, 'ms-form-actions');
+    const bar = node('div', undefined, 'editor-bar ms-editor-bar'),
+      notice = node('span', undefined, 'editor-state'),
+      controls = node('div', undefined, 'editor-actions');
+    notice.setAttribute('role', 'status');
+    const setState = (text, state = '') => {
+      notice.textContent = text;
+      notice.dataset.state = state;
+    };
+    const showState = () => {
+      if (dirty) setState('Unsaved changes · kept in this tab', 'dirty');
+      else setState(isNew ? 'Not created yet.' : 'No changes yet.');
+      discard.disabled = !dirty || busy;
+    };
+    form.addEventListener('input', () => {
+      preserve();
+      showState();
+    });
     const save = node('button', isNew ? 'Create milestone' : 'Save milestone', 'button primary');
     save.type = 'submit';
     const editable = isNew || !!(milestone.revision && (api || milestone.atomicRevision));
     save.disabled = !editable || !canWrite() || busy;
+    let comparison = null;
+    const compare = button('Compare', () => {
+      if (!comparison) return;
+      comparison.open = !comparison.open;
+      if (comparison.open) comparison.scrollIntoView?.({ block: 'nearest' });
+    });
+    compare.hidden = !latest;
     const reload = button('Load latest; keep my draft', async () => {
       const loadRequest = ++editorRequest;
       preserve();
@@ -654,29 +886,36 @@ export function createMilestonePanel({
       try {
         const fresh = unwrap(await load(milestone.id));
         if (!current(editorTicket, editorProject) || selected !== milestone.id || loadRequest !== editorRequest) return;
-        const updated = { ...preserve(), expectedRevision: fresh.revision };
-        drafts.set(key(milestone.id), updated);
-        renderEditor(fresh, updated, fresh);
+        renderEditor(fresh, { ...preserve(), expectedRevision: fresh.revision }, fresh);
       } catch (error) {
-        if (current(editorTicket, editorProject)) notice.textContent = errorText(error);
+        if (current(editorTicket, editorProject)) setState(errorText(error), 'error');
       } finally {
         reload.disabled = false;
       }
     });
-    controls.append(save);
-    if (!isNew) controls.append(reload);
-    controls.append(
-      button('Close editor', () => {
-        if (busy) return;
-        preserve();
-        editorRequest++;
-        if (!isNew) return show(milestone.id, { focus: true });
-        const previous = origin?.id;
-        if (previous && previous !== '@new') return show(previous, { focus: true });
-        closeDetail();
-      }),
-    );
-    form.append(notice, controls);
+    // Only offered once a save has hit a newer version.
+    reload.hidden = true;
+    const leave = () => {
+      editorRequest++;
+      if (!isNew) return show(milestone.id, { focus: true });
+      const previous = origin?.id;
+      if (previous && previous !== '@new') return show(previous, { focus: true });
+      closeDetail();
+    };
+    const discard = button('Discard', () => {
+      if (busy) return;
+      drafts.delete(key(milestone.id));
+      leave();
+    });
+    const cancel = button('Cancel', () => {
+      if (busy) return;
+      preserve();
+      leave();
+    });
+    if (isNew) controls.append(discard, cancel, save);
+    else controls.append(compare, reload, discard, cancel, save);
+    bar.append(notice, controls);
+    form.append(bar);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (busy || !current(editorTicket, editorProject)) return;
@@ -694,6 +933,7 @@ export function createMilestonePanel({
         busy = true;
         editorRequest++;
         for (const field of form.querySelectorAll('input,textarea,select,button')) field.disabled = true;
+        setState(isNew ? 'Creating…' : 'Saving…');
         if (isNew) {
           created = unwrap(
             await api('/milestones', {
@@ -716,22 +956,27 @@ export function createMilestonePanel({
         await saved(`${created?.id || milestone.id} saved.`, editorTicket, editorProject, created?.id || milestone.id);
       } catch (error) {
         if (!current(editorTicket, editorProject)) return;
-        notice.textContent = `${errorText(error)} Your draft is preserved.`;
+        conflict = !isNew && /conflict|changed|stale|revision|409/i.test(errorText(error));
+        reload.hidden = !conflict;
+        setState(`${errorText(error)} Your draft is preserved.`, 'error');
       } finally {
         if (current(editorTicket, editorProject)) {
           busy = false;
           for (const field of form.querySelectorAll('input,textarea,select,button')) field.disabled = false;
           save.disabled = !editable || !canWrite();
           reload.disabled = false;
+          discard.disabled = !dirty;
           renderList();
         }
       }
     });
     detail.append(backButton(), top);
+    preserve();
+    showState();
     if (latest) {
-      const comparison = node('details', undefined, 'ms-compare');
+      comparison = node('details', undefined, 'ms-compare');
       comparison.open = true;
-      comparison.append(node('summary', 'Compare your edits with the latest saved version'));
+      comparison.append(node('summary', 'Your edits and the latest saved version'));
       for (const [field, label] of [
         ['title', 'Title'],
         ['description', 'Scope'],
@@ -739,28 +984,28 @@ export function createMilestonePanel({
         ['executionOrder', 'Execution order'],
       ]) {
         const show = value => (Array.isArray(value) ? value.join(', ') : String(value ?? '(not set)'));
+        if (show(draft[field]) === show(latest[field])) continue;
         const section = node('section', undefined, 'ms-compare-field');
         section.append(
           node('h4', label),
-          node('p', 'Your unsaved version'),
+          node('p', 'Yours'),
           node('pre', show(draft[field])),
-          node('p', 'Latest saved version'),
+          node('p', 'Latest saved'),
           node('pre', show(latest[field])),
         );
         comparison.append(section);
       }
       detail.append(comparison);
-      notice.textContent = 'Latest version loaded. Your draft is unchanged; compare before saving.';
+      setState('Latest version loaded. Your draft is unchanged; compare before saving.', 'dirty');
     }
-    if (!editable) notice.textContent = 'Editing requires the updated Backlog fork. Restart after installing it.';
-    if (!canWrite()) notice.textContent = blockedText();
+    if (!editable) setState('Editing requires the updated Backlog fork. Restart after installing it.', 'error');
+    if (!canWrite()) setState(blockedText(), 'error');
     detail.append(form);
     if (!isNew && api) {
       renderTasks(milestone);
       renderRemoval(milestone, preserve);
     }
     title.focus({ preventScroll: true });
-    top.scrollIntoView?.({ block: 'nearest' });
   }
   function renderTasks(milestone) {
     const section = node('section', undefined, 'ms-section milestone-tasks');
@@ -965,7 +1210,11 @@ export function createMilestonePanel({
     if (origin?.y != null) globalThis.window?.scrollTo?.({ top: origin.y });
   }
   function renderReader(milestone, { focus = true } = {}) {
+    const sameRecord = detail.dataset.record === milestone.id;
+    const keepScroll = sameRecord ? detail.scrollTop : 0;
     clearDetail();
+    detail.dataset.record = milestone.id;
+    detail.scrollTop = keepScroll;
     markSelected();
     setPane('detail');
     detail.dataset.mode = 'read';
@@ -1052,8 +1301,22 @@ export function createMilestonePanel({
       }
     });
     const orderActions = node('div', undefined, 'ms-form-actions');
+    const moveToEnd = button(
+      'Move to end',
+      () => {
+        orderForm.hidden = true;
+        reorder(
+          planMilestoneOrder(milestones, milestone.id, null),
+          `${milestone.title} moved to the end of the order.`,
+          milestone.id,
+        );
+      },
+      'button quiet button-small',
+    );
+    moveToEnd.hidden = !api || !milestones.some(m => m.id === milestone.id);
     orderActions.append(
       orderSave,
+      moveToEnd,
       button(
         'Cancel',
         () => {
@@ -1107,7 +1370,16 @@ export function createMilestonePanel({
     if (isArchived)
       detail.append(node('p', 'Archived. Restoring archived milestones is not supported here.', 'banner'));
     else if (!canWrite()) detail.append(node('p', blockedText(), 'banner ms-fence'));
-    if (drafts.has(key(milestone.id))) {
+    const pending = drafts.get(key(milestone.id));
+    if (
+      pending &&
+      [
+        [pending.title, milestone.title],
+        [pending.description, milestone.description || ''],
+        [(pending.labels || []).join(','), (milestone.labels || []).join(',')],
+        [String(pending.executionOrder ?? ''), String(milestone.executionOrder ?? '')],
+      ].some(([mine, saved]) => String(mine ?? '') !== String(saved ?? ''))
+    ) {
       const resume = node('div', undefined, 'banner ms-draft');
       resume.append(
         node('span', 'You have unsaved edits to this milestone.'),
@@ -1115,14 +1387,17 @@ export function createMilestonePanel({
       );
       detail.append(resume);
     }
+    // Summary, scope and linked tasks share one grid: stacked when narrow, scope beside the rest when wide.
+    const body = node('div', undefined, 'ms-body');
     const summary = node('div', undefined, 'ms-summary');
-    detail.append(summary);
+    body.append(summary);
+    detail.append(body);
     const scope = node('section', undefined, 'ms-section ms-scope');
     scope.append(node('h3', 'Scope'));
     const prose = node('article', undefined, 'docs-prose ms-prose');
     prose.innerHTML = renderMarkdown(milestone.description || 'No scope written yet.').html;
     scope.append(prose);
-    detail.append(scope);
+    body.append(scope);
     const readerTicket = editorRequest,
       readerProject = projectKey();
     cleanupProse = bindProseInteractions(prose, {
@@ -1134,7 +1409,7 @@ export function createMilestonePanel({
       },
       isCurrent: () => !destroyed && readerTicket === editorRequest && readerProject === projectKey(),
     });
-    const linkedSection = node('section', undefined, 'ms-section milestone-tasks');
+    const linkedSection = node('section', undefined, 'ms-section milestone-tasks ms-linked');
     const linkedHead = node('div', undefined, 'ms-section-head');
     const linkedCount = node('span', undefined, 'count');
     const linkedTitle = node('h3', 'Linked tasks');
@@ -1155,7 +1430,7 @@ export function createMilestonePanel({
     const pager = node('div', undefined, 'ms-pager');
     pager.append(count, more);
     linkedSection.append(linkedHead, taskRows, pager);
-    detail.append(linkedSection);
+    body.append(linkedSection);
     function renderSummary(state) {
       summary.replaceChildren();
       const group = groupOf(milestone);
@@ -1198,7 +1473,7 @@ export function createMilestonePanel({
       const nextHead = node('div', undefined, 'ms-summary-head');
       nextHead.append(node('h3', 'Next up'));
       next.append(nextHead);
-      const upcoming = nextUp(state.linked, tasks);
+      const upcoming = nextUp(state.linked, tasks, milestones);
       if (upcoming.task) {
         const task = upcoming.task;
         const link = node(onTask ? 'button' : 'div', undefined, 'ms-next-task');
@@ -1295,8 +1570,7 @@ export function createMilestonePanel({
     updateReader = () => renderLinked();
     renderLinked(true);
     if (focus) title.focus({ preventScroll: true });
-    if (wide()) head.scrollIntoView?.({ block: 'nearest' });
-    else globalThis.window?.scrollTo?.({ top: 0 });
+    if (!wide() && !sameRecord) globalThis.window?.scrollTo?.({ top: 0 });
   }
   async function show(id, { focus = true } = {}) {
     if (busy) return;

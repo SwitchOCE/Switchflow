@@ -39,7 +39,7 @@
   display: none;
 }
 .ms-list-pane {
-  container-type: inline-size;
+  container: ms-list / inline-size;
   position: sticky;
   top: var(--space-4);
   max-height: calc(100dvh - var(--space-6));
@@ -52,6 +52,35 @@
 .ms-layout[data-empty='true'] .ms-list-pane {
   position: static;
   max-height: none;
+}
+/* Wide: the view fills the viewport and each pane scrolls on its own, so the page never scrolls twice. */
+@media (min-width: 1100px) {
+  .milestone-panel {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--space-6) - var(--space-7));
+    min-height: 480px;
+  }
+  .milestone-panel > :not(.ms-layout) {
+    flex: none;
+  }
+  .ms-layout {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .ms-list-pane {
+    position: static;
+    max-height: none;
+  }
+  .ms-layout[data-empty='true'] .ms-list-pane {
+    align-self: start;
+  }
+  .ms-detail {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 /* List groups and rows --------------------------------------------------- */
@@ -105,6 +134,7 @@
   color: var(--text-3);
 }
 .ms-row {
+  position: relative;
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) 72px 38px 26px;
   align-items: center;
@@ -124,6 +154,50 @@
 .ms-row[aria-selected='true'] {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+/* Drag handle sits in the row's left padding and shows on hover or selection. */
+.ms-handle {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  width: 6px;
+  height: 14px;
+  margin-top: -7px;
+  background-image: radial-gradient(circle, var(--text-3) 1px, transparent 1.4px);
+  background-size: 3px 3.5px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ms-row:hover .ms-handle,
+.ms-row:focus-visible .ms-handle,
+.ms-row[aria-selected='true'] .ms-handle {
+  opacity: 1;
+}
+.ms-row[data-dragging] {
+  opacity: 0.45;
+}
+.ms-row[data-drop]::after {
+  content: '';
+  position: absolute;
+  right: var(--space-2);
+  left: var(--space-2);
+  z-index: 2;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.ms-row[data-drop='before']::after {
+  top: -1px;
+}
+.ms-row[data-drop='after']::after {
+  bottom: -1px;
+}
+.ms-order-all {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .ms-order {
   display: inline-grid;
@@ -228,8 +302,10 @@
 
 /* Detail panel ----------------------------------------------------------- */
 .ms-detail {
+  --ms-pad-x: var(--space-6);
+  container: ms-detail / inline-size;
   min-width: 0;
-  padding: var(--space-5) var(--space-6) var(--space-6);
+  padding: var(--space-5) var(--ms-pad-x) var(--space-6);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -326,10 +402,70 @@
 }
 
 /* Progress and next-up band ---------------------------------------------- */
+.ms-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'summary' 'scope' 'linked';
+  gap: var(--space-6);
+  margin-top: var(--space-5);
+}
+.ms-body > .ms-summary {
+  grid-area: summary;
+}
+.ms-body > .ms-scope {
+  grid-area: scope;
+}
+.ms-body > .ms-linked {
+  grid-area: linked;
+}
+.ms-body > .ms-section {
+  margin-top: 0;
+}
+/* Wide panel: scope reads at its measure beside progress and tasks. */
+@container ms-detail (min-width: 940px) {
+  .ms-body {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.8fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: 'scope summary' 'scope linked';
+    column-gap: var(--space-6);
+    row-gap: var(--space-5);
+  }
+  .ms-body > .ms-linked {
+    align-self: start;
+  }
+  .ms-body .ms-task-link {
+    grid-template-columns: 72px minmax(0, 1fr) minmax(0, 72px);
+  }
+  .ms-body .ms-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ms-body .ms-next {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+/* Narrow panel: progress and next-up stack. */
+@container ms-detail (max-width: 640px) {
+  .ms-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ms-next {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .ms-detail-head {
+    flex-wrap: wrap;
+  }
+  .ms-task-link {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .ms-task-assignee {
+    display: none;
+  }
+}
 .ms-summary {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  margin-top: var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
@@ -503,7 +639,7 @@ button.ms-blocker {
 .ms-prose {
   --docs-border: var(--border);
   --docs-accent: var(--accent-text);
-  max-width: 72ch;
+  max-width: var(--measure);
   color: var(--text-1);
   font-size: var(--text-md);
   line-height: 1.7;
@@ -606,8 +742,20 @@ button.ms-task-link:hover {
 .ms-form {
   display: grid;
   gap: var(--space-4);
-  max-width: 760px;
   margin-top: var(--space-5);
+}
+.ms-form > :not(.editor-bar) {
+  max-width: 760px;
+}
+.ms-editor-bar {
+  margin: var(--space-2) calc(-1 * var(--ms-pad-x)) 0;
+  padding-inline: var(--ms-pad-x);
+}
+.ms-editor-bar [hidden] {
+  display: none;
+}
+.ms-editor-bar + * {
+  margin-top: 0;
 }
 .ms-field {
   display: grid;
@@ -766,17 +914,8 @@ button.ms-task-name:hover {
     gap: var(--space-4);
   }
   .ms-detail {
-    padding: var(--space-4) var(--space-5) var(--space-5);
-  }
-  .ms-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ms-next {
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
-  .ms-detail-head {
-    flex-wrap: wrap;
+    --ms-pad-x: var(--space-5);
+    padding-block: var(--space-4) var(--space-5);
   }
 }
 @media (max-width: 1099px) {
@@ -806,7 +945,8 @@ button.ms-task-name:hover {
     margin-left: 0;
   }
   .ms-detail {
-    padding: var(--space-4);
+    --ms-pad-x: var(--space-4);
+    padding: var(--space-4) var(--ms-pad-x);
   }
   .ms-detail-head {
     flex-direction: column;
@@ -844,7 +984,7 @@ button.ms-task-name:hover {
   }
 }
 /* A narrow list pane stacks the progress bar under the title. */
-@container (max-width: 400px) {
+@container ms-list (max-width: 400px) {
   .ms-row {
     grid-template-columns: 24px minmax(0, 1fr) auto auto;
     grid-template-areas: 'order main count blocked' '. bar bar bar';
