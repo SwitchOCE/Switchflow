@@ -3,13 +3,13 @@ import { initiativeTasks } from './initiative-tasks.js';
 export function runPresentation(item, activeRun) {
   const run = activeRun?.initiativeId === item.id ? activeRun : null;
   if (run?.status === 'interrupted')
-    return { label: 'Recovery hold', reason: 'A prior process needs recovery checks.' };
-  if (run?.status === 'running') return { label: 'Agent working', reason: 'The runtime records an active run.' };
-  if (item.pending) return { label: 'Queued', reason: 'Waiting for agent admission.' };
+    return { label: 'Recovery hold', reason: 'The last run stopped unexpectedly. Check it before retrying.' };
+  if (run?.status === 'running') return { label: 'Agent working', reason: 'Running now.' };
+  if (item.pending) return { label: 'Queued', reason: 'Queued behind the current run.' };
   if (item.status === 'running')
     return {
       label: 'Run state unresolved',
-      reason: 'The initiative says running, but no active runtime run is recorded.',
+      reason: 'Marked running, but no agent run is active.',
     };
   return {
     label:
@@ -50,21 +50,19 @@ export function approvedNextWork(initiatives, tasks) {
     const unresolved = reason => waiting.push({ id: item.id, title: item.title, kind: 'initiative', reason });
     const plan = item.approvedPlan;
     if (!item.approvedScope?.hash || !plan.hash || plan.scopeHash !== item.approvedScope.hash) {
-      unresolved('Plan authority is unresolved: the approved plan must reference the current approved scope.');
+      unresolved('The approved plan no longer matches the approved scope. Re-approve the plan to continue.');
       continue;
     }
     const entries = Array.isArray(plan.tasks) ? plan.tasks : [];
     const ids = entries.map(entry => (typeof entry?.task === 'string' ? entry.task.trim().toUpperCase() : ''));
     if (!ids.length || ids.some(id => !/^[A-Z][A-Z0-9]*-\d+(?:\.\d+)*$/.test(id)) || new Set(ids).size !== ids.length) {
-      unresolved(
-        'Next task is unresolved: the approved plan does not provide a unique ordered list of exact task IDs. Prose and display order are not execution evidence.',
-      );
+      unresolved("The approved plan doesn't list exact task IDs in order, so the next task can't be picked.");
       continue;
     }
     const associated = initiativeTasks(item, tasks);
     const ordered = ids.map(id => associated.find(t => t.id?.toUpperCase() === id));
     if (ordered.some(t => !t)) {
-      unresolved('Next task is unresolved: an exact task named in the approved plan is unavailable.');
+      unresolved('A task named in the approved plan no longer exists.');
       continue;
     }
     const index = ordered.findIndex(t => String(t.status).toLowerCase() !== 'done');
@@ -79,16 +77,13 @@ export function approvedNextWork(initiatives, tasks) {
       waiting.push(
         taskRow(
           task,
-          `First unfinished task in ${item.title}'s approved plan is ${task.status || 'Unspecified'}${task.blockReason ? `: ${task.blockReason === 'dependent' ? 'dependency clearance is not confirmed' : task.blockReason}` : ''}. Later tasks are not selected ahead of it.`,
+          `Next in ${item.title}'s plan, but ${task.status || 'has no status'}${task.blockReason ? ` (${task.blockReason === 'dependent' ? 'waiting on a dependency' : task.blockReason})` : ''}. Later tasks wait for it.`,
         ),
       );
       continue;
     }
     eligible.push(
-      taskRow(
-        task,
-        `Ready task ${index + 1} in ${item.title}'s approved plan; current scope matches, earlier plan tasks and recorded prerequisites are Done. This identifies eligibility, not a new execution grant or priority over other plans.`,
-      ),
+      taskRow(task, `Step ${index + 1} of ${item.title}'s approved plan. Earlier steps and prerequisites are done.`),
     );
   }
   return { eligible, waiting };
@@ -115,7 +110,7 @@ export function overviewGroups(state) {
     groups: [
       {
         title: 'Needs you',
-        empty: 'No pending initiative decisions or Ready Human tasks.',
+        empty: 'Nothing needs you right now.',
         items: [
           ...decisions.map(i =>
             row(
@@ -131,42 +126,36 @@ export function overviewGroups(state) {
             id: t.id,
             title: t.title,
             kind: 'task',
-            reason: 'Assigned to Human and Ready. Review its scope and authority before acting.',
+            reason: 'Your task, ready to start.',
           })),
         ],
       },
       {
-        title: 'Agent working',
-        empty: 'No active runtime run is recorded.',
+        title: 'Running now',
+        empty: 'No agent is running.',
         items: initiatives
           .filter(i => runPresentation(i, state.activeRun).label === 'Agent working')
-          .map(i => row(i, 'The runtime records an active run.')),
+          .map(i => row(i, 'Agent working on it now.')),
       },
       ...(tasks.some(t => String(t.status).toLowerCase() === 'in progress')
         ? [
             {
-              title: 'Recorded task state',
+              title: 'Marked in progress',
               empty: '',
               items: tasks
                 .filter(t => String(t.status).toLowerCase() === 'in progress')
-                .map(t =>
-                  taskRow(
-                    t,
-                    'Recorded In Progress; execution is unverified. Task status alone does not confirm an active agent run.',
-                  ),
-                ),
+                .map(t => taskRow(t, 'Status says In Progress, but no agent run is attached.')),
             },
           ]
         : []),
       {
-        title: 'Next eligible',
-        empty:
-          'No task has a confirmed next position in a current approved plan. Ready status and display order alone do not establish authority or sequence.',
+        title: 'Up next',
+        empty: 'No approved plan has a task ready to start.',
         items: next.eligible,
       },
       {
         title: 'Waiting',
-        empty: 'No blocked, queued, or unresolved work is recorded.',
+        empty: 'Nothing is blocked.',
         items: [
           ...next.waiting,
           ...initiatives
@@ -187,10 +176,10 @@ export function overviewGroups(state) {
                 t,
                 dependencyReason(t, tasks) ||
                   (t.blockReason === 'dependent'
-                    ? 'Dependency clearance is not confirmed; prerequisite records are missing or inconsistent.'
+                    ? "Blocked by a dependency that can't be found."
                     : t.blockReason
                       ? `Blocked: ${t.blockReason}`
-                      : 'Blocked; no reason recorded.'),
+                      : 'Blocked, reason missing.'),
               ),
             ),
         ],
@@ -225,12 +214,11 @@ export function milestoneOrderSummary(milestones) {
     .filter(m => m.executionOrder !== null && m.executionOrder !== undefined && m.executionOrder !== '')
     .map(m => Number(m.executionOrder));
   const tied = new Set(orders).size !== orders.length;
-  if (!milestones.length) return 'No milestone order is recorded because no milestones are available.';
+  if (!milestones.length) return 'No milestones yet.';
   if (unsequenced)
-    return `Milestone order is not established: ${unsequenced} of ${milestones.length} milestones are unsequenced. Alphabetical display is not execution priority.`;
-  if (tied)
-    return 'Milestone order has ties; parallel work or priority needs planning context. Display order does not grant execution authority.';
-  return `${milestones.length} milestones have recorded planning order. This is display context; approved plans and dependencies determine task eligibility.`;
+    return `${unsequenced} of ${milestones.length} milestones have no order yet, so they're listed alphabetically.`;
+  if (tied) return 'Some milestones share an order number (ties). Planning decides which comes first.';
+  return `${milestones.length} milestones are in planned order.`;
 }
 
 export function reworkReviewSummary(review) {

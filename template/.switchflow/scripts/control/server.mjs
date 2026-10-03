@@ -45,6 +45,8 @@ const staticFiles = Object.fromEntries(
     'workspace-search.js',
     'skills.js',
     'skills.css',
+    'agents.js',
+    'agents.css',
     'overview-model.js',
     'ui-date.js',
   ].map(file => [

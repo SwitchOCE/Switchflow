@@ -2,6 +2,8 @@ export function workspaceLocation(href) {
   const url = new URL(href);
   const allowed = [
     'board',
+    'initiatives',
+    'agents',
     'tasks',
     'milestones',
     'documents',

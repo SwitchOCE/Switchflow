@@ -6,6 +6,7 @@ import {
   reworkReviewSummary,
 } from './overview-model.js';
 import { mountSkills } from './skills.js';
+import { mountAgents } from './agents.js';
 import { mountKnowledge } from './knowledge.js';
 import { mountTasks } from './tasks.js';
 import { mountInsights } from './insights.js';
@@ -83,7 +84,27 @@ let selectedProjectId = null;
 let projectEpoch = 0;
 let sharedToken = '';
 let projectList = [];
-const views = ['board', 'tasks', 'milestones', 'documents', 'decisions', 'drafts', 'statistics', 'skills', 'settings'];
+const views = [
+  'board',
+  'initiatives',
+  'agents',
+  'tasks',
+  'milestones',
+  'documents',
+  'decisions',
+  'drafts',
+  'statistics',
+  'skills',
+  'settings',
+];
+// Views rendered by app.js itself rather than by a mounted panel.
+const shellViews = ['board', 'initiatives'];
+function setConnection(text, kind = '') {
+  const node = $('#connection');
+  node.className = `connection ${kind}`.trim();
+  node.title = text;
+  node.firstElementChild.textContent = text;
+}
 let activeView = workspaceLocation(location.href).view;
 const panels = new Map();
 const historyPages = new Map();
@@ -360,6 +381,21 @@ function renderBoard() {
       : 'Ready for your first initiative.';
   renderTaskBoard();
   renderOverview();
+  renderNavCounts();
+}
+function renderNavCounts() {
+  const overview = overviewGroups(state);
+  const attention = overview.decisions.length + overview.humanTasks.length;
+  const badge = (node, count, label) => {
+    node.hidden = !count;
+    node.textContent = count > 99 ? '99+' : String(count);
+    node.title = label;
+  };
+  badge($('#nav-attention'), attention, `${attention} waiting on you`);
+  const open = (state?.initiatives || []).filter(item => item.stage !== 'complete').length;
+  badge($('#nav-initiatives'), open, `${open} open initiatives`);
+  $('#nav-agents-live').hidden = !state?.activeRun;
+  $('#nav-agents-live').title = state?.activeRun ? 'An agent is working' : '';
 }
 function renderOverview() {
   const container = $('#overview-queues');
@@ -377,6 +413,7 @@ function renderOverview() {
   const overview = overviewGroups(state);
   for (const group of overview.groups) {
     const block = el('section', 'overview-queue');
+    block.dataset.group = group.title.toLowerCase().replace(/\s+/g, '-');
     block.append(el('h2', '', `${group.title} · ${group.items.length}`));
     if (group.title === 'Needs you')
       block.append(
@@ -387,7 +424,7 @@ function renderOverview() {
         ),
       );
     if (!group.items.length) block.append(el('p', 'muted', group.empty));
-    if (group.title === 'Next eligible') {
+    if (group.title === 'Up next') {
       const milestones = overviewMilestones.get(selectedProjectId);
       block.append(
         el(
@@ -1173,8 +1210,7 @@ async function refresh(forceDetail = false) {
     connected = true;
     document.title = `${state.project.name} · Switchflow`;
     if (Date.now() - projectsRefreshedAt > 8000) loadProjects().catch(() => {});
-    $('#connection').textContent = 'Connected locally';
-    $('#connection').className = 'connection connected';
+    setConnection('Connected locally', 'connected');
     $('#project-name').textContent = state.project?.name || 'Project control';
     renderBoard();
     void refreshOverviewMilestones();
@@ -1197,7 +1233,7 @@ async function refresh(forceDetail = false) {
       );
     else if ($('#notice-banner').textContent.startsWith('Agent runtime')) notice('');
     showError('');
-    if (activeView !== 'board') {
+    if (!shellViews.includes(activeView)) {
       showView(activeView, false);
       if (
         !busy &&
@@ -1213,8 +1249,7 @@ async function refresh(forceDetail = false) {
   } catch (error) {
     if (epoch !== projectEpoch) return;
     connected = false;
-    $('#connection').textContent = 'Connection lost';
-    $('#connection').className = 'connection offline';
+    setConnection('Connection lost', 'offline');
     showError(
       `${error.message} Your entries are preserved. Check that the local control server is running, then refresh.`,
     );
@@ -1415,17 +1450,26 @@ async function loadProjects() {
     const option = el(
       'option',
       '',
-      `${project.name}${!project.available ? ' · unavailable' : project.activeRun ? ' · agent working' : project.attention ? ` · ${project.attention} initiative decisions` : ''}`,
+      `${project.name}${!project.available ? ' (unavailable)' : project.activeRun ? ' ●' : project.attention ? ` (${project.attention})` : ''}`,
     );
     option.value = project.id;
     option.disabled = !project.available;
     option.selected = project.id === selectedProjectId;
     picker.append(option);
   }
-  const active = projectList.filter(project => project.activeRun).length;
-  const attention = projectList.reduce((sum, project) => sum + (project.attention || 0), 0);
-  $('#project-overview').textContent =
-    `${projectList.length} projects · ${active} active runs · ${attention} initiative decisions`;
+  renderProjectHint();
+}
+function renderProjectHint() {
+  const others = projectList.filter(project => project.id !== selectedProjectId);
+  const elsewhere = others.reduce((sum, project) => sum + (project.attention || 0), 0);
+  const runningElsewhere = others.filter(project => project.activeRun).length;
+  $('#project-overview').textContent = [
+    runningElsewhere && `${runningElsewhere} other project${runningElsewhere === 1 ? '' : 's'} running`,
+    elsewhere && `${elsewhere} decision${elsewhere === 1 ? '' : 's'} in other projects`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  $('#project-overview').hidden = !$('#project-overview').textContent;
 }
 function writeLocation(values, replace = false) {
   const url = new URL(location.href);
@@ -1459,7 +1503,7 @@ function nativeClient(id) {
 }
 function showView(view, updateLocation = true) {
   activeView = views.includes(view) ? view : 'board';
-  if (matchMedia('(max-width:760px)').matches) setNavigation(false);
+  if (matchMedia('(max-width:760px)').matches) setDrawer(false);
   $('.skip-link').href = `#workspace-${activeView}`;
   $('.skip-link').textContent = 'Skip to workspace content';
   $(`#workspace-${activeView}`).tabIndex = -1;
@@ -1469,7 +1513,7 @@ function showView(view, updateLocation = true) {
     else tab.removeAttribute('aria-current');
   }
   if (updateLocation && selectedProjectId) writeLocation({ view: activeView });
-  if (!state || activeView === 'board') return;
+  if (!state || shellViews.includes(activeView)) return;
   if (panels.has(activeView)) return panels.get(activeView);
   const id = selectedProjectId,
     epoch = projectEpoch,
@@ -1545,7 +1589,9 @@ function showView(view, updateLocation = true) {
       onTask: openTask,
     });
     void panel.refresh();
-  } else if (viewName === 'skills')
+  } else if (viewName === 'agents')
+    panel = mountAgents(container, { request: route => readProject(route, id), ...options });
+  else if (viewName === 'skills')
     panel = mountSkills(container, { request: route => readProject(route, id), onNavigate: options.onNavigate });
   else panel = mountInsights(container, { ...options, kind: viewName });
   panels.set(viewName, panel);
@@ -1571,8 +1617,7 @@ async function switchProject(id, { preserveLocation = false } = {}) {
   for (const panel of panels.values()) panel.destroy();
   panels.clear();
   for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
-  $('#connection').textContent = 'Connecting…';
-  $('#connection').className = 'connection';
+  setConnection('Connecting…');
   taskOrigin = null;
   recordReturnPositions.clear();
   selectedProjectId = id;
@@ -1593,8 +1638,9 @@ async function switchProject(id, { preserveLocation = false } = {}) {
   $('#filter').value = saved.filter || '';
   $('#board').replaceChildren(el('p', 'muted', 'Loading project…'));
   $('#tasks-list').replaceChildren();
-  for (const view of views.filter(v => v !== 'board')) $(`#workspace-${view}`).replaceChildren();
+  for (const view of views.filter(v => !shellViews.includes(v))) $(`#workspace-${view}`).replaceChildren();
   $('#project-select').value = id;
+  renderProjectHint();
   if (!preserveLocation) writeLocation({ view: activeView });
   await refresh();
   showView(activeView, false);
@@ -1741,36 +1787,44 @@ if (SpeechRecognition) {
     }
   });
 }
-function setNavigation(open, restoreFocus = false) {
-  const narrow = matchMedia('(max-width:760px)').matches;
+const narrowShell = () => matchMedia('(max-width:760px)').matches;
+function setDrawer(open, restoreFocus = false) {
+  const narrow = narrowShell();
   document.body.classList.toggle('drawer-open', narrow && open);
-  document.body.classList.toggle('shell-collapsed', !narrow && !open);
   $('#nav-backdrop').hidden = !narrow || !open;
-  $('#nav-toggle').setAttribute('aria-expanded', String(open));
-  if (narrow) {
-    $('main').inert = open;
-    $('.topbar').inert = open;
-  } else {
-    $('main').inert = false;
-    $('.topbar').inert = false;
-  }
+  $('#nav-toggle').setAttribute('aria-expanded', String(narrow && open));
+  $('main').inert = narrow && open;
+  $('.mobile-bar').inert = narrow && open;
   if (open && narrow) $('#nav-close').focus();
   if (restoreFocus) $('#nav-toggle').focus();
 }
-$('#nav-toggle').addEventListener('click', () =>
-  setNavigation($('#nav-toggle').getAttribute('aria-expanded') !== 'true'),
-);
-$('#nav-close').addEventListener('click', () => setNavigation(false, true));
-$('#nav-backdrop').addEventListener('click', () => setNavigation(false, true));
+let collapsedPreference = false;
+function setCollapsed(collapsed) {
+  collapsedPreference = collapsed;
+  // The drawer always shows full labels; the rail applies to wide screens only.
+  document.body.classList.toggle('shell-collapsed', collapsed && !narrowShell());
+  const toggle = $('#nav-collapse');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  try {
+    localStorage.setItem('switchflow:sidebar', collapsed ? 'collapsed' : 'expanded');
+  } catch {}
+}
+$('#nav-toggle').addEventListener('click', () => setDrawer(!document.body.classList.contains('drawer-open')));
+$('#nav-close').addEventListener('click', () => setDrawer(false, true));
+$('#nav-backdrop').addEventListener('click', () => setDrawer(false, true));
+$('#nav-collapse').addEventListener('click', () => setCollapsed(!collapsedPreference));
+$('#mobile-search').addEventListener('click', () => $('#workspace-search').click());
 document.addEventListener('keydown', event => {
   if (!document.body.classList.contains('drawer-open')) return;
   if (event.key === 'Escape') {
     event.preventDefault();
-    setNavigation(false, true);
+    setDrawer(false, true);
   }
   if (event.key === 'Tab') {
-    const nodes = [...$('#workspace-navigation').querySelectorAll('button,summary')].filter(
-      n => n.getClientRects().length,
+    const nodes = [...$('#workspace-navigation').querySelectorAll('a,button,select')].filter(
+      n => n.getClientRects().length && !n.disabled,
     );
     if (event.shiftKey && document.activeElement === nodes[0]) {
       event.preventDefault();
@@ -1781,8 +1835,16 @@ document.addEventListener('keydown', event => {
     }
   }
 });
-matchMedia('(max-width:760px)').addEventListener('change', event => setNavigation(!event.matches));
-setNavigation(!matchMedia('(max-width:760px)').matches);
+matchMedia('(max-width:760px)').addEventListener('change', () => {
+  setDrawer(false);
+  setCollapsed(collapsedPreference);
+});
+setDrawer(false);
+try {
+  setCollapsed(localStorage.getItem('switchflow:sidebar') === 'collapsed');
+} catch {
+  setCollapsed(false);
+}
 async function connectWorkspace() {
   try {
     await loadProjects();
@@ -1798,8 +1860,10 @@ async function connectWorkspace() {
 }
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  $('#theme-toggle').textContent = theme === 'dark' ? 'Light' : 'Dark';
-  $('#theme-toggle').setAttribute('aria-label', theme === 'dark' ? 'Use light theme' : 'Use dark theme');
+  const label = theme === 'dark' ? 'Use light theme' : 'Use dark theme';
+  $('#theme-toggle').setAttribute('aria-label', label);
+  $('#theme-toggle').title = label;
+  $('#theme-toggle use').setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
   try {
     localStorage.setItem('switchflow:theme', theme);
   } catch {}

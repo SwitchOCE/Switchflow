@@ -104,10 +104,10 @@ export function createMilestonePanel({
   const assertWritable = () => {
     if (!canWrite()) throw new Error('Stop the active agent before changing milestones or assignments.');
   };
-  const heading = node('h2', 'Milestones');
+  const heading = node('h1', 'Milestones');
   const help = node(
     'p',
-    'Sequence is planning information, not permission to start work. Task completion does not establish acceptance.',
+    'Outcomes you can accept or reject. Order here is for planning; approving a plan is what starts work.',
     'muted',
   );
   const message = node('p');

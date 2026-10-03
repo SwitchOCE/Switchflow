@@ -25,12 +25,12 @@ test('overview separates human readiness, authority, queued work and real runnin
   const result = overviewGroups(state);
   assert.equal(result.humanTasks.length, 5);
   assert.equal(result.decisions.length, 1);
-  assert.equal(result.groups.find(g => g.title === 'Agent working').items.length, 0);
+  assert.equal(result.groups.find(g => g.title === 'Running now').items.length, 0);
   assert.deepEqual(
-    result.groups.find(g => g.title === 'Next eligible').items.map(i => i.id),
+    result.groups.find(g => g.title === 'Up next').items.map(i => i.id),
     [],
   );
-  assert.match(result.groups[0].items[1].reason, /authority/);
+  assert.match(result.groups[0].items[1].reason, /Your task/);
   assert.equal(runPresentation(initiatives[0], state.activeRun).label, 'Run state unresolved');
   assert.equal(runPresentation(initiatives[3], state.activeRun).label, 'Recovery hold');
   state.activeRun = { initiativeId: 'stale', status: 'running' };
@@ -149,10 +149,10 @@ test('next task requires current approved scope, exact ordered IDs and completed
   tasks.push({ id: 'TASK-4', title: 'Review contract', status: 'Review' });
   assert.match(approvedNextWork([item], tasks).waiting[0].reason, /Review contract.*Review/);
   item.approvedPlan.scopeHash = 'old';
-  assert.match(approvedNextWork([item], tasks).waiting[0].reason, /authority is unresolved/);
+  assert.match(approvedNextWork([item], tasks).waiting[0].reason, /no longer matches the approved scope/);
   item.approvedPlan.scopeHash = 'scope';
   item.approvedPlan.tasks[0].task = 'Human-readable plan prose';
-  assert.match(approvedNextWork([item], tasks).waiting[0].reason, /unique ordered list/);
+  assert.match(approvedNextWork([item], tasks).waiting[0].reason, /exact task IDs in order/);
 });
 
 test('overview retains recorded In Progress without claiming runtime execution and explains milestone ambiguity', () => {
@@ -160,17 +160,14 @@ test('overview retains recorded In Progress without claiming runtime execution a
     initiatives: [],
     tasks: [{ id: 'TASK-1', title: 'Recorded work', status: 'In Progress' }],
   }).groups;
-  assert.equal(groups.find(g => g.title === 'Agent working').items.length, 0);
-  assert.match(groups.find(g => g.title === 'Recorded task state').items[0].reason, /execution is unverified/);
+  assert.equal(groups.find(g => g.title === 'Running now').items.length, 0);
+  assert.match(groups.find(g => g.title === 'Marked in progress').items[0].reason, /no agent run is attached/);
   assert.match(
     milestoneOrderSummary(Array.from({ length: 40 }, (_, id) => ({ id }))),
-    /40 of 40 milestones are unsequenced/,
+    /40 of 40 milestones have no order yet/,
   );
   assert.match(milestoneOrderSummary([{ executionOrder: 1 }, { executionOrder: 1 }]), /ties/);
-  assert.match(
-    milestoneOrderSummary([{ executionOrder: 1 }, { executionOrder: 2 }]),
-    /approved plans and dependencies/,
-  );
+  assert.match(milestoneOrderSummary([{ executionOrder: 1 }, { executionOrder: 2 }]), /in planned order/);
 });
 
 test('rework attributes only actual results or notes and projects compact review history', () => {
