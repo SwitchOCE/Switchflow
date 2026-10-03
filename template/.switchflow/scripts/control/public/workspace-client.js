@@ -18,6 +18,7 @@ export function workspaceLocation(href) {
     project: url.searchParams.get('project'),
     view: allowed.includes(requested) ? requested : 'board',
     task: url.searchParams.get('task'),
+    initiative: url.searchParams.get('initiative'),
     record: url.searchParams.get('record'),
   };
 }

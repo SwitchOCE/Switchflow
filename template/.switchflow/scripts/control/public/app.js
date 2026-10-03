@@ -42,6 +42,7 @@ let recognition = null;
 let drafts = new Map();
 let taskDrafts = new Map();
 let uatGenerations = new Map();
+let changesOpenFor = null;
 const projectDrafts = new Map();
 const milestoneDrafts = new Map();
 function savePageDrafts() {
@@ -328,6 +329,10 @@ async function act(action, payload = {}) {
     if (action === 'update') delete drafts.get(item.id)?.['project-update'];
     if (action === 'scope-change') delete drafts.get(item.id)?.['scope-change'];
     if (action === 'request-rework') delete drafts.get(item.id)?.['rework-feedback'];
+    if (action === 'request-changes') {
+      delete drafts.get(item.id)?.['change-request'];
+      changesOpenFor = null;
+    }
     if (['scope-change', 'request-rework'].includes(action)) clearUatDraft(item.id);
     await refresh(true);
     $('#live-status').textContent = connected
@@ -401,7 +406,7 @@ function renderBoard() {
     [...board.querySelectorAll('button')]
       .find(node => node.dataset.initiativeId === focusedId)
       ?.focus({ preventScroll: true });
-  const waiting = overviewGroups(state).decisions.length;
+  const waiting = overviewGroups(state, overviewMilestones.get(selectedProjectId)?.value).decisions.length;
   $('#board-count').textContent =
     `${all.length} initiative${all.length === 1 ? '' : 's'}${waiting ? ` · ${waiting} waiting on you` : ''}`;
   $('#empty-state').hidden = all.length > 0 || !!query;
@@ -409,7 +414,7 @@ function renderBoard() {
   renderNavCounts();
 }
 function renderNavCounts() {
-  const overview = overviewGroups(state);
+  const overview = overviewGroups(state, overviewMilestones.get(selectedProjectId)?.value);
   const attention = overview.decisions.length + overview.humanTasks.length;
   const badge = (node, count, label) => {
     node.hidden = !count;
@@ -438,9 +443,13 @@ function initiativeTone(item) {
 }
 const overviewSlug = title => title.toLowerCase().replace(/\s+/g, '-');
 const overviewTiles = [
-  ['Needs you', overview => `${overview.decisions.length} decisions · ${overview.humanTasks.length} your tasks`],
+  ['Needs you', overview => `${overview.decisions.length} reviews · ${overview.humanTasks.length} tasks`],
   ['Running now', () => (state?.activeRun?.status === 'running' ? 'An agent is working' : 'No agent running')],
-  ['Up next', () => 'Ready in an approved plan'],
+  [
+    'Up next',
+    overview =>
+      overview.nextSource === 'board' ? 'Ready on the board, by milestone order' : 'Ready in an approved plan',
+  ],
   ['Waiting', () => 'Blocked, queued or unresolved'],
 ];
 function renderOverview() {
@@ -454,7 +463,7 @@ function renderOverview() {
     container.append(
       el('p', 'inline-error', `Tasks are unavailable: ${state.boardError}. Initiatives still work; refresh to retry.`),
     );
-  const overview = overviewGroups(state);
+  const overview = overviewGroups(state, overviewMilestones.get(selectedProjectId)?.value);
   const groups = new Map(overview.groups.map(group => [overviewSlug(group.title), group]));
   for (const [title, caption] of overviewTiles) {
     const key = overviewSlug(title);
@@ -700,7 +709,7 @@ async function openArtifact(initiativeId, stepId, index, trigger) {
     body.replaceChildren(message);
   }
 }
-function renderUat(item, body) {
+function renderUat(item, body, verdict) {
   const form = el('form');
   form.id = 'uat-checks';
   const checks = Array.isArray(item.uat) ? item.uat : [];
@@ -714,7 +723,7 @@ function renderUat(item, body) {
     body.append(
       section('Acceptance checks', 'No guided checks are available yet. Request a delivery update before accepting.'),
     );
-    return;
+    return false;
   }
   form.append(
     el(
@@ -731,8 +740,9 @@ function renderUat(item, body) {
   const statusOf = check => form.elements.namedItem(`uat-status-${check.id}`)?.value || 'pending';
   const submit = el('button', 'button primary', 'Accept delivered outcome');
   submit.type = 'submit';
+  submit.setAttribute('form', form.id);
   submit.dataset.action = 'accept-uat';
-  const submitNote = el('span', 'uat-submit-note');
+  const submitNote = el('p', 'gate-note');
   const updateProgress = () => {
     const statuses = normalized.map(statusOf);
     const passed = statuses.filter(v => v === 'passed').length;
@@ -823,9 +833,8 @@ function renderUat(item, body) {
     row.append(top, notes);
     list.append(row);
   });
-  const footer = el('div', 'uat-submit');
-  footer.append(submitNote, submit);
-  form.append(footer);
+  verdict.note.replaceWith(submitNote);
+  verdict.actions.append(submit);
   updateProgress();
   form.addEventListener('submit', event => {
     event.preventDefault();
@@ -842,6 +851,41 @@ function renderUat(item, body) {
     act('accept-uat', { results });
   });
   body.append(section('Your guided acceptance checks', form));
+  return true;
+}
+/** A "Request changes" control beside an approval: reveals a short form in the decision footer. */
+function requestChanges(decision, actions, kind) {
+  const form = renderInputAction(
+    'Send to the agent',
+    'change-request',
+    `What should change in this ${kind}?`,
+    'request-changes',
+    'message',
+    `The agent revises the ${kind} and brings it back for your review. Earlier approvals stand.`,
+    'primary',
+  );
+  form.classList.add('request-changes');
+  // A kept draft reopens the form, so unsent words are never hidden behind the button.
+  form.hidden = changesOpenFor !== selectedId && !drafts.get(selectedId)?.['change-request']?.trim();
+  const toggle = button('Request changes…', () => {
+    changesOpenFor = selectedId;
+    form.hidden = false;
+    actions.hidden = true;
+    form.querySelector('textarea').focus();
+  });
+  // While writing changes, the approval waits out of sight.
+  actions.hidden = !form.hidden;
+  const cancel = button('Cancel', () => {
+    changesOpenFor = null;
+    delete drafts.get(selectedId)?.['change-request'];
+    form.querySelector('textarea').value = '';
+    form.hidden = true;
+    actions.hidden = false;
+    toggle.focus();
+  });
+  form.querySelector('.detail-actions').prepend(cancel);
+  decision.append(form);
+  actions.append(toggle);
 }
 function renderInputAction(title, id, label, action, payloadKey, help, kind = 'quiet') {
   const form = el('form');
@@ -1114,6 +1158,7 @@ function renderDetail() {
     decision.append(
       el('p', 'gate-note', 'Approve this scope to prepare a plan. Delivery still requires plan approval.'),
     );
+    requestChanges(decision, actions, 'scope');
     actions.append(actionButton('Approve scope & prepare plan →', 'approve-scope'));
   }
   if (
@@ -1143,6 +1188,7 @@ function renderDetail() {
       note.append(change);
       decision.append(note);
     }
+    requestChanges(decision, actions, 'plan');
     actions.append(actionButton('Approve plan & start delivery →', 'approve-plan'));
   }
   if (item.status === 'idle' && !isRunning(item) && item.stage === 'intake' && !item.scope && !item.questions?.length)
@@ -1151,16 +1197,17 @@ function renderDetail() {
     actions.append(actionButton('Retry from the current checkpoint', 'retry'));
   if (isRunning(item) && !recoveryHold)
     actions.append(actionButton('Cancel active run', 'cancel', undefined, 'danger'));
-  if (actions.childElementCount) decision.append(actions);
-  if (item.stage === 'uat' && item.approvedUat)
-    body.append(
-      section(
-        'Acceptance recorded',
-        'Your verdict is saved. The agent is updating the delivery records; no further acceptance is needed.',
-      ),
-    );
   if (item.stage === 'uat' && normalGate && !item.approvedUat) {
-    renderUat(item, body);
+    const note = el('p', 'gate-note');
+    decision.append(note);
+    if (renderUat(item, body, { note, actions }))
+      actions.prepend(
+        button('Request rework…', () => {
+          const field = $('#rework-feedback');
+          field?.scrollIntoView({ block: 'center' });
+          field?.focus({ preventScroll: true });
+        }),
+      );
     body.append(
       section(
         'Something needs to change?',
@@ -1175,6 +1222,14 @@ function renderDetail() {
       ),
     );
   }
+  if (actions.childElementCount) decision.append(actions);
+  if (item.stage === 'uat' && item.approvedUat)
+    body.append(
+      section(
+        'Acceptance recorded',
+        'Your verdict is saved. The agent is updating the delivery records; no further acceptance is needed.',
+      ),
+    );
   if (item.stage === 'complete')
     body.append(
       section(
@@ -1263,12 +1318,6 @@ function renderDetail() {
         field?.focus({ preventScroll: true });
       }),
     );
-  if (item.stage === 'uat' && normalGate && !item.approvedUat)
-    decision.append(
-      button('Review checks / submit verdict', () => {
-        $('#uat-checks')?.scrollIntoView({ block: 'start' });
-      }),
-    );
   const reviews = (item.messages || []).filter(m => m.type === 'rework' && m.results);
   if (reviews.length)
     body.append(detail('Previous rework observations', renderHistory(item, reviews, 'reviews', renderReworkReview)));
@@ -1285,19 +1334,29 @@ function renderDetail() {
   if (focusTarget && !focusTarget.disabled) focusTarget.focus({ preventScroll: true });
   detailScroller().scrollTop = previousScroll;
 }
-function openDetail(id, trigger) {
+function openDetail(id, trigger, { navigate = true } = {}) {
   selectedId = id;
   returnFocus = trigger;
   $('#detail-content').replaceChildren();
   renderDetail();
-  $('#detail-dialog').showModal();
+  if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
   detailScroller().scrollTop = 0;
+  if (navigate && !followingRoute && workspaceLocation(location.href).initiative !== id)
+    writeLocation({ view: activeView, initiative: id });
 }
 function closeDetail() {
   $('#detail-dialog').close();
 }
 $('#detail-dialog').addEventListener('close', () => {
+  // A close queued before the route reopened the sheet is stale.
+  if ($('#detail-dialog').open) return;
   const id = selectedId;
+  // Leave the initiative's history entry the way it was entered: Back when we pushed it.
+  // Opening a task keeps it, so Back from the task returns to the initiative.
+  if (!followingRoute && !taskOrigin && workspaceLocation(location.href).initiative) {
+    if (history.state?.initiative === id) history.back();
+    else writeLocation({ view: activeView }, true);
+  }
   selectedId = null;
   displayedRevision = null;
   displayedActivity = null;
@@ -1315,6 +1374,7 @@ async function refresh(forceDetail = false) {
     const loaded = await response.json();
     if (epoch !== projectEpoch) return;
     state = loaded;
+    $('#offline-state').hidden = true;
     sharedToken = state.csrfToken;
     connected = true;
     document.title = `${state.project.name} · Switchflow`;
@@ -1543,7 +1603,7 @@ function writeLocation(values, replace = false) {
   url.search = '';
   url.searchParams.set('project', selectedProjectId);
   url.searchParams.set('view', values.view || activeView);
-  for (const key of ['task', 'record']) if (values[key]) url.searchParams.set(key, values[key]);
+  for (const key of ['task', 'record', 'initiative']) if (values[key]) url.searchParams.set(key, values[key]);
   const origin = taskOrigin
     ? {
         view: taskOrigin.view,
@@ -1554,7 +1614,11 @@ function writeLocation(values, replace = false) {
       }
     : null;
   if (url.href !== location.href)
-    history[replace ? 'replaceState' : 'pushState']({ taskOrigin: values.task ? origin : null }, '', url);
+    history[replace ? 'replaceState' : 'pushState'](
+      { taskOrigin: values.task ? origin : null, initiative: values.initiative || null },
+      '',
+      url,
+    );
 }
 function nativeClient(id) {
   return createNativeClient({
@@ -1717,7 +1781,15 @@ async function switchProject(id, { preserveLocation = false } = {}) {
   await refresh();
   showView(activeView, false);
 }
+// Every exit, including an early return or a failed load, ends route following.
 async function followLocation() {
+  try {
+    await followRoute();
+  } finally {
+    followingRoute = false;
+  }
+}
+async function followRoute() {
   const route = workspaceLocation(location.href);
   if (busy || nativeWrites) {
     writeLocation({ view: activeView }, true);
@@ -1737,6 +1809,8 @@ async function followLocation() {
     await panel.openTask(route.task);
   } else if (route.record && panel?.open) await panel.open(route.record);
   else if (route.view === 'milestones' && !route.record) panel?.close?.();
+  if (route.initiative && state?.initiatives?.some(item => item.id === route.initiative))
+    openDetail(route.initiative, document.activeElement, { navigate: false });
   const recordReturn = !route.task && recordReturnPositions.get(location.href);
   // Let the browser finish its history scroll restoration before restoring this reader.
   if (recordReturn)
@@ -1932,8 +2006,13 @@ async function connectWorkspace() {
     if (!requestedProject) writeLocation({ view: activeView }, true);
   } catch (error) {
     showError(error.message);
+    $('#offline-state').hidden = !!state;
   }
 }
+$('#offline-retry').addEventListener('click', () => {
+  showError('');
+  void connectWorkspace();
+});
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   const label = theme === 'dark' ? 'Use light theme' : 'Use dark theme';
@@ -1995,6 +2074,7 @@ mountSearch({
     }
   },
 });
+showView(activeView, false);
 await connectWorkspace();
 setInterval(() => {
   if (!document.hidden && !busy) {

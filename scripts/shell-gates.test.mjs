@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   overviewGroups,
+  taskRank,
   runPresentation,
   historyPage,
   approvedNextWork,
@@ -200,4 +201,36 @@ test('rework attributes only actual results or notes and projects compact review
   assert.equal(summary.failed, 1);
   assert.equal(summary.observed[0].notes, 'Detailed failure remains attached');
   assert.equal(item.approvedUat, null);
+});
+test('one ranking orders work by milestone, priority, then board order, and Up next falls back to the board', () => {
+  const milestones = [
+    { id: 'm-1', title: 'Later', executionOrder: 2 },
+    { id: 'm-2', title: 'First', executionOrder: 1 },
+    { id: 'm-3', title: 'Unordered' },
+  ];
+  const tasks = [
+    { id: 'T-1', title: 'No milestone', status: 'Ready', priority: 'high' },
+    { id: 'T-2', title: 'Unordered milestone', status: 'Ready', milestone: 'm-3' },
+    { id: 'T-3', title: 'Later, high', status: 'Ready', milestone: 'm-1', priority: 'high' },
+    { id: 'T-4', title: 'First, low', status: 'Ready', milestone: 'First', priority: 'low', ordinal: 1 },
+    { id: 'T-5', title: 'First, high', status: 'Ready', milestone: 'm-2', priority: 'high', ordinal: 9 },
+    { id: 'T-6', title: 'Mine', status: 'Ready', assignee: ['human'], milestone: 'm-1' },
+    { id: 'T-7', title: 'Mine sooner', status: 'Ready', assignee: ['human'], milestone: 'm-2' },
+  ];
+  assert.deepEqual(
+    [...tasks].sort(taskRank(milestones)).map(t => t.id),
+    ['T-5', 'T-4', 'T-7', 'T-3', 'T-6', 'T-2', 'T-1'],
+  );
+  const overview = overviewGroups({ initiatives: [], tasks }, milestones);
+  assert.deepEqual(
+    overview.humanTasks.map(t => t.id),
+    ['T-7', 'T-6'],
+  );
+  assert.equal(overview.nextSource, 'board');
+  const upNext = overview.groups.find(group => group.title === 'Up next').items;
+  assert.deepEqual(
+    upNext.map(t => t.id),
+    ['T-5', 'T-4', 'T-3', 'T-2', 'T-1'],
+  );
+  assert.match(upNext[0].reason, /First · high priority\. Not yet in an approved plan/);
 });

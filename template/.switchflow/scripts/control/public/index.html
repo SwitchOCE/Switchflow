@@ -196,6 +196,13 @@
     </nav>
     <main>
       <div id="error-banner" class="banner error" role="alert" hidden></div>
+      <section id="offline-state" class="empty offline-state" hidden>
+        <strong>Can't reach the Switchflow service</strong>
+        <p>
+          Start it with <b>Start Switchflow.cmd</b> in your project. This page keeps trying and reconnects on its own.
+        </p>
+        <button id="offline-retry" class="button quiet" type="button">Retry now</button>
+      </section>
       <div id="notice-banner" class="banner" role="status" hidden></div>
       <div id="workspace-board">
         <header class="page-header">

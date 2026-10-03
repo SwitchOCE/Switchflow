@@ -1111,8 +1111,8 @@ navigation and workspace status.
   text-align: center;
 }
 .nav-count.attention {
-  background: var(--teal);
-  border-color: var(--teal);
+  background: var(--accent);
+  border-color: var(--accent);
   color: var(--on-accent);
 }
 .nav-live {
@@ -1159,8 +1159,21 @@ main {
 .shell-collapsed main {
   margin-left: var(--rail-width);
 }
-.shell-collapsed .workspace-nav :is(.nav-label, .nav-group-title, .project-picker, .nav-count) {
+.shell-collapsed .workspace-nav :is(.nav-label, .nav-group-title, .project-picker, .nav-count:not(.attention)) {
   display: none;
+}
+/* In the rail, "needs you" stays visible as a dot on its icon. */
+.shell-collapsed .nav-count.attention:not([hidden]) {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 0;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+  box-shadow: 0 0 0 2px var(--surface);
 }
 .shell-collapsed .workspace-nav :is(.nav-tab, .search-trigger, .sidebar-cta) {
   justify-content: center;

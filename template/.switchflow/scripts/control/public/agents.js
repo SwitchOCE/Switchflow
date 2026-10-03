@@ -159,6 +159,7 @@ export function mountAgents(
   list.setAttribute('aria-label', 'Agent sessions');
   const detail = el('section', 'agents-detail');
   detail.setAttribute('aria-live', 'off');
+  layout.dataset.pane = 'list';
   layout.append(list, detail);
   container.append(header, routing, message, layout);
 
@@ -212,7 +213,11 @@ export function mountAgents(
     );
     row.append(top, meta);
     if (session.lastMessage) row.append(el('span', 'agents-row-last', session.lastMessage));
-    row.addEventListener('click', () => select(session.id));
+    row.addEventListener('click', () => {
+      select(session.id);
+      layout.dataset.pane = 'detail';
+      detail.querySelector('h2')?.focus?.({ preventScroll: true });
+    });
     return row;
   }
 
@@ -372,7 +377,15 @@ export function mountAgents(
   function renderHead(session) {
     const head = el('header', 'agents-detail-head');
     const title = el('div');
+    const back = el('button', 'button quiet agents-back', '← Sessions');
+    back.type = 'button';
+    back.addEventListener('click', () => {
+      layout.dataset.pane = 'list';
+      list.querySelector(`[data-session="${CSS.escape(session.id)}"]`)?.focus({ preventScroll: true });
+    });
+    title.append(back);
     const h2 = el('h2');
+    h2.tabIndex = -1;
     h2.append(providerBadge(session.provider), document.createTextNode(titleOf(session)));
     const facts = el('p', 'agents-facts');
     const parent = sessions().find(other => other.id === session.parentId);
@@ -429,6 +442,14 @@ export function mountAgents(
   }
 
   function composer(session) {
+    if (!live.has(session.status) && !steerable(session)) {
+      const note = el('p', 'agents-ended');
+      note.textContent =
+        session.status === 'failed' || session.status === 'interrupted'
+          ? 'This session has ended. Retry or add an update on its initiative to continue.'
+          : 'This session has ended. Add an update on its initiative to give the next run more direction.';
+      return note;
+    }
     const form = el('form', 'agents-composer');
     const field = el('textarea');
     field.rows = 2;
@@ -615,10 +636,16 @@ export function mountAgents(
     const footer = el('div', 'agents-routing-footer');
     const status = el('span', 'muted');
     status.setAttribute('role', 'status');
-    const blocked = !canWrite() ? writeBlockedReason?.() || 'Editing is unavailable.' : '';
+    const blocked = !canWrite()
+      ? writeBlockedReason?.() || 'Editing is unavailable.'
+      : data?.activeRun
+        ? 'Routing is locked while an agent run is active. Change it when the run finishes.'
+        : '';
     const save = el('button', 'button primary', 'Save routing');
     save.type = 'submit';
     save.disabled = !!blocked;
+    for (const control of [...grid.querySelectorAll('select'), ...limits.querySelectorAll('input')])
+      control.disabled = !!blocked;
     status.textContent = blocked;
     footer.append(status, save);
     form.append(intro, grid, limits, footer);

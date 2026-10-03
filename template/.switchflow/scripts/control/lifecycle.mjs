@@ -52,7 +52,7 @@ function requireState(condition, message) {
 function enqueue(item) {
   item.pending = true;
   item.status = 'idle';
-  item.nextAction = `${item.stage === 'delivery' ? 'Delivery' : item.stage} is queued.`;
+  item.nextAction = `${item.stage[0].toUpperCase()}${item.stage.slice(1)} is queued.`;
 }
 export function applyAction(item, input) {
   requireState(

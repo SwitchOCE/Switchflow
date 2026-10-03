@@ -43,6 +43,40 @@ function dependencyReason(task, tasks) {
     ? `Waiting for ${unmet.map(t => `${t.title} (${t.id}, ${t.status || 'Unknown'})`).join('; ')}.`
     : '';
 }
+const normalizeMilestone = value =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:m-)?0*(\d+)$/, 'm-$1');
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+/**
+ * The one definition of "what comes first" shared by Overview and Milestones:
+ * milestone order (unordered milestones, then no milestone, last), then priority, then board ordinal.
+ */
+export function taskRank(milestones = []) {
+  const order = new Map();
+  for (const milestone of milestones) {
+    const value = Number(milestone.executionOrder);
+    const rank =
+      milestone.executionOrder !== null && milestone.executionOrder !== '' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : Number.MAX_SAFE_INTEGER - 1;
+    for (const alias of [milestone.id, milestone.title]) if (alias) order.set(normalizeMilestone(alias), rank);
+  }
+  const milestoneRank = task =>
+    task.milestone
+      ? (order.get(normalizeMilestone(task.milestone)) ?? Number.MAX_SAFE_INTEGER - 1)
+      : Number.MAX_SAFE_INTEGER;
+  const priorityRank = task => PRIORITY_RANK[String(task.priority || '').toLowerCase()] ?? 3;
+  const idNumber = task => Number(String(task.id || '').match(/(\d+)/)?.[1] ?? Infinity);
+  return (a, b) =>
+    milestoneRank(a) - milestoneRank(b) ||
+    priorityRank(a) - priorityRank(b) ||
+    (a.ordinal ?? Infinity) - (b.ordinal ?? Infinity) ||
+    idNumber(a) - idNumber(b);
+}
+const isHuman = task =>
+  (Array.isArray(task.assignee) ? task.assignee : [task.assignee]).some(a => String(a).toLowerCase() === 'human');
 export function approvedNextWork(initiatives, tasks) {
   const eligible = [],
     waiting = [];
@@ -88,14 +122,15 @@ export function approvedNextWork(initiatives, tasks) {
   }
   return { eligible, waiting };
 }
-export function overviewGroups(state) {
+export function overviewGroups(state, milestones = []) {
   const initiatives = state?.initiatives || [],
     tasks = state?.tasks || [];
-  const humanTasks = tasks.filter(
-    t =>
-      String(t.status).toLowerCase() === 'ready' &&
-      (Array.isArray(t.assignee) ? t.assignee : [t.assignee]).some(a => String(a).toLowerCase() === 'human'),
-  );
+  const rank = taskRank(milestones);
+  const milestoneTitle = task =>
+    milestones.find(m =>
+      [m.id, m.title].some(alias => alias && normalizeMilestone(alias) === normalizeMilestone(task.milestone)),
+    )?.title || task.milestone;
+  const humanTasks = tasks.filter(t => String(t.status).toLowerCase() === 'ready' && isHuman(t)).sort(rank);
   const decisions = initiatives.filter(
     i =>
       !i.pending &&
@@ -103,10 +138,27 @@ export function overviewGroups(state) {
       ['awaiting-human', 'failed', 'blocked', 'cancelled'].includes(i.status),
   );
   const next = approvedNextWork(initiatives, tasks);
+  // With no approved plan in delivery, Up next falls back to the board's ready, unblocked work.
+  const boardNext = next.eligible.length
+    ? []
+    : tasks
+        .filter(
+          t =>
+            String(t.status).toLowerCase() === 'ready' && !isHuman(t) && !t.blockReason && !dependencyReason(t, tasks),
+        )
+        .sort(rank)
+        .slice(0, 5)
+        .map(t =>
+          taskRow(
+            t,
+            `Ready on the board${t.milestone ? ` · ${milestoneTitle(t)}` : ''}${t.priority ? ` · ${t.priority} priority` : ''}. Not yet in an approved plan.`,
+          ),
+        );
   const row = (i, reason) => ({ id: i.id, title: i.title, kind: 'initiative', reason });
   return {
     humanTasks,
     decisions,
+    nextSource: next.eligible.length ? 'plan' : boardNext.length ? 'board' : 'none',
     groups: [
       {
         title: 'Needs you',
@@ -126,7 +178,7 @@ export function overviewGroups(state) {
             id: t.id,
             title: t.title,
             kind: 'task',
-            reason: 'Your task, ready to start.',
+            reason: `Your task, ready to start${t.milestone ? ` · ${milestoneTitle(t)}` : ''}.`,
           })),
         ],
       },
@@ -150,8 +202,8 @@ export function overviewGroups(state) {
         : []),
       {
         title: 'Up next',
-        empty: 'No approved plan has a task ready to start.',
-        items: next.eligible,
+        empty: 'Nothing is ready to start.',
+        items: next.eligible.length ? next.eligible : boardNext,
       },
       {
         title: 'Waiting',

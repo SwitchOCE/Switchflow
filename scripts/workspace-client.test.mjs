@@ -72,6 +72,7 @@ test('record bookmarks retain explicit project identity and known workspace view
     project: 'p',
     view: 'tasks',
     task: 'T-1',
+    initiative: null,
     record: null,
   });
   assert.equal(workspaceLocation('http://localhost/?view=unsupported').view, 'board');
@@ -79,8 +80,10 @@ test('record bookmarks retain explicit project identity and known workspace view
     project: 'p',
     view: 'skills',
     task: null,
+    initiative: null,
     record: 'intake/SKILL.md',
   });
+  assert.equal(workspaceLocation('http://localhost/?project=p&view=initiatives&initiative=I-7').initiative, 'I-7');
 });
 test('documentation images resolve only selected-project asset paths', () => {
   const project = 'a'.repeat(64),

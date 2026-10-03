@@ -502,3 +502,33 @@ details.agents-group[open] > summary::before {
 .agents-route-error {
   color: var(--danger-text) !important;
 }
+
+.agents-ended {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.agents-back {
+  display: none;
+}
+/* Phones: one pane at a time, list first. */
+@media (max-width: 760px) {
+  .agents-layout[data-pane='list'] .agents-detail,
+  .agents-layout[data-pane='detail'] .agents-list {
+    display: none;
+  }
+  .agents-list {
+    max-height: none;
+    border-bottom: 0;
+  }
+  .agents-back {
+    display: inline-flex;
+    margin-bottom: var(--space-2);
+  }
+  .agents-detail h2:focus {
+    outline: none;
+  }
+}
