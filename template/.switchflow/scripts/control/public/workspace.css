@@ -787,6 +787,12 @@
 .recovery-form .detail-actions {
   margin-top: var(--space-1);
 }
+/* Delivery held for an environment that is not ready: the reason may be a long host message. */
+.environment-hold .recovery-processes .muted {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 @media (pointer: coarse) {
   .decision-region .button {
     min-height: 44px;

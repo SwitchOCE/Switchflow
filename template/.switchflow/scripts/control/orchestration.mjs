@@ -25,8 +25,13 @@ export function resumeInstructions(entry) {
     entry.status === 'queued'
       ? 'was still queued'
       : `had started${entry.approval ? ` (approach ${entry.approval})` : ''}`;
+  // An SSH worker's remote worktree was saved as a commit, and the new worktree starts from it.
+  const recovered = entry.recovery?.ref
+    ? `You continue interrupted work: your worktree starts from ${entry.recovery.head.slice(0, 12)}${entry.recovery.changed ? ", where the host committed the previous worker's uncommitted changes" : ''}.`
+    : null;
   const note = [
     `Resumed after the Switchflow service stopped. The previous ${entry.kind} worker for ${entry.task} (${entry.provider ?? 'provider unknown'}) ${was} and cannot be continued; this is a new session with the same instructions.`,
+    ...(recovered ? [recovered] : []),
     'Before changing anything, inspect the worktree: keep committed work, check uncommitted edits and any half-finished rebase or merge, and do not redo steps that are already done.',
     "The orchestrator's original instructions follow.",
     '',
@@ -158,6 +163,12 @@ export function confirmRefusal(approval, busy) {
   return null;
 }
 
+/** A reconnected delivery worker's gate, from its recorded cloud handle. */
+function reattachedApproval(record) {
+  if (record.writable) return APPROVAL.confirmed;
+  return !record.turn?.open && record.lastResult?.outcome === 'approach' ? APPROVAL.awaiting : APPROVAL.drafting;
+}
+
 /** Host-side worker management for one execution run. Tools arrive through the MCP helper over HTTP. */
 export class Orchestration {
   constructor({
@@ -279,7 +290,7 @@ export class Orchestration {
    * Delegates one task. The worker is admitted at once when a worker slot and memory are free;
    * otherwise it is queued (status "queued") and starts by itself, first in first out.
    */
-  async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
+  async delegate_task(args, principal = 'orchestrator', { resumedFrom = null, reattach = null, base = null } = {}) {
     this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment', 'leases']);
     const { task, kind, instructions, provider: requested, environment: requestedEnvironment } = args;
     const leaseNames = args.leases ?? [];
@@ -402,9 +413,12 @@ export class Orchestration {
       queue: [],
       token: null,
       schemaPath: path.join(this.directory, `${kind}-schema.json`),
-      approval: write ? APPROVAL.drafting : null,
+      approval: write ? (remote && reattach ? reattachedApproval(reattach) : APPROVAL.drafting) : null,
       instructions,
       resumedFrom,
+      // After a restart: a cloud handle to reconnect to, or the recovered commit an SSH worker starts from.
+      reattach: remote ? reattach : null,
+      base: remote ? null : base,
       environment,
       workspace: null,
       collected: null,
@@ -430,6 +444,7 @@ export class Orchestration {
         approval: worker.approval,
         resumedFrom,
         ...(leaseNames.length ? { leases: leaseNames } : {}),
+        ...(worker.reattach ? { cloud: worker.reattach } : {}),
       });
       // Cloud workers use no local memory or worker slot, so they start at once unless they wait for leases.
       if (remote && !leaseNames.length) {
@@ -529,11 +544,18 @@ export class Orchestration {
       this.workerTokens.set(workerToken, worker.id);
       // An SSH box runs our CLIs in a workspace prepared there; cloud kinds open their own session.
       const onBox = worker.environment.kind !== 'local' && !worker.remote;
-      if (onBox)
+      if (onBox) {
         worker.workspace = await worker.environment.prepareWorkspace({
           repo: entry.path,
           name: `${task}-${kind}-${worker.id.slice(0, 8)}`,
+          ...(worker.base ? { base: worker.base } : {}),
         });
+        // Where its work lives, so a restart can save what it left uncommitted (worker-recovery.mjs).
+        const { name, path: remotePath, branch, temporaryRoot: remoteTemporary } = worker.workspace;
+        await updateDelegation(this.context, worker.id, {
+          workspace: { name, path: remotePath, branch, temporaryRoot: remoteTemporary },
+        }).catch(() => {});
+      }
       const localRoots = write
         ? [
             entry.path,
@@ -568,6 +590,13 @@ export class Orchestration {
         environment: worker.environment,
         workspace: worker.workspace,
         approval: worker.approval,
+        // Cloud workers keep running through a restart: their handle is recorded to reconnect.
+        ...(worker.remote
+          ? {
+              reattach: worker.reattach,
+              onCloudHandle: record => updateDelegation(this.context, worker.id, { cloud: record }).catch(() => {}),
+            }
+          : {}),
         forward: async () => {},
       });
       // Cancelled while it was starting: close what just opened.
@@ -582,6 +611,7 @@ export class Orchestration {
       // The host reads the gate when a message asks to confirm.
       Object.defineProperty(opened.handle, 'approval', { get: () => worker.approval, configurable: true });
       await updateDelegation(this.context, worker.id, { status: 'open' }).catch(() => {});
+      if (worker.reattach) return await this.reattached(worker);
       await this.startTurn(
         worker,
         workerPrompt({
@@ -615,19 +645,31 @@ export class Orchestration {
     await updateDelegation(this.context, worker.id, { status: 'finished', outcome: 'failed' }).catch(() => {});
     this.host.registry.wake();
   }
-  /** Re-delegates workers held by a service restart, deliveries before reviews. */
+  /** A reconnected cloud worker waits for the turn it was running, or idles with its last result. */
+  async reattached(worker) {
+    if (worker.reattach.turn?.open) return this.startTurn(worker, null, { watch: true });
+    Object.assign(worker, { status: 'idle', result: worker.reattach.lastResult ?? null, reported: false });
+    await this.host.registry.update(worker.id, { status: 'idle', result: worker.result });
+    this.host.registry.wake();
+  }
+  /**
+   * Resumes workers held by a service restart, deliveries before reviews. Cloud workers kept
+   * running and are reconnected; the others are delegated again (an SSH delivery from the commit
+   * worker-recovery.mjs saved its remote work in).
+   */
   async resume(entries) {
     const ordered = [...entries].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'deliver' ? -1 : 1));
     const resumed = [];
     const failed = [];
     for (const entry of ordered) {
+      const reattach = entry.cloud?.key && entry.environment && entry.environment !== 'local' ? entry.cloud : null;
       try {
         const summary = await this.delegate_task(
           {
             task: entry.task,
             kind: entry.kind,
             worktree: entry.worktree,
-            instructions: resumeInstructions(entry),
+            instructions: reattach ? entry.instructions : resumeInstructions(entry),
             // A reviewer is routed afresh so it still differs from the author.
             ...(entry.kind === 'deliver' && entry.provider ? { provider: entry.provider } : {}),
             // Same environment as before; a removed or unhealthy one is refused with its reason.
@@ -635,9 +677,9 @@ export class Orchestration {
             ...(Array.isArray(entry.leases) && entry.leases.length ? { leases: entry.leases } : {}),
           },
           'orchestrator',
-          { resumedFrom: entry.workerId },
+          { resumedFrom: entry.workerId, reattach, base: entry.recovery?.ref ? entry.recovery.head : null },
         );
-        resumed.push(`${entry.task} ${entry.kind} (${summary.status})`);
+        resumed.push(`${entry.task} ${entry.kind} (${reattach ? 'reconnected' : summary.status})`);
       } catch (error) {
         failed.push(`${entry.task} ${entry.kind}: ${error.message}`);
       }
@@ -660,7 +702,7 @@ export class Orchestration {
    * Starts a turn without waiting for it; its outcome lands on the worker record. An unconfirmed
    * delivery worker's turn is read-only; confirm unlocks writes from this turn on.
    */
-  async startTurn(worker, message, { confirm = false, by = 'orchestrator' } = {}) {
+  async startTurn(worker, message, { confirm = false, by = 'orchestrator', watch = false } = {}) {
     if (FINISHED.has(worker.status)) throw new ControlError('This worker has finished.', 409);
     if (confirm) {
       const refusal = confirmRefusal(worker.approval, worker.status === 'working');
@@ -676,11 +718,14 @@ export class Orchestration {
     worker.status = 'working';
     worker.reported = false;
     const gated = worker.kind === 'deliver' && worker.approval !== APPROVAL.confirmed;
-    const turn = worker.handle.startTurn(message, {
-      outputSchema: WORKER_SCHEMAS[worker.kind],
-      schemaPath: worker.schemaPath,
-      ...(gated ? { sandbox: 'read-only' } : {}),
-    });
+    // watch: a reconnected cloud worker's running turn, which needs no new message.
+    const turn = watch
+      ? worker.handle.resumeTurn()
+      : worker.handle.startTurn(message, {
+          outputSchema: WORKER_SCHEMAS[worker.kind],
+          schemaPath: worker.schemaPath,
+          ...(gated ? { sandbox: 'read-only' } : {}),
+        });
     worker.turn = turn
       .then(async outcome => {
         worker.result = outcome.result;

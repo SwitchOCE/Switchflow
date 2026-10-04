@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { updateState } from '../template/.switchflow/scripts/operations/storage.mjs';
 import { AgentHost } from '../template/.switchflow/scripts/control/agent-host.mjs';
 import { Orchestration } from '../template/.switchflow/scripts/control/orchestration.mjs';
+import { readDelegations } from '../template/.switchflow/scripts/control/worker-ledger.mjs';
 import {
   CAPABILITIES,
   MAX_PROMPT,
@@ -394,8 +395,14 @@ function cloudDouble() {
         activeTurnId: null,
         closed: false,
         turns: [],
+        resumed: 0,
         startTurn: async (text, turnOptions) => {
           handle.turns.push({ text, ...turnOptions });
+          return { turnId: 'task_e_1', result: JSON.parse(result({ verdict: 'accept', comment: 'Verdict: accept' })) };
+        },
+        // A reconnected task: its running turn ends with the same verdict.
+        resumeTurn: async () => {
+          handle.resumed++;
           return { turnId: 'task_e_1', result: JSON.parse(result({ verdict: 'accept', comment: 'Verdict: accept' })) };
         },
         close: async () => opened.push('closed'),
@@ -406,53 +413,59 @@ function cloudDouble() {
   };
 }
 
-test('orchestration refuses Codex cloud delivery (approach gate) and Claude reviewers, and runs Codex reviews there', t =>
-  fixture(async context => {
-    const initiativeId = randomUUID();
-    const managedRoot = path.join(context.stateDir, 'candidates', 'grant');
-    const candidate = path.join(managedRoot, 'cand');
-    await fs.mkdir(candidate, { recursive: true });
-    const real = await fs.realpath(candidate);
-    await updateState(context, `git-bridge-${initiativeId}-${planHash}`, () => ({
-      schemaVersion: 1,
+/** An orchestration with one candidate whose only remote environment is `cloud`. */
+async function cloudOrchestration(t, context, cloud) {
+  const initiativeId = randomUUID();
+  const managedRoot = path.join(context.stateDir, 'candidates', 'grant');
+  const candidate = path.join(managedRoot, 'cand');
+  await fs.mkdir(candidate, { recursive: true });
+  const real = await fs.realpath(candidate);
+  await updateState(context, `git-bridge-${initiativeId}-${planHash}`, () => ({
+    schemaVersion: 1,
+    initiativeId,
+    planHash,
+    entries: [{ name: 'cand', path: real, branch: 'codex/x' }],
+  }));
+  const log = [];
+  const host = new AgentHost(context, {
+    capabilities: { codex: { available: true }, claude: { available: true, loggedIn: true } },
+    providers: { codex: fakeProvider('codex', log), claude: fakeProvider('claude', log) },
+    capacity: { pool: roomyPool() },
+    environments: new EnvironmentRegistry([cloud]),
+  });
+  await host.init();
+  const runId = randomUUID();
+  const orchestration = new Orchestration({
+    host,
+    runId,
+    initiativeId,
+    runDirectory: path.join(context.stateDir, 'runs', runId),
+    gitBridge: {
       initiativeId,
       planHash,
-      entries: [{ name: 'cand', path: real, branch: 'codex/x' }],
-    }));
-    const log = [];
+      managedRoot: await fs.realpath(managedRoot),
+      channelPath: path.join(context.stateDir, 'runs', runId, 'git-channel'),
+      helperPath: path.join(context.stateDir, 'helper.mjs'),
+    },
+    signal: new AbortController().signal,
+    orchestratorProvider: 'claude',
+    serviceUrl: 'http://127.0.0.1:9',
+    projectId: context.id,
+  });
+  await orchestration.prepare();
+  const orchestrator = await host.registry.create({ runId, initiativeId, role: 'execution', provider: 'claude' });
+  orchestration.setOrchestrator(orchestrator.id);
+  t.after(async () => {
+    await orchestration.close();
+    await host.close();
+  });
+  return { host, log, orchestration };
+}
+
+test('orchestration refuses Codex cloud delivery (approach gate) and Claude reviewers, and runs Codex reviews there', t =>
+  fixture(async context => {
     const cloud = cloudDouble();
-    const host = new AgentHost(context, {
-      capabilities: { codex: { available: true }, claude: { available: true, loggedIn: true } },
-      providers: { codex: fakeProvider('codex', log), claude: fakeProvider('claude', log) },
-      capacity: { pool: roomyPool() },
-      environments: new EnvironmentRegistry([cloud]),
-    });
-    await host.init();
-    const runId = randomUUID();
-    const orchestration = new Orchestration({
-      host,
-      runId,
-      initiativeId,
-      runDirectory: path.join(context.stateDir, 'runs', runId),
-      gitBridge: {
-        initiativeId,
-        planHash,
-        managedRoot: await fs.realpath(managedRoot),
-        channelPath: path.join(context.stateDir, 'runs', runId, 'git-channel'),
-        helperPath: path.join(context.stateDir, 'helper.mjs'),
-      },
-      signal: new AbortController().signal,
-      orchestratorProvider: 'claude',
-      serviceUrl: 'http://127.0.0.1:9',
-      projectId: context.id,
-    });
-    await orchestration.prepare();
-    const orchestrator = await host.registry.create({ runId, initiativeId, role: 'execution', provider: 'claude' });
-    orchestration.setOrchestrator(orchestrator.id);
-    t.after(async () => {
-      await orchestration.close();
-      await host.close();
-    });
+    const { host, log, orchestration } = await cloudOrchestration(t, context, cloud);
     const call = (tool, args) => orchestration.call(tool, args);
     const base = { task: 'DEMO-1', instructions: 'x', worktree: 'cand', environment: 'codex-cloud' };
     await assert.rejects(
@@ -475,4 +488,85 @@ test('orchestration refuses Codex cloud delivery (approach gate) and Claude revi
     assert.equal(meta.provider, 'codex');
     assert.equal(meta.transport, 'codex-cloud');
     assert.equal(log.length, 0);
+  }));
+
+test('a Codex cloud task is reattached by its ID after a restart: polling goes on, nothing is resubmitted', async t => {
+  const { base, local, state } = await repoWithRemote(t);
+  const fake = await fakeCodex(t, state);
+  const verdict = result({ outcome: undefined, verdict: 'accept', comment: 'Verdict: accept' });
+  await fs.writeFile(path.join(state, 'diff.patch'), await cloudDiff(base, local, { [RESULT_FILE]: verdict }));
+  const records = [];
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stopped = await openCodexCloudSession({
+    adapter: createCodexCloudEnvironment({ config: CONFIG, projectRoot: local, run: fake.run }),
+    task: 'T-1',
+    key: KEY,
+    cwd: local,
+    sandbox: 'read-only',
+    pollMs: 5,
+    signal: controller.signal,
+    onHandle: async record => records.push(record),
+  });
+  const abandoned = stopped.startTurn('Review it.').catch(error => error);
+  const record = structuredClone(await until(() => records.find(entry => entry.status === 'pending')));
+  controller.abort();
+  await abandoned;
+  assert.deepEqual(
+    [record.key, record.taskId, record.url, record.branch, record.turn],
+    [KEY, 'task_e_0123456789abcdef', TASK_URL, `sf-task/${KEY}`, { open: true, writable: false }],
+  );
+
+  // A restarted service: a new adapter and session from the record alone.
+  const events = [];
+  const recordsAfter = [];
+  const session = await openCodexCloudSession({
+    adapter: createCodexCloudEnvironment({ config: CONFIG, projectRoot: local, run: fake.run }),
+    task: 'T-1',
+    cwd: local,
+    sandbox: 'read-only',
+    pollMs: 5,
+    resume: record,
+    onEvent: async event => events.push(event),
+    onHandle: async entry => recordsAfter.push(entry),
+  });
+  assert.equal(session.threadId, 'task_e_0123456789abcdef');
+  assert.match(events.find(event => event.kind === 'notice').text, /Reconnected to Codex cloud task task_e_/);
+  const turn = await session.resumeTurn();
+  assert.equal(turn.result.verdict, 'accept');
+  const calls = await fake.calls();
+  assert.equal(calls.filter(args => args[1] === 'exec').length, 1, 'the task was not submitted again');
+  assert.ok(calls.filter(args => args[1] === 'status').every(args => args[2] === 'task_e_0123456789abcdef'));
+  assert.deepEqual(recordsAfter.at(-1).turn, { open: false, writable: false });
+  await assert.rejects(session.startTurn('More.'), /no follow-up turns/);
+  await session.close();
+});
+
+test('resuming a held Codex cloud review reconnects to its task instead of submitting another', t =>
+  fixture(async context => {
+    const cloud = cloudDouble();
+    const { orchestration } = await cloudOrchestration(t, context, cloud);
+    const record = { key: KEY, taskId: 'task_e_1', url: TASK_URL, turn: { open: true, writable: false } };
+    const outcome = await orchestration.resume([
+      {
+        workerId: 'old-review',
+        task: 'DEMO-1',
+        kind: 'review',
+        worktree: 'cand',
+        provider: 'codex',
+        environment: 'codex-cloud',
+        instructions: 'Review it.',
+        status: 'open',
+        cloud: record,
+      },
+    ]);
+    assert.deepEqual(outcome, { resumed: ['DEMO-1 review (reconnected)'], failed: [] });
+    const waited = await orchestration.call('wait_for_workers', { timeoutSeconds: 5 });
+    assert.equal(waited.workers[0].status, 'completed');
+    assert.equal(waited.workers[0].result.verdict, 'accept');
+    const { options, handle } = cloud.opened.find(entry => entry.handle);
+    assert.deepEqual(options.resume, record);
+    assert.deepEqual([handle.turns.length, handle.resumed], [0, 1], 'no new task: the running one is followed');
+    const [carried] = await readDelegations(context, [waited.workers[0].workerId]);
+    assert.equal(carried.cloud.taskId, 'task_e_1');
   }));

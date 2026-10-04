@@ -159,6 +159,7 @@ export async function createControlServer({
       engine = new ControlEngine(candidate, {
         runner: runner || agents.run,
         protocol: agentProtocol,
+        preflight: () => agents.readiness(),
         recordIssue: issue =>
           recordIssue(candidate, {
             kind: { intervention: 'update', blocker: 'issue' }[issue.type] || issue.type,

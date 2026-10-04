@@ -12,6 +12,7 @@ import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
 import { WorkerResources } from './worker-resources.mjs';
 import { EnvironmentRegistry } from './environments/index.mjs';
+import { recoverHeldWorkers } from './worker-recovery.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -224,6 +225,8 @@ export class AgentHost {
   }
   bind(engine) {
     this.engine = engine;
+    // "Resume held workers" first saves what interrupted SSH workers left on their box.
+    engine.prepareResume ??= workers => recoverHeldWorkers(this, workers);
   }
   settings() {
     return readAgentSettings(this.context);
@@ -252,6 +255,32 @@ export class AgentHost {
     });
     const health = await environment.health().catch(error => ({ ok: false, reason: error.message }));
     return { id, checkedAt: new Date().toISOString(), ...health };
+  }
+  /** "Pause local workers": new workers placed on this PC queue (capacity.mjs PAUSED_REASON). */
+  async localPaused() {
+    return (await this.settings()).pauseLocalWorkers === true;
+  }
+  /**
+   * Readiness before delivery starts: health() of every environment the owner's placement uses.
+   * Returns { ok, checkedAt, environments: [{ id, label, roles, ok, reason }] }; this PC always passes.
+   */
+  async readiness() {
+    const settings = await this.settings();
+    const placed = new Map();
+    for (const [role, id] of Object.entries(settings.placement ?? {}))
+      if (id && id !== 'local') placed.set(id, [...(placed.get(id) ?? []), role]);
+    const environments = await Promise.all(
+      [...placed].map(async ([id, roles]) => {
+        const label = settings.environments.find(item => item.id === id)?.label ?? id;
+        try {
+          const health = await this.environments.get(id, settings).health();
+          return { id, label, roles, ok: health.ok === true, reason: health.ok ? null : health.reason || 'Not ready.' };
+        } catch (error) {
+          return { id, label, roles, ok: false, reason: error.message };
+        }
+      }),
+    );
+    return { ok: environments.every(item => item.ok), checkedAt: new Date().toISOString(), environments };
   }
   limitsFor(settings) {
     return { timeoutMs: settings.limits.timeoutMinutes * 60 * 1000, maxTurns: settings.limits.maxTurns };
@@ -288,6 +317,9 @@ export class AgentHost {
     // that environment's prepared workspace (environments/index.mjs).
     environment = 'local',
     workspace = null,
+    // Cloud only: a recorded handle to reattach to after a restart, and where to record it.
+    reattach = null,
+    onCloudHandle = null,
     forward = async () => {},
   }) {
     const target =
@@ -313,6 +345,8 @@ export class AgentHost {
         signal,
         approval,
         forward,
+        reattach,
+        onCloudHandle,
       });
     const settings = await this.settings();
     if (target && typeof target.spawnFor !== 'function')
@@ -479,6 +513,8 @@ export class AgentHost {
         limits: this.limitsFor(settings),
         onEvent,
         signal: fields.signal,
+        ...(fields.reattach ? { resume: fields.reattach } : {}),
+        ...(fields.onCloudHandle ? { onHandle: fields.onCloudHandle } : {}),
       });
     } catch (error) {
       await this.registry.finish(meta.id, { status: 'failed', error: error.message });
@@ -791,19 +827,29 @@ export class AgentHost {
     return { sessionId, interrupted: true };
   }
 
-  /** Routing changes are refused while a run holds admission, under the same lock. */
+  /**
+   * Routing changes are refused while a run holds admission, under the same lock. Pausing or
+   * resuming local workers alone is allowed mid-run: that is when the owner needs the PC back.
+   */
   async updateSettings(input) {
     let saved;
     const write = async () => {
       saved = await writeAgentSettings(this.context, input);
     };
-    if (!this.engine) await write();
+    const pauseOnly =
+      input &&
+      typeof input === 'object' &&
+      Object.keys(input).every(key => ['pauseLocalWorkers', 'expectedRevision'].includes(key)) &&
+      'pauseLocalWorkers' in input;
+    if (!this.engine || pauseOnly) await write();
     else
       await this.engine.mutate(async state => {
         if (state.activeRun)
           throw new ControlError('Wait for the current run to finish before changing agent settings.', 409);
         await write();
       });
+    // Resuming starts queued local workers, first in first out.
+    this.capacity.schedulePump();
     return { settings: saved, routing: this.routing(saved) };
   }
 

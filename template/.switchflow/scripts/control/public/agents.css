@@ -74,11 +74,38 @@
 
 /* Capacity strip: memory, workers and leases in one compact band. */
 .agents-capacity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
   padding: 8px 14px;
   font-size: 13px;
+}
+.agents-capacity[hidden] {
+  display: none;
+}
+.agents-capacity.is-paused {
+  border-color: var(--warning);
+}
+.capacity-content {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.capacity-pause {
+  flex: none;
+  margin-left: auto;
+}
+.capacity-pause .button {
+  min-height: 28px;
+  font-size: 12px;
+}
+.capacity-paused {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--warning);
 }
 .capacity-row {
   display: flex;

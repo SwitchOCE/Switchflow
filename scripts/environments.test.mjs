@@ -5,8 +5,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { execFileSync, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { claudeProjectFolder } from '../template/.switchflow/scripts/control/providers/claude-cli.mjs';
+import { readDelegations, recordDelegation } from '../template/.switchflow/scripts/control/worker-ledger.mjs';
 import { updateState } from '../template/.switchflow/scripts/operations/storage.mjs';
 import { AgentHost } from '../template/.switchflow/scripts/control/agent-host.mjs';
 import { Orchestration } from '../template/.switchflow/scripts/control/orchestration.mjs';
@@ -27,9 +30,9 @@ import {
 } from '../template/.switchflow/scripts/control/environments/ssh.mjs';
 import { ControlEngine } from '../template/.switchflow/scripts/control/engine.mjs';
 import { createInitiative } from '../template/.switchflow/scripts/control/lifecycle.mjs';
-import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
-import { CAPACITY_CONFIG } from '../template/.switchflow/scripts/control/capacity.mjs';
+import { CAPACITY_CONFIG, PAUSED_REASON } from '../template/.switchflow/scripts/control/capacity.mjs';
 import { composeProjectName, defaultRunner } from '../template/.switchflow/scripts/control/worker-resources.mjs';
+import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
 import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const both = { codex: { available: true }, claude: { available: true, loggedIn: true } };
@@ -197,6 +200,27 @@ test('owner settings hold environments and placement; placement must name an ena
     () => applySettingsPatch(base, { environments: [codexCloud], placement: { delivery: 'codex' } }),
     /reviews only/,
   );
+  // What the Agents view's Codex cloud form sends: the opt-in is required, unknown fields refused.
+  const fromForm = applySettingsPatch(base, {
+    environments: [{ ...codexCloud, label: 'Codex cloud', pollSeconds: 120, enabled: true }],
+  }).environments[0];
+  assert.deepEqual(
+    [fromForm.kind, fromForm.remote, fromForm.push, fromForm.pollSeconds, fromForm.experimental],
+    ['codex-cloud', 'origin', true, 120, true],
+  );
+  assert.throws(
+    () => applySettingsPatch(base, { environments: [{ ...codexCloud, experimental: false }] }),
+    /experimental/,
+  );
+  assert.throws(() => applySettingsPatch(base, { environments: [{ ...codexCloud, model: 'x' }] }), /model/);
+  assert.throws(
+    () => applySettingsPatch(base, { environments: [{ ...codexCloud, provider: 'claude' }] }),
+    /codex workers only/,
+  );
+  // Pause local workers: a boolean owner setting, off by default.
+  assert.equal(base.pauseLocalWorkers, false);
+  assert.equal(applySettingsPatch(base, { pauseLocalWorkers: true }).pauseLocalWorkers, true);
+  assert.throws(() => applySettingsPatch(base, { pauseLocalWorkers: 'yes' }), /true or false/);
   // Removing a placed environment is refused rather than silently moving work to this PC.
   assert.throws(() => applySettingsPatch(saved, { environments: [] }), /not a configured environment/);
   assert.throws(() => applySettingsPatch(base, { environments: [sshConfig(file), sshConfig(file)] }), /unique/);
@@ -728,6 +752,429 @@ test('a remote PID fences a restart even after its ssh client is gone, until the
       expectedRevision: state.initiatives[0].revision,
     });
     assert.equal((await restarted.read()).activeRun, null);
+  }));
+
+/** A POSIX sh to run remote scripts for real: sh, or Git for Windows' sh.exe. Null when absent. */
+function posixShell() {
+  if (process.platform !== 'win32') return 'sh';
+  try {
+    const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8', windowsHide: true }).trim();
+    const shell = path.resolve(exec, '..', '..', '..', 'bin', 'sh.exe');
+    return existsSync(shell) ? shell : null;
+  } catch {
+    return null;
+  }
+}
+const gitIn = (cwd, ...args) =>
+  execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@localhost', ...args], {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+  }).trim();
+const remoteWorkspace = (name, workRoot = '/home/me/sf') => ({
+  name,
+  path: `${workRoot}/worktrees/${name}`,
+  temporaryRoot: `${workRoot}/tmp/${name}`,
+  branch: `switchflow/${name}`,
+});
+
+test('SSH recovery commits the remote worktree, fetches it under a recovery ref, then removes it', async t => {
+  const { file, directory } = await keyFile(t);
+  const head = 'd'.repeat(40);
+  let reachable = false;
+  const fake = fakeSsh({
+    answer: call => {
+      if (!reachable && call.executable === 'ssh')
+        return { code: 255, stderr: 'ssh: connect to host box.example port 2222: Connection refused\n' };
+      if (call.words?.some(word => word.includes('refs/switchflow/recovery/$2')))
+        return call.words.includes('/home/me/sf/worktrees/gone')
+          ? { code: 0, stdout: 'state=missing\n' }
+          : { code: 0, stdout: `changed=yes\nhead=${head}\n` };
+      return { code: 0 };
+    },
+  });
+  t.after(() => fake.children.forEach(child => child.end(0)));
+  const environment = createSshEnvironment(validateEnvironmentConfig(sshConfig(file)), {
+    stateDir: directory,
+    spawnProcess: fake.spawnProcess,
+    sshExecutable: 'ssh',
+  });
+  const workspace = remoteWorkspace('T-1-deliver-abcdef12');
+  const options = { into: 'C:\\repo', ref: 'refs/switchflow/recovery/w-1', message: 'T-1: saved' };
+
+  // An unreachable box: nothing is fetched or removed, and the reason comes back.
+  await assert.rejects(
+    environment.recover(workspace, options),
+    /Recovering the remote work failed.*Connection refused/,
+  );
+  assert.equal(fake.calls.length, 1);
+  reachable = true;
+
+  const recovered = await environment.recover(workspace, options);
+  assert.deepEqual(recovered, { found: true, changed: true, head, ref: 'refs/switchflow/recovery/w-1' });
+  const [, commit, fetch, cleanup, transcripts] = fake.calls;
+  assert.deepEqual(commit.words.slice(-6), [
+    workspace.path,
+    workspace.name,
+    'T-1: saved',
+    'Switchflow',
+    'switchflow@localhost',
+    'commit',
+  ]);
+  assert.equal(fetch.executable, 'git');
+  assert.deepEqual(fetch.args.slice(0, 2), ['-C', 'C:\\repo']);
+  assert.ok(fetch.args.includes(environment.mirrorUrl));
+  assert.equal(fetch.args.at(-1), `+refs/switchflow/recovery/${workspace.name}:refs/switchflow/recovery/w-1`);
+  assert.ok(cleanup.words.includes(workspace.path), 'the old remote worktree is removed');
+  // Its Claude conversations: only the folder named for this worktree.
+  assert.deepEqual(transcripts.words.slice(-2), [workspace.path, '-home-me-sf-worktrees-T-1-deliver-abcdef12']);
+
+  // A worktree that is gone has nothing to save; a path outside workRoot/worktrees is refused.
+  const before = fake.calls.length;
+  const gone = await environment.recover(remoteWorkspace('gone'), options);
+  assert.deepEqual(gone, { found: false, changed: false, head: null, ref: null });
+  assert.ok(!fake.calls.slice(before).some(call => call.executable === 'git'), 'nothing fetched');
+  await assert.rejects(environment.recover({ ...workspace, path: '/home/me/other' }, options), /Not a workspace/);
+  await assert.rejects(environment.recover(workspace, { ...options, ref: 'refs/heads/main' }), /Invalid recovery ref/);
+  // Cleanup never names a transcript folder for a path it did not make.
+  const count = fake.calls.length;
+  await environment.cleanup({ ...workspace, path: '/home/me/elsewhere' });
+  assert.equal(fake.calls.length, count + 1);
+  assert.equal(claudeProjectFolder('/home/me/sf/worktrees/T.1_x'), '-home-me-sf-worktrees-T-1-x');
+  assert.equal(claudeProjectFolder(`/${'a'.repeat(250)}`), null, 'long names carry a hash Switchflow cannot rebuild');
+});
+
+test('recovery and transcript cleanup run for real in sh: the work is saved, other projects stay', async t => {
+  const shell = posixShell();
+  if (!shell) return t.skip('no POSIX sh on this machine');
+  const { file, directory } = await keyFile(t);
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'switchflow-recover-'));
+  t.after(() => fs.rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  // The box's paths as its sh sees them (Git's /c/... form on Windows).
+  const posix = execFileSync(shell, ['-c', 'cd "$1" && pwd', 'sh', base], { encoding: 'utf8' }).trim();
+  const workRoot = `${posix}/box`;
+  const workspace = remoteWorkspace('T-1-deliver-abcdef12', workRoot);
+  const worktree = path.join(base, 'box', 'worktrees', workspace.name);
+  await fs.mkdir(worktree, { recursive: true });
+  gitIn(worktree, 'init', '-q', '-b', 'main');
+  gitIn(worktree, 'config', 'core.autocrlf', 'false');
+  await fs.writeFile(path.join(worktree, 'a.txt'), 'a\n');
+  gitIn(worktree, 'add', 'a.txt');
+  gitIn(worktree, 'commit', '-q', '-m', 'base');
+  await fs.writeFile(path.join(worktree, 'a.txt'), 'half-finished\n');
+  await fs.writeFile(path.join(worktree, 'new.txt'), 'untracked\n');
+  const host = path.join(base, 'host');
+  await fs.mkdir(host);
+  gitIn(host, 'init', '-q', '-b', 'main');
+
+  // Claude's projects on the box: this worktree's folder and another project's.
+  const config = path.join(base, 'claude');
+  const own = path.join(config, 'projects', claudeProjectFolder(workspace.path));
+  const other = path.join(config, 'projects', '-home-me-other-project');
+  await fs.mkdir(path.join(own, 'subagents'), { recursive: true });
+  await fs.mkdir(other, { recursive: true });
+  const line = cwd => `${JSON.stringify({ type: 'user', cwd, message: 'hi' })}\n`;
+  await fs.writeFile(path.join(own, 's1.jsonl'), line(workspace.path) + line(`${workspace.path}/src`));
+  await fs.writeFile(path.join(other, 's2.jsonl'), line('/home/me/other/project'));
+
+  const result = child => ({ code: child.status, stdout: child.stdout, stderr: child.stderr });
+  const fake = fakeSsh({
+    answer: call => {
+      if (call.executable === 'ssh')
+        return result(
+          spawnSync(shell, call.words.slice(1), {
+            encoding: 'utf8',
+            env: { ...process.env, CLAUDE_CONFIG_DIR: `${posix}/claude` },
+            windowsHide: true,
+          }),
+        );
+      // The host's fetch from the mirror: the box's worktree holds the mirror's refs here.
+      const argv = call.args.map(arg => (arg === environment.mirrorUrl ? worktree : arg));
+      return result(spawnSync('git', argv, { encoding: 'utf8', windowsHide: true }));
+    },
+  });
+  t.after(() => fake.children.forEach(child => child.end(0)));
+  const environment = createSshEnvironment(validateEnvironmentConfig({ ...sshConfig(file), workRoot }), {
+    stateDir: directory,
+    sshExecutable: 'ssh',
+    spawnProcess: fake.spawnProcess,
+  });
+  const recovered = await environment.recover(workspace, {
+    into: host,
+    ref: 'refs/switchflow/recovery/w-1',
+    message: 'T-1: saved',
+  });
+  assert.equal(recovered.changed, true);
+  assert.equal(gitIn(host, 'rev-parse', 'refs/switchflow/recovery/w-1'), recovered.head);
+  assert.equal(gitIn(host, 'show', `${recovered.head}:a.txt`), 'half-finished');
+  assert.equal(gitIn(host, 'show', `${recovered.head}:new.txt`), 'untracked');
+  assert.equal(gitIn(host, 'log', '-1', '--format=%an %s', recovered.head), 'Switchflow T-1: saved');
+  assert.equal(existsSync(worktree), false, 'the remote worktree is removed once its work is saved');
+  assert.equal(existsSync(own), false, "this worktree's conversations are removed");
+  assert.equal(existsSync(other), true, 'another project on the box is untouched');
+
+  // A folder whose conversations ran elsewhere is kept, even under this worktree's name.
+  await fs.mkdir(own, { recursive: true });
+  await fs.writeFile(path.join(own, 's3.jsonl'), line(workspace.path) + line('/home/me/sfx'));
+  await environment.cleanup(workspace);
+  assert.equal(existsSync(path.join(own, 's3.jsonl')), true);
+});
+
+test('a resumed SSH delivery starts from its recovered commit and is told it continues interrupted work', t =>
+  fixture(async context => {
+    const box = fakeEnvironment();
+    const { log, orchestration } = await orchestrationWith(context, t, box);
+    const head = 'e'.repeat(40);
+    const outcome = await orchestration.resume([
+      {
+        workerId: 'old-box',
+        task: 'DEMO-1',
+        kind: 'deliver',
+        worktree: 'cand',
+        provider: 'codex',
+        environment: 'box',
+        instructions: 'Do the thing.',
+        status: 'open',
+        recovery: { found: true, changed: true, head, ref: 'refs/switchflow/recovery/old-box' },
+      },
+    ]);
+    assert.deepEqual(outcome.failed, []);
+    const prepare = box.calls.find(([kind]) => kind === 'prepare')[1];
+    assert.equal(prepare.base, head, 'the new remote worktree starts from the recovered commit');
+    assert.match(
+      log.at(-1).prompt,
+      /You continue interrupted work: your worktree starts from eeeeeeeeeeee, where the host committed the previous worker's uncommitted changes\./,
+    );
+    assert.match(log.at(-1).prompt, /Do the thing\./);
+    assert.equal(log.at(-1).turns[0].sandbox, 'read-only', 'it starts again at the approach gate');
+    // The new worker's remote worktree is in its record, for the next restart.
+    const { workers } = await orchestration.call('worker_status', {});
+    const [record] = await readDelegations(context, [workers[0].workerId]);
+    assert.deepEqual(record.workspace, {
+      name: prepare.name,
+      path: `/box/worktrees/${prepare.name}`,
+      branch: `switchflow/${prepare.name}`,
+      temporaryRoot: `/box/tmp/${prepare.name}`,
+    });
+  }));
+
+test('resuming held SSH workers saves their remote work first; an unreachable box keeps them held', t =>
+  fixture(async context => {
+    const { file } = await keyFile(t);
+    let reachable = false;
+    const recovers = [];
+    const box = fakeEnvironment();
+    const factory = config =>
+      Object.assign(box.factory(config), {
+        async recover(workspace, options) {
+          recovers.push([workspace, options]);
+          if (!reachable) throw new Error('Recovering the remote work failed on Test box: Connection refused');
+          return { found: true, changed: true, head: 'f'.repeat(40), ref: options.ref };
+        },
+      });
+    const runId = randomUUID();
+    const item = createInitiative({ title: 'Parity', request: 'Close the gaps', start: false });
+    Object.assign(item, {
+      stage: 'delivery',
+      status: 'running',
+      approvedPlan: { tasks: [], hash: 'p', scopeHash: 's', baseHead: 'abc', gitGrantHash: planHash },
+      runs: [{ id: runId, status: 'running' }],
+    });
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item],
+      activeRun: { id: runId, initiativeId: item.id, stage: 'execution', status: 'running', workers: [] },
+    }));
+    await recordDelegation(context, {
+      runId,
+      initiativeId: item.id,
+      workerId: 'w-box',
+      task: 'DEMO-1',
+      kind: 'deliver',
+      worktree: 'cand',
+      provider: 'codex',
+      environment: 'box',
+      instructions: 'Do it.',
+      status: 'open',
+      approval: 'confirmed',
+      workspace: remoteWorkspace('DEMO-1-deliver-abcdef12'),
+    });
+    const runs = [];
+    const engine = new ControlEngine(context, {
+      protocol,
+      runner: async options => {
+        runs.push(options);
+        throw new Error('fixture stop');
+      },
+      processAlive: () => false,
+      bridgeFactory: async () => ({
+        descriptor: { helperPath: 'h', channelPath: 'c', managedRoot: 'm' },
+        close: async () => {},
+      }),
+    });
+    t.after(() => engine.close());
+    const host = new AgentHost(context, {
+      capabilities: both,
+      capacity: { pool: roomyPool() },
+      environments: { factories: { ssh: factory } },
+    });
+    await host.init();
+    t.after(() => host.close());
+    await host.updateSettings({ environments: [sshConfig(file)] });
+    host.bind(engine);
+
+    await engine.recover();
+    let current = (await engine.read()).initiatives[0];
+    assert.deepEqual(
+      current.heldWorkers.workers.map(worker => [worker.workerId, worker.environment, worker.reconnect]),
+      [['w-box', 'box', false]],
+    );
+    await engine.action(item.id, { action: 'recover-run', confirmedStopped: true, expectedRevision: current.revision });
+    current = (await engine.read()).initiatives[0];
+
+    // The box does not answer: nothing is resumed, the workers stay held and the reason shows.
+    await assert.rejects(
+      engine.action(item.id, { action: 'resume-workers', expectedRevision: current.revision }),
+      error =>
+        error.status === 409 &&
+        /DEMO-1 deliver on Test box could not be recovered \(.*Connection refused\)\. Its work stays on the box\./.test(
+          error.message,
+        ),
+    );
+    current = (await engine.read()).initiatives[0];
+    assert.match(current.heldWorkers.blocked, /Connection refused/);
+    assert.equal(current.nextAction, current.heldWorkers.blocked);
+    assert.equal(current.heldWorkers.workers.length, 1);
+    assert.equal(runs.length, 0, 'nothing was delegated again');
+    assert.equal((await readDelegations(context, ['w-box']))[0].recovery, undefined);
+
+    // Once it answers: the work is saved under a recovery ref, then delivery resumes from it.
+    reachable = true;
+    await engine.action(item.id, { action: 'resume-workers', expectedRevision: current.revision });
+    await until(() => runs.length);
+    assert.equal(runs[0].resumeWorkers[0].recovery.head, 'f'.repeat(40));
+    const [workspace, options] = recovers.at(-1);
+    assert.equal(workspace.name, 'DEMO-1-deliver-abcdef12');
+    assert.deepEqual(
+      [options.ref, options.into, options.commit],
+      ['refs/switchflow/recovery/w-box', context.sourceRoot, true],
+    );
+  }));
+
+test('pausing local workers leaves workers placed on another environment alone', t =>
+  fixture(async context => {
+    const box = fakeEnvironment();
+    const { host, orchestration } = await orchestrationWith(context, t, box);
+    await host.updateSettings({ pauseLocalWorkers: true });
+    const delegate = environment =>
+      orchestration.call('delegate_task', {
+        task: 'DEMO-1',
+        kind: 'deliver',
+        instructions: 'x',
+        worktree: 'cand',
+        ...(environment ? { environment } : {}),
+      });
+    const remote = await delegate();
+    assert.deepEqual([remote.environment, remote.status], ['box', 'working']);
+    const local = await delegate('local');
+    assert.deepEqual([local.environment, local.status, local.queue.reason], ['local', 'queued', PAUSED_REASON]);
+  }));
+
+test('delivery holds with the reason when a placed environment is not ready, and starts once it is', t =>
+  fixture(async context => {
+    const box = { healthy: false, checks: 0 };
+    const host = new AgentHost(context, {
+      capabilities: both,
+      capacity: { pool: roomyPool() },
+      environments: {
+        factories: {
+          ssh: config => ({
+            id: config.id,
+            kind: 'ssh',
+            label: config.label,
+            capabilities: { stream: true, steer: true, interrupt: true, followUp: true, result: 'remote-branch' },
+            async health() {
+              box.checks++;
+              return box.healthy ? { ok: true, reason: null } : { ok: false, reason: 'Connection refused.' };
+            },
+          }),
+        },
+      },
+    });
+    await host.init();
+    t.after(() => host.close());
+    // Placed only on this PC: nothing to check.
+    assert.deepEqual((await host.readiness()).environments, []);
+    const { file } = await keyFile(t);
+    await host.updateSettings({
+      environments: [sshConfig(file)],
+      placement: { delivery: 'box', review: 'box' },
+    });
+    const readiness = await host.readiness();
+    assert.equal(readiness.ok, false);
+    assert.deepEqual(readiness.environments, [
+      { id: 'box', label: 'Test box', roles: ['delivery', 'review'], ok: false, reason: 'Connection refused.' },
+    ]);
+
+    const item = createInitiative({ title: 'Deliver', request: 'Deliver the plan', start: false });
+    Object.assign(item, {
+      stage: 'delivery',
+      status: 'idle',
+      pending: true,
+      approvedPlan: { tasks: [], hash: 'p', scopeHash: 's', baseHead: 'abc', gitGrantHash: planHash },
+    });
+    await updateState(context, 'control', () => ({
+      schemaVersion: 1,
+      revision: 1,
+      initiatives: [item],
+      activeRun: null,
+    }));
+    const runs = [];
+    const engine = new ControlEngine(context, {
+      protocol,
+      runner: async options => {
+        runs.push(options);
+        throw new Error('fixture stop');
+      },
+      preflight: () => host.readiness(),
+      bridgeFactory: async () => ({
+        descriptor: { helperPath: 'h', channelPath: 'c', managedRoot: 'm' },
+        close: async () => {},
+      }),
+    });
+    t.after(() => engine.close());
+    host.bind(engine);
+    engine.schedule();
+    const held = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'blocked' && current;
+    });
+    assert.equal(runs.length, 0, 'no run starts, and nothing falls back to this PC');
+    assert.equal(held.pending, false);
+    assert.deepEqual(
+      held.environmentHold.environments.map(entry => [entry.id, entry.reason]),
+      [['box', 'Connection refused.']],
+    );
+    assert.match(held.nextAction, /waiting for where its workers run/);
+    assert.match(held.events.at(-1).message, /Test box is not ready \(Connection refused\.\).*does not fall back/);
+
+    // "Test again" is a retry: still unhealthy holds again; healthy starts delivery.
+    await engine.action(item.id, { action: 'retry', expectedRevision: held.revision });
+    const again = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'blocked' && current.revision > held.revision + 1 && current;
+    });
+    assert.equal(runs.length, 0);
+    box.healthy = true;
+    await engine.action(item.id, { action: 'retry', expectedRevision: again.revision });
+    await until(() => runs.length === 1);
+    const started = await until(async () => {
+      const current = (await engine.read()).initiatives[0];
+      return current.status === 'failed' && current;
+    });
+    assert.equal(started.environmentHold, null);
+    assert.ok(box.checks >= 4);
   }));
 
 test('an environment declares its own leases (no gating), and the host runs commands on the box quoted', async t => {

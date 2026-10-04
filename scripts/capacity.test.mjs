@@ -13,6 +13,7 @@ import * as protocol from '../template/.switchflow/scripts/control/agent-protoco
 import { Orchestration, resumeInstructions } from '../template/.switchflow/scripts/control/orchestration.mjs';
 import {
   CAPACITY_CONFIG,
+  PAUSED_REASON,
   readCapacityProfile,
   validateCapacityProfile,
 } from '../template/.switchflow/scripts/control/capacity.mjs';
@@ -23,7 +24,7 @@ import { codexAppServerArguments } from '../template/.switchflow/scripts/control
 import { codexArguments, isRunProcessAlive } from '../template/.switchflow/scripts/control/codex-runner.mjs';
 import { ProcessTracker, descendantsOf, parseElapsed } from '../template/.switchflow/scripts/control/process-tree.mjs';
 import { recordDelegation } from '../template/.switchflow/scripts/control/worker-ledger.mjs';
-import { fakeMachine, fakeProvider, fixture, until } from './agent-fakes.mjs';
+import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const both = { codex: { available: true }, claude: { available: true, loggedIn: true } };
 const planHash = 'b'.repeat(64);
@@ -1043,6 +1044,60 @@ test('leases named at delegation are taken before the worker starts, all or none
       ]);
       await orchestration.finishWorker(orchestration.worker(second.workerId), 'completed');
       assert.deepEqual((await call('list_leases', {})).leases, []);
+    } finally {
+      await close();
+    }
+  }));
+
+test('pausing local workers queues new local delegations; resuming starts them first in first out', () =>
+  fixture(async context => {
+    const { host, runId, orchestration, call, deliver, close } = await orchestrate(context, {
+      pool: roomyPool(),
+      maxWorkers: 2,
+    });
+    // A run holds admission: other settings are locked, but the pause toggle is not.
+    host.bind({
+      read: async () => ({ schemaVersion: 1, initiatives: [], activeRun: { id: runId, status: 'running' } }),
+      mutate: async fn => fn({ activeRun: { id: runId, status: 'running' } }),
+      trackProcess: async () => {},
+      untrackProcess: async () => {},
+    });
+    const status = async worker => (await call('worker_status', { workerId: worker.workerId })).workers[0];
+    try {
+      await assert.rejects(host.updateSettings({ limits: { maxWorkers: 3 } }), /Wait for the current run/);
+      const first = await deliver('DEMO-1');
+      assert.equal(first.status, 'working');
+      const paused = await host.updateSettings({ pauseLocalWorkers: true, expectedRevision: 1 });
+      assert.equal(paused.settings.pauseLocalWorkers, true);
+      assert.equal(paused.settings.revision, 2);
+
+      const second = await deliver('DEMO-2');
+      const third = await deliver('DEMO-3');
+      assert.deepEqual([second.status, second.queue.reason], ['queued', PAUSED_REASON]);
+      assert.deepEqual([third.status, third.queue.position, third.queue.reason], ['queued', 2, PAUSED_REASON]);
+      // The running worker continues.
+      assert.equal((await status(first)).status, 'working');
+      assert.deepEqual(
+        (await host.list()).capacity.queue.map(entry => [entry.task, entry.reason]),
+        [
+          ['DEMO-2', PAUSED_REASON],
+          ['DEMO-3', PAUSED_REASON],
+        ],
+      );
+
+      // Stored service-side: a restarted host reads the same setting.
+      const restarted = new AgentHost(context, { capabilities: both, capacity: { pool: roomyPool(), recheckMs: 0 } });
+      assert.equal(await restarted.localPaused(), true);
+      await restarted.close();
+
+      // Resuming starts the queue in order: DEMO-2 takes the free slot, DEMO-3 waits for the limit.
+      await host.updateSettings({ pauseLocalWorkers: false });
+      await until(async () => (await status(second)).status === 'working');
+      const waiting = await status(third);
+      assert.equal(waiting.status, 'queued');
+      assert.match(waiting.queue.reason, /2 workers are running, the limit/);
+      await orchestration.finishWorker(orchestration.worker(first.workerId), 'completed');
+      await until(async () => (await status(third)).status === 'working');
     } finally {
       await close();
     }

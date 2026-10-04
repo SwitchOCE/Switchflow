@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { PassThrough } from 'node:stream';
 import { stopTree } from '../codex-runner.mjs';
+import { claudeProjectFolder } from '../providers/claude-cli.mjs';
 
 /**
  * A Linux box reached over ssh (home server, VPS, WSL). The same CLIs Switchflow drives locally
@@ -25,6 +26,8 @@ const USER = /^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/;
 const POSIX_ROOT = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/;
 const WAKE_WORD = /^[A-Za-z0-9._:\\/=-]{1,200}$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+const RECOVERY_REF = /^refs\/switchflow\/recovery\/[A-Za-z0-9._-]{1,100}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 /** Never forwarded: these describe this PC, not the box. */
 const LOCAL_ONLY = new Set([
@@ -272,6 +275,34 @@ const HEALTH_SCRIPT = [
   'if mkdir -p "$1" && test -w "$1"; then echo workRoot=ok; else echo workRoot=no; fi',
 ].join('; ');
 
+/**
+ * $1 worktree, $2 workspace name, $3 message, $4/$5 author, $6 "commit" or "check". Commits all
+ * uncommitted changes (a detached HEAD mid-rebase too) and pins HEAD at
+ * refs/switchflow/recovery/<name> in the mirror, so the host can fetch it.
+ */
+const RECOVER_SCRIPT = [
+  'set -e; w=$1',
+  'if [ ! -d "$w" ]; then echo state=missing; exit 0; fi',
+  'if [ "$6" = commit ]; then git -C "$w" add -A',
+  'if git -C "$w" diff --cached --quiet; then echo changed=no; else git -C "$w" -c user.name="$4" -c user.email="$5" commit -q --no-verify -m "$3"; echo changed=yes; fi',
+  'git -C "$w" update-ref "refs/switchflow/recovery/$2" HEAD; fi',
+  'h=$(git -C "$w" rev-parse HEAD); echo "head=$h"',
+].join('; ');
+
+/**
+ * $1 worktree, $2 its Claude projects folder name (claudeProjectFolder). Removes that one folder
+ * unless a conversation in it ran outside the worktree: two paths can share a folder name, so
+ * the recorded "cwd" values decide, and any other value keeps the folder.
+ */
+const TRANSCRIPT_SCRIPT = [
+  'w=$1; d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$2"',
+  '[ -d "$d" ] || exit 0',
+  `cwds=$(cat "$d"/*.jsonl 2>/dev/null | grep -o '"cwd":"[^"]*"' | sed 's/^"cwd":"//; s/"$//' | sort -u)`,
+  'set -f',
+  'for c in $cwds; do case "$c" in "$w"|"$w"/*) ;; *) echo kept=foreign; exit 0;; esac; done',
+  'rm -rf -- "$d" && echo removed=yes',
+].join('\n');
+
 export function parseHealth(stdout) {
   const values = {};
   for (const line of String(stdout).split(/\r?\n/)) {
@@ -395,7 +426,11 @@ export function createSshEnvironment(
     await script('kill -TERM -- "-$1" 2>/dev/null; sleep 2; kill -KILL -- "-$1" 2>/dev/null; true', String(pid));
   };
 
-  return {
+  // Only a worktree this environment made: <workRoot>/worktrees/<name>.
+  const ownWorkspace = workspace =>
+    NAME.test(String(workspace?.name)) && workspace.path === `${config.workRoot}/worktrees/${workspace.name}`;
+
+  const environment = {
     id: config.id,
     kind: 'ssh',
     label: config.label ?? config.id,
@@ -427,9 +462,13 @@ export function createSshEnvironment(
       return parseHealth(result.stdout);
     },
 
-    /** Pushes the local candidate's HEAD to the box and opens a fresh remote worktree on it. */
-    async prepareWorkspace({ repo, name }) {
+    /**
+     * Pushes the local candidate's HEAD (or `base`, a recovered commit) to the box and opens a
+     * fresh remote worktree on it.
+     */
+    async prepareWorkspace({ repo, name, base = 'HEAD' }) {
       if (typeof name !== 'string' || !NAME.test(name)) throw new Error('Invalid remote workspace name');
+      if (base !== 'HEAD' && !COMMIT.test(String(base))) throw new Error('Invalid workspace base commit');
       await wake();
       const branch = `switchflow/${name}`;
       const worktree = `${config.workRoot}/worktrees/${name}`;
@@ -450,7 +489,7 @@ export function createSshEnvironment(
         ),
         'Preparing the remote mirror',
       );
-      await git(repo, ['push', '-q', '--force', mirrorUrl, `HEAD:refs/heads/${branch}`], 'Pushing the task branch');
+      await git(repo, ['push', '-q', '--force', mirrorUrl, `${base}:refs/heads/${branch}`], 'Pushing the task branch');
       await must(
         script('set -e; git -C "$1" worktree add -q "$2" "$3"', mirror, worktree, branch),
         'Creating the remote worktree',
@@ -552,6 +591,48 @@ export function createSshEnvironment(
       return { changed: true, head: remoteHead };
     },
 
+    /**
+     * After a restart: commits whatever an interrupted worker left uncommitted in its remote
+     * worktree (`commit: true`), fetches that head into the local `ref`, then removes the remote
+     * worktree. Throws when the box cannot be reached or the work cannot be saved, leaving the
+     * worktree in place.
+     */
+    async recover(workspace, { into, ref, message, commit = true, author = {} }) {
+      if (!ownWorkspace(workspace)) throw new Error('Not a workspace of this environment');
+      if (commit && !RECOVERY_REF.test(String(ref))) throw new Error('Invalid recovery ref');
+      await wake();
+      const result = await must(
+        script(
+          RECOVER_SCRIPT,
+          workspace.path,
+          workspace.name,
+          String(message ?? 'Recovered uncommitted work').slice(0, 2000),
+          author.name || 'Switchflow',
+          author.email || 'switchflow@localhost',
+          commit ? 'commit' : 'check',
+        ),
+        'Recovering the remote work',
+      );
+      const values = Object.fromEntries(
+        String(result.stdout)
+          .split(/\r?\n/)
+          .map(line => line.trim().split('='))
+          .filter(([key, value]) => key && value !== undefined),
+      );
+      if (values.state === 'missing') return { found: false, changed: false, head: null, ref: null };
+      const head = COMMIT.test(values.head ?? '') ? values.head : null;
+      if (commit) {
+        if (!head) throw new Error(`Recovering the remote work failed on ${config.label ?? config.id}: no head`);
+        await git(
+          into,
+          ['fetch', '-q', '--no-tags', mirrorUrl, `+refs/switchflow/recovery/${workspace.name}:${ref}`],
+          'Fetching the recovered work',
+        );
+      }
+      await environment.cleanup(workspace);
+      return { found: true, changed: values.changed === 'yes', head, ref: commit ? ref : null };
+    },
+
     async cleanup(workspace) {
       await wake().catch(() => {});
       await script(
@@ -562,6 +643,10 @@ export function createSshEnvironment(
         `${config.workRoot}/run`,
         workspace.name,
       );
+      // Claude's saved conversations for this worktree, and nothing else (see TRANSCRIPT_SCRIPT).
+      const folder = ownWorkspace(workspace) ? claudeProjectFolder(workspace.path) : null;
+      if (folder) await script(TRANSCRIPT_SCRIPT, workspace.path, folder);
     },
   };
+  return environment;
 }

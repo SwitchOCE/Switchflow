@@ -18,6 +18,8 @@ const MAX_LEASES = 16;
 /** Memory a worker admitted this recently may not use yet; it is held back from "free". */
 export const RAMP_MS = 2 * 60 * 1000;
 export const DEFAULT_LEASE_MINUTES = 30;
+/** The queue reason while the owner has paused local workers (agent settings pauseLocalWorkers). */
+export const PAUSED_REASON = 'Paused by the owner to free this PC';
 /** Built-in leases. gate and e2e are the heavy steps; suite keeps acquire_suite_lock working. */
 const BUILTIN_LEASES = Object.freeze({
   suite: { count: 1, gating: true, maxMinutes: 120 },
@@ -314,6 +316,7 @@ export class CapacityManager {
   async pump() {
     if (!this.queue.length) return;
     const profile = await this.profile();
+    const paused = (await this.host.localPaused?.()) === true;
     // From here to the end nothing awaits, so two pumps cannot admit past a limit. Each lane (this
     // PC, or one remote environment) is first in, first out on its own, so a full SSH box never
     // holds up local workers.
@@ -321,7 +324,7 @@ export class CapacityManager {
     for (const head of [...this.queue]) {
       const lane = head.lane ?? 'local';
       if (blocked.has(lane)) continue;
-      const decision = this.decide(head, profile);
+      const decision = paused && lane === 'local' ? { ok: false, reason: PAUSED_REASON } : this.decide(head, profile);
       const claimed = decision.ok ? (head.claim?.() ?? null) : decision.reason;
       if (claimed) {
         head.reason = claimed;
@@ -342,7 +345,8 @@ export class CapacityManager {
     for (const entry of this.queue) {
       const lane = entry.lane ?? 'local';
       const index = ahead.get(lane) ?? 0;
-      if (index) entry.reason = `waiting behind ${index} earlier worker${index === 1 ? '' : 's'}`;
+      if (paused && lane === 'local') entry.reason = PAUSED_REASON;
+      else if (index) entry.reason = `waiting behind ${index} earlier worker${index === 1 ? '' : 's'}`;
       ahead.set(lane, index + 1);
     }
     this.scheduleRecheck();
