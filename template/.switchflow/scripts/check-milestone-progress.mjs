@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { spawnCliSync } from './cli-output.mjs';
 
 function frontmatterValue(source, field) {
   const match = source.match(new RegExp('^' + field + ':[\\t ]*[\'\\"]?([^\\r\\n\'\\"]+)[\'\\"]?[\\t ]*\\r?$', 'm'));
@@ -70,7 +70,7 @@ function run() {
     return;
   }
 
-  const result = spawnSync(process.execPath, [cliPath, ...backlogArgs], {
+  const result = spawnCliSync(process.execPath, [cliPath, ...backlogArgs], {
     cwd: projectRoot,
     encoding: 'utf8',
     maxBuffer: 4 * 1024 * 1024,

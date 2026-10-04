@@ -76,7 +76,14 @@ try {
         $cliExitCode = $LASTEXITCODE
     }
     else {
-        & node $cliPath @args
+        # SF-28: outside Windows the fork CLI can lose redirected output beyond 64 KiB, so a
+        # one-shot command's output goes through files. MCP keeps its pipes; Windows is unchanged.
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Unix -and [Console]::IsOutputRedirected -and -not ($args.Count -ge 1 -and $args[0] -eq 'mcp')) {
+            & node (Join-Path $governanceScripts 'cli-output.mjs') $cliPath @args
+        }
+        else {
+            & node $cliPath @args
+        }
         $cliExitCode = $LASTEXITCODE
 
         if ($cliExitCode -eq 0 -and $args.Count -eq 1 -and $args[0] -eq 'doctor') {

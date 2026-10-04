@@ -76,7 +76,7 @@ test(
       const cli = path.join(root, '.switchflow/node_modules/backlog.md');
       mkdirSync(scripts, { recursive: true });
       mkdirSync(cli, { recursive: true });
-      for (const file of ['backlog.ps1', 'tooling.ps1', 'flow.mjs'])
+      for (const file of ['backlog.ps1', 'tooling.ps1', 'flow.mjs', 'cli-output.mjs'])
         copyFileSync(path.join(source, file), path.join(scripts, file));
       writeFileSync(
         path.join(root, '.switchflow/package.json'),

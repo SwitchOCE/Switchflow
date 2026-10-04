@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execCliSync } from './cli-output.mjs';
 
 const statuses = ['Backlog', 'Blocked', 'Ready', 'In Progress', 'Review', 'Done'];
 
@@ -77,7 +77,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } else {
     const read = args =>
       JSON.parse(
-        execFileSync(process.execPath, [cliPath, ...args], {
+        execCliSync(process.execPath, [cliPath, ...args], {
           cwd: root,
           encoding: 'utf8',
           windowsHide: true,
