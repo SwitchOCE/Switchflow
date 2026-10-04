@@ -90,10 +90,23 @@ const SECRET_PART = /(^|_)(TOKEN|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?|AUTH|KE
 /** NODE_OPTIONS may only size the heap; --require, --import and loaders would run code in every Node process. */
 const NODE_OPTION = /^--max-(old|semi)-space-size=\d{1,6}$/;
 
+/**
+ * Set by the host for each worker (its port block and Docker Compose project, worker-resources.mjs),
+ * never by a profile. Only values of exactly this shape pass.
+ */
+export const HOST_ENV = Object.freeze({
+  SWITCHFLOW_PORT_BASE: /^[1-9]\d{3,4}$/,
+  SWITCHFLOW_PORT_COUNT: /^[1-9]\d{0,3}$/,
+  COMPOSE_PROJECT_NAME: /^sf-[0-9a-f]{8}$/,
+});
+const hostEnvAllowed = (name, value) =>
+  Object.hasOwn(HOST_ENV, name) && typeof value === 'string' && HOST_ENV[name].test(value);
+
 /** Why a workerEnv entry is refused, or null when it may be injected. */
 export function workerEnvRefusal(name, value) {
   if (typeof name !== 'string' || !NAME.test(name)) return 'must be a plain variable name';
   const upper = name.toUpperCase();
+  if (Object.hasOwn(HOST_ENV, upper)) return 'is set by the host for each worker';
   if (DENIED_ENV_NAMES.includes(upper)) return 'is reserved for the host and agents';
   if (DENIED_ENV_PREFIXES.some(prefix => upper.startsWith(prefix)))
     return 'belongs to an agent, Git, a package manager, a loader or a cloud credential';
@@ -111,11 +124,16 @@ export function workerEnvRefusal(name, value) {
   return null;
 }
 
-/** The subset of env that passes the policy. Spawn sites call this even for a validated profile. */
+/**
+ * The subset of env that passes the policy. Spawn sites call this even for a validated profile.
+ * The host's own per-worker variables (HOST_ENV) pass when their values have the host's shape.
+ */
 export function safeWorkerEnv(env) {
   if (!env || typeof env !== 'object' || Array.isArray(env)) return {};
-  const entries = Object.entries(env).filter(([name, value]) => workerEnvRefusal(name, value) === null);
-  return Object.fromEntries(entries.slice(0, MAX_ENV_VARS));
+  const entries = Object.entries(env);
+  const profile = entries.filter(([name, value]) => workerEnvRefusal(name, value) === null);
+  const host = entries.filter(([name, value]) => hostEnvAllowed(name, value));
+  return Object.fromEntries([...profile.slice(0, MAX_ENV_VARS), ...host]);
 }
 
 /**

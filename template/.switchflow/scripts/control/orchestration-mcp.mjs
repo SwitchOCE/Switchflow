@@ -25,6 +25,13 @@ export const TOOLS = [
           description:
             'Optional override of where the worker runs: "local", an SSH box, or a cloud environment such as "claude-cloud", if the owner configured and enabled it. Defaults to the owner placement for the role. SSH workers stream and steer like local ones; cloud workers skip memory admission, start at once and report through polling (about a minute of lag). Codex cloud takes reviews only: one fire-and-forget task with no steering, follow-up or approach turn. An unconfigured or unavailable environment is refused with its reason, never replaced by this PC.',
         },
+        leases: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: 8,
+          description:
+            'Optional leases the host takes for this worker before it starts and holds for its whole session (up to each lease\'s maxMinutes), released when the session ends. Workers on SSH boxes and in the cloud cannot call acquire_lease, so name their heavy steps here, for example ["gate"] or ["e2e"]. Names come from the pool of the machine the worker runs on: this PC\'s leases for local workers, the environment\'s own declared leases otherwise (list_leases shows both). While a lease is taken the worker stays queued with the reason.',
+        },
       },
       required: ['task', 'kind', 'instructions', 'worktree'],
       additionalProperties: false,
@@ -121,7 +128,8 @@ export const LEASE_TOOLS = [
   },
   {
     name: 'list_leases',
-    description: "The project's lease names with their counts, current holders, time left and waiters.",
+    description:
+      "The project's lease names on this PC with their counts, current holders, time left and waiters, and (environments) each environment's own lease pool for delegate_task leases.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
   },

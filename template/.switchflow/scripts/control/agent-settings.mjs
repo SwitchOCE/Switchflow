@@ -40,6 +40,9 @@ export function defaultAgentSettings() {
     // could edit these could send workers and code to a host of its choosing.
     environments: [],
     placement: { delivery: LOCAL_ID, review: LOCAL_ID },
+    // "Pause local workers": new workers placed on this PC queue until the owner turns it off.
+    // Running ones continue; remote environments are unaffected (capacity.mjs).
+    pauseLocalWorkers: false,
   };
 }
 
@@ -55,6 +58,7 @@ function mergeStored(stored) {
     limits: { ...base.limits, ...stored.limits },
     environments: Array.isArray(stored.environments) ? stored.environments : [],
     placement: { ...base.placement, ...stored.placement },
+    pauseLocalWorkers: stored.pauseLocalWorkers === true,
   };
 }
 
@@ -70,7 +74,16 @@ const plainObject = value => value && typeof value === 'object' && !Array.isArra
 /** Applies a partial browser update. Unknown keys and values are refused rather than ignored. */
 export function applySettingsPatch(current, input) {
   if (!plainObject(input)) fail('A settings object is required.');
-  const allowed = ['roles', 'models', 'efforts', 'limits', 'environments', 'placement', 'expectedRevision'];
+  const allowed = [
+    'roles',
+    'models',
+    'efforts',
+    'limits',
+    'environments',
+    'placement',
+    'pauseLocalWorkers',
+    'expectedRevision',
+  ];
   if (Object.keys(input).some(key => !allowed.includes(key))) fail(`Only ${allowed.join(', ')} can be supplied.`);
   if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision)
     throw new ControlError('Agent settings changed. Refresh and review them before saving.', 409);
@@ -122,6 +135,10 @@ export function applySettingsPatch(current, input) {
       seen.add(valid.id);
       return valid;
     });
+  }
+  if (input.pauseLocalWorkers !== undefined) {
+    if (typeof input.pauseLocalWorkers !== 'boolean') fail('pauseLocalWorkers must be true or false.');
+    next.pauseLocalWorkers = input.pauseLocalWorkers;
   }
   if (input.placement !== undefined) {
     if (!plainObject(input.placement)) fail('placement must be an object.');

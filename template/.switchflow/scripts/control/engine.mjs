@@ -75,6 +75,26 @@ function resumeHeldWorkers(item, input) {
   );
 }
 
+/**
+ * An environment the placement uses is not ready: delivery holds with the reason instead of
+ * letting workers queue silently. Retry ("Test again") checks again before starting.
+ */
+function holdForEnvironments(item, readiness) {
+  const failing = readiness.environments.filter(entry => !entry.ok);
+  item.pending = false;
+  item.status = 'blocked';
+  item.environmentHold = { checkedAt: readiness.checkedAt, environments: failing };
+  item.nextAction =
+    'Delivery is waiting for where its workers run. Fix the environment or its placement, then test again.';
+  item.revision++;
+  item.updatedAt = now();
+  event(
+    item,
+    'environment-hold',
+    `Delivery held: ${failing.map(entry => `${entry.label} is not ready (${entry.reason})`).join('; ')}. Switchflow does not fall back to this PC.`,
+  );
+}
+
 export class ControlEngine {
   constructor(
     context,
@@ -87,6 +107,9 @@ export class ControlEngine {
       processStarted = processStartTime,
       stopProcess = stopProcessTree,
       bridgeFactory = startGitBridge,
+      // Environment readiness before a delivery run starts (AgentHost.readiness); null skips it.
+      preflight = null,
+      prepareResume = null,
     },
   ) {
     this.context = context;
@@ -101,6 +124,8 @@ export class ControlEngine {
     this.processStarted = processStarted;
     this.stopProcess = stopProcess;
     this.bridgeFactory = bridgeFactory;
+    this.preflight = preflight;
+    this.prepareResume = prepareResume;
   }
   async read() {
     const state = await readState(this.context, 'control', initial);
@@ -218,6 +243,9 @@ export class ControlEngine {
                 provider: entry.provider ?? null,
                 status: entry.status,
                 approval: entry.approval ?? null,
+                environment: entry.environment ?? 'local',
+                // A cloud worker kept running and is reconnected instead of delegated again.
+                reconnect: Boolean(entry.cloud?.key),
               })),
             }
           : null;
@@ -279,6 +307,28 @@ export class ControlEngine {
     s.activeRun = null;
     return false;
   }
+  /**
+   * Before "resume held workers" starts a run, prepareResume (set by the agent host, see
+   * worker-recovery.mjs) saves what held SSH workers left on their box. When it cannot, the
+   * workers stay held with the reason and nothing is resumed.
+   */
+  async prepareHeldWorkers(snapshot, id, input) {
+    const item = snapshot.initiatives.find(i => i.id === id);
+    const workers = item?.heldWorkers?.workers;
+    if (!this.prepareResume || !workers?.length || input.expectedRevision !== item.revision) return;
+    if (Object.keys(input).some(key => !['action', 'expectedRevision'].includes(key))) return;
+    const { blocked } = await this.prepareResume(workers);
+    if (!blocked) return;
+    await this.mutate(s => {
+      const live = s.initiatives.find(i => i.id === id);
+      if (!live?.heldWorkers || live.revision !== input.expectedRevision) return;
+      live.heldWorkers.blocked = blocked;
+      live.nextAction = blocked;
+      live.revision++;
+      event(live, 'resume-blocked', blocked);
+    });
+    throw new ControlError(blocked, 409);
+  }
   async create(input) {
     const item = createInitiative(input);
     const state = await this.mutate(s => {
@@ -304,7 +354,7 @@ export class ControlEngine {
           if (entry.state === 'running') await this.stopProcess(entry.pid);
       }
       held = await this.heldProcesses(snapshot.activeRun);
-    }
+    } else if (input.action === 'resume-workers') await this.prepareHeldWorkers(snapshot, id, input);
     const state = await this.mutate(s => {
       if (s.activeRun?.status === 'interrupted') {
         if (!held || s.activeRun.id !== snapshot.activeRun.id)
@@ -380,10 +430,29 @@ export class ControlEngine {
       let selected;
       const snapshot = await this.read();
       if (snapshot.activeRun || !snapshot.initiatives.some(i => i.pending)) return;
+      // Delivery waits for the environments its placement uses; it never falls back to this PC.
+      const next = snapshot.initiatives.find(i => i.pending);
+      const readiness =
+        next.stage === 'delivery' && this.preflight
+          ? await this.preflight({ initiativeId: next.id }).catch(error => ({
+              ok: false,
+              checkedAt: now(),
+              environments: [{ id: null, label: 'Environment check', ok: false, reason: error.message }],
+            }))
+          : null;
+      let held = false;
       await this.mutate(s => {
         if (s.activeRun || this.closed) return;
         const item = s.initiatives.find(i => i.pending);
         if (!item) return;
+        // The check belongs to the snapshot it ran on; anything changed means check again.
+        if (item.id !== next.id || item.revision !== next.revision) return void (held = true);
+        if (readiness && !readiness.ok) {
+          holdForEnvironments(item, readiness);
+          held = true;
+          return;
+        }
+        if (readiness) item.environmentHold = null;
         const run = {
           id: randomUUID(),
           initiativeId: item.id,
@@ -411,6 +480,7 @@ export class ControlEngine {
         });
         this.current = { initiativeId: item.id, controller, promise };
       });
+      if (held) this.schedule();
       if (!selected) return;
       if (this.closed) this.current.controller.abort();
       launched = true;
@@ -512,7 +582,7 @@ export class ControlEngine {
       if (stage === 'execution' && item.resumeWorkers?.workerIds?.length) {
         resumeWorkers = await readDelegations(this.context, item.resumeWorkers.workerIds);
         agentState.resumedWorkers = {
-          note: 'The owner resumed these workers from the interrupted run. The host has already delegated them again (or queued them for capacity) with their original instructions. Follow them with worker_status and wait_for_workers; do not delegate the same tasks again.',
+          note: 'The owner resumed these workers from the interrupted run. The host has already delegated them again (or queued them for capacity) with their original instructions, or reconnected cloud workers that kept running. Follow them with worker_status and wait_for_workers; do not delegate the same tasks again.',
           workers: resumeWorkers.map(({ task, kind, worktree }) => ({ task, kind, worktree })),
         };
       }

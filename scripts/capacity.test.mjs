@@ -13,16 +13,18 @@ import * as protocol from '../template/.switchflow/scripts/control/agent-protoco
 import { Orchestration, resumeInstructions } from '../template/.switchflow/scripts/control/orchestration.mjs';
 import {
   CAPACITY_CONFIG,
+  PAUSED_REASON,
   readCapacityProfile,
   validateCapacityProfile,
 } from '../template/.switchflow/scripts/control/capacity.mjs';
-import { withWorkerEnv } from '../template/.switchflow/scripts/control/worker-env.mjs';
+import { safeWorkerEnv, withWorkerEnv } from '../template/.switchflow/scripts/control/worker-env.mjs';
+import { composeProjectName, defaultRunner } from '../template/.switchflow/scripts/control/worker-resources.mjs';
 import { childEnvironment } from '../template/.switchflow/scripts/control/providers/process.mjs';
 import { codexAppServerArguments } from '../template/.switchflow/scripts/control/providers/codex-app-server.mjs';
 import { codexArguments, isRunProcessAlive } from '../template/.switchflow/scripts/control/codex-runner.mjs';
 import { ProcessTracker, descendantsOf, parseElapsed } from '../template/.switchflow/scripts/control/process-tree.mjs';
 import { recordDelegation } from '../template/.switchflow/scripts/control/worker-ledger.mjs';
-import { fakeMachine, fakeProvider, fixture, until } from './agent-fakes.mjs';
+import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
 const both = { codex: { available: true }, claude: { available: true, loggedIn: true } };
 const planHash = 'b'.repeat(64);
@@ -56,7 +58,7 @@ async function writeProfile(context, profile) {
 }
 
 /** An orchestration with one candidate, fake providers and the given memory pool. */
-async function orchestrate(context, { pool, maxWorkers = 8, providers } = {}) {
+async function orchestrate(context, { pool, maxWorkers = 8, providers, resources = {} } = {}) {
   const initiativeId = randomUUID();
   const managedRoot = path.join(context.stateDir, 'candidates', 'grant');
   const candidate = path.join(managedRoot, 'cand');
@@ -77,6 +79,7 @@ async function orchestrate(context, { pool, maxWorkers = 8, providers } = {}) {
     },
     capacity: { pool, recheckMs: 0 },
     processes: { sampleMs: 0 },
+    resources,
   });
   await host.init();
   await host.updateSettings({ limits: { maxWorkers } });
@@ -231,7 +234,11 @@ test('worker caps reach every agent process without overriding host or security 
       sandbox: 'workspace-write',
       runDirectory: path.join(context.stateDir, 'runs', 'x'),
     });
-    assert.deepEqual(log[0].options.env, { VITEST_MAX_WORKERS: '2' });
+    // A worker also gets its own compose project (and a port block when the profile declares ports).
+    assert.deepEqual(log[0].options.env, {
+      VITEST_MAX_WORKERS: '2',
+      COMPOSE_PROJECT_NAME: `sf-${opened.meta.id.slice(0, 8)}`,
+    });
     await host.closeSession(opened.meta, opened.handle, { status: 'completed' });
     await host.close();
   }));
@@ -748,6 +755,349 @@ test('resumed workers are delegated again with a note and their original instruc
         resumeInstructions({ task: 'T', kind: 'deliver', status: 'queued', instructions: 'x'.repeat(60000) }).length <=
           50000,
       );
+    } finally {
+      await close();
+    }
+  }));
+
+/** A docker double: records every command and answers as docker compose would. Never runs docker. */
+function fakeDocker({ installed = true, projects = [] } = {}) {
+  const docker = { installed, projects, calls: [], downFails: false };
+  docker.run = async (argv, { environment = null } = {}) => {
+    docker.calls.push({ argv, where: environment?.id ?? 'local' });
+    if (!docker.installed) return { code: -1, stdout: '', stderr: 'spawn docker ENOENT' };
+    const line = argv.join(' ');
+    if (line === 'docker compose version') return { code: 0, stdout: 'Docker Compose version v2.29.7\n', stderr: '' };
+    if (line === 'docker compose ls --all --quiet')
+      return { code: 0, stdout: `${docker.projects.join('\n')}\n`, stderr: '' };
+    if (argv[2] === '-p' && argv[4] === 'down') {
+      if (docker.downFails) return { code: 1, stdout: '', stderr: 'Error response from daemon: conflict\n' };
+      docker.projects = docker.projects.filter(name => name !== argv[3]);
+      return { code: 0, stdout: '', stderr: '' };
+    }
+    return { code: 1, stdout: '', stderr: `unexpected: ${line}` };
+  };
+  return docker;
+}
+const downs = docker => docker.calls.filter(call => call.argv.includes('down')).map(call => call.argv);
+
+test('ports and docker profile fields are strict, and only the host sets the per-worker variables', () => {
+  const profile = validateCapacityProfile({
+    schemaVersion: 1,
+    ports: { base: 41000, blockSize: 10, blocks: 4 },
+    docker: { composeDown: true },
+  });
+  assert.deepEqual(profile.ports, { base: 41000, blockSize: 10, blocks: 4 });
+  assert.deepEqual(profile.docker, { composeDown: true });
+  const defaults = validateCapacityProfile({ schemaVersion: 1 });
+  assert.deepEqual([defaults.ports, defaults.docker], [null, { composeDown: false }]);
+  const refused = (value, pattern) =>
+    assert.throws(
+      () => validateCapacityProfile({ schemaVersion: 1, ...value }),
+      error => error.status === 409 && pattern.test(error.message),
+    );
+  refused({ ports: { base: 80, blockSize: 10, blocks: 2 } }, /ports\.base must be a whole number from 1024/);
+  refused({ ports: { base: 41000, blockSize: 10 } }, /ports\.blocks/);
+  refused({ ports: { base: 65000, blockSize: 100, blocks: 10 } }, /end past port 65535/);
+  refused({ ports: { base: 41000, blockSize: 10, blocks: 2, step: 1 } }, /unsupported field ports\.step/);
+  refused({ docker: { composeDown: 'yes' } }, /docker\.composeDown must be true or false/);
+  refused({ docker: { prune: true } }, /unsupported field docker\.prune/);
+  refused({ workerEnv: { COMPOSE_PROJECT_NAME: 'shared' } }, /set by the host for each worker/);
+  refused({ workerEnv: { SWITCHFLOW_PORT_BASE: '3000' } }, /set by the host for each worker/);
+
+  // Spawn sites pass the host's variables only in the host's own shape.
+  assert.deepEqual(
+    safeWorkerEnv({
+      SWITCHFLOW_PORT_BASE: '41000',
+      SWITCHFLOW_PORT_COUNT: '10',
+      COMPOSE_PROJECT_NAME: 'sf-0123abcd',
+      VITEST_MAX_WORKERS: '2',
+    }),
+    {
+      VITEST_MAX_WORKERS: '2',
+      SWITCHFLOW_PORT_BASE: '41000',
+      SWITCHFLOW_PORT_COUNT: '10',
+      COMPOSE_PROJECT_NAME: 'sf-0123abcd',
+    },
+  );
+  assert.deepEqual(
+    safeWorkerEnv({
+      SWITCHFLOW_PORT_BASE: '1; rm -rf /',
+      COMPOSE_PROJECT_NAME: 'webatrice-e2e',
+      SWITCHFLOW_TOKEN: '1',
+    }),
+    {},
+  );
+  // Codex shells see them through its environment policy too.
+  assert.ok(
+    codexAppServerArguments({ sandbox: 'read-only', env: { SWITCHFLOW_PORT_BASE: '41000' } }).includes(
+      'shell_environment_policy.set.SWITCHFLOW_PORT_BASE="41000"',
+    ),
+  );
+  assert.equal(composeProjectName('0123ABCD-ef01-4000-8000-000000000000'), 'sf-0123abcd');
+});
+
+test('each worker gets its own port block and compose project; a worker waits while no block is free', () =>
+  fixture(async context => {
+    await writeProfile(context, { schemaVersion: 1, ports: { base: 41000, blockSize: 10, blocks: 2 } });
+    const { host, log, orchestration, deliver, close } = await orchestrate(context, { pool: fakeMachine().pool });
+    const envOf = workerId => log.find(entry => entry.options.id === workerId).options.env;
+    try {
+      const first = await deliver('DEMO-1');
+      const second = await deliver('DEMO-2');
+      assert.deepEqual([first.status, second.status], ['working', 'working']);
+      assert.deepEqual(envOf(first.workerId), {
+        SWITCHFLOW_PORT_BASE: '41000',
+        SWITCHFLOW_PORT_COUNT: '10',
+        COMPOSE_PROJECT_NAME: composeProjectName(first.workerId),
+      });
+      assert.equal(envOf(second.workerId).SWITCHFLOW_PORT_BASE, '41010');
+      assert.notEqual(envOf(first.workerId).COMPOSE_PROJECT_NAME, envOf(second.workerId).COMPOSE_PROJECT_NAME);
+      assert.deepEqual(
+        [first.ports, first.composeProject],
+        [{ base: 41000, count: 10 }, composeProjectName(first.workerId)],
+      );
+
+      const third = await deliver('DEMO-3');
+      assert.equal(third.status, 'queued');
+      assert.equal(third.queue.reason, 'no free port block: 2 of 2 in use (ports.blocks)');
+      await host.resources.persisting;
+      const stored = await readState(context, 'worker-resources', { workers: [] });
+      assert.deepEqual(
+        stored.workers.map(entry => [entry.holder, entry.base]).sort(),
+        [
+          [first.workerId, 41000],
+          [second.workerId, 41010],
+        ].sort(),
+      );
+
+      // A worker's session end frees its block, and the waiting worker starts on it.
+      await orchestration.finishWorker(orchestration.worker(first.workerId), 'completed');
+      await until(() => orchestration.worker(third.workerId).status === 'working');
+      assert.equal(envOf(third.workerId).SWITCHFLOW_PORT_BASE, '41000');
+    } finally {
+      await close();
+    }
+    assert.deepEqual((await readState(context, 'worker-resources', {})).workers, []);
+  }));
+
+test('after a restart, blocks of gone workers are freed after their compose project stops, unless the fence holds their run', () =>
+  fixture(async context => {
+    const ports = { base: 41000, blockSize: 10, blocks: 2 };
+    await writeProfile(context, { schemaVersion: 1, ports, docker: { composeDown: true } });
+    const fencedRun = randomUUID();
+    const record = (runId, block) => {
+      const holder = randomUUID();
+      const base = 41000 + block * 10;
+      return { holder, runId, environment: 'local', block, base, count: 10, compose: composeProjectName(holder) };
+    };
+    const kept = record(fencedRun, 0);
+    const gone = record(randomUUID(), 1);
+    await updateState(context, 'worker-resources', () => ({ schemaVersion: 1, workers: [kept, gone] }));
+    const docker = fakeDocker({ projects: ['webatrice-e2e', gone.compose, kept.compose] });
+    const logged = [];
+    let state = { activeRun: { id: fencedRun, status: 'interrupted' } };
+    const host = new AgentHost(context, {
+      capabilities: both,
+      capacity: { pool: fakeMachine().pool },
+      resources: { run: docker.run, log: message => logged.push(message) },
+    });
+    await host.init();
+    host.bind({ read: async () => state });
+    await host.resources.ensureLoaded();
+    assert.deepEqual(
+      host.resources.records.map(entry => entry.holder),
+      [kept.holder],
+    );
+    assert.deepEqual(downs(docker), [['docker', 'compose', '-p', gone.compose, 'down', '--remove-orphans']]);
+    assert.match(logged[0], /^Stopped Docker Compose project sf-[0-9a-f]{8} on this PC .*did not close/);
+    // The freed block goes to the next worker; the fenced run's block stays taken.
+    const next = randomUUID();
+    assert.equal(host.resources.claim(next, { runId: randomUUID(), ports }), null);
+    assert.deepEqual(host.resources.of(next).ports, { base: 41010, count: 10 });
+    host.resources.unclaim(next);
+    // Once the owner clears the fence, the rest goes too. Other projects are never touched.
+    state = { activeRun: null };
+    await host.resources.ensureLoaded();
+    assert.deepEqual(host.resources.records, []);
+    assert.deepEqual(docker.projects, ['webatrice-e2e']);
+    assert.deepEqual((await readState(context, 'worker-resources', {})).workers, []);
+    await host.close();
+  }));
+
+test('closing a worker session stops only its own compose project, when opted in and docker is installed', () =>
+  fixture(async context => {
+    const docker = fakeDocker();
+    const host = new AgentHost(context, {
+      capabilities: both,
+      providers: { claude: fakeProvider('claude') },
+      processes: { sampleMs: 0 },
+      resources: { run: docker.run },
+    });
+    await host.init();
+    const session = async ({ started = true } = {}) => {
+      const opened = await host.openSession({
+        provider: 'claude',
+        role: 'delivery',
+        kind: 'deliver',
+        runId: randomUUID(),
+        task: 'DEMO-1',
+        cwd: context.sourceRoot,
+        sandbox: 'workspace-write',
+        runDirectory: path.join(context.stateDir, 'runs', randomUUID()),
+      });
+      const name = composeProjectName(opened.meta.id);
+      // The agent brought its stack up under the project name it was given.
+      if (started) docker.projects.push(name);
+      await host.closeSession(opened.meta, opened.handle, { status: 'completed' });
+      const events = (await host.events(opened.meta.id, 0, 500)).events;
+      return { name, notices: events.filter(event => event.kind === 'notice') };
+    };
+    try {
+      // Off unless the profile opts in: no docker command at all.
+      await session();
+      assert.deepEqual(docker.calls, []);
+      docker.projects = ['webatrice-e2e'];
+
+      await writeProfile(context, { schemaVersion: 1, docker: { composeDown: true } });
+      let closed = await session();
+      assert.deepEqual(downs(docker), [['docker', 'compose', '-p', closed.name, 'down', '--remove-orphans']]);
+      assert.deepEqual(
+        closed.notices.map(notice => [notice.level, notice.text]),
+        [['info', `Stopped Docker Compose project ${closed.name} on this PC (down --remove-orphans).`]],
+      );
+      assert.deepEqual(docker.projects, ['webatrice-e2e']);
+
+      // The project does not exist: listed, nothing stopped, nothing to say.
+      docker.calls = [];
+      closed = await session({ started: false });
+      assert.deepEqual(
+        docker.calls.map(call => call.argv.slice(1, 3).join(' ')),
+        ['compose version', 'compose ls'],
+      );
+      assert.deepEqual(closed.notices, []);
+
+      // A failed down is a warning on the session.
+      docker.downFails = true;
+      closed = await session();
+      assert.deepEqual(
+        [closed.notices.at(-1).level, closed.notices.at(-1).text],
+        ['warning', `docker compose -p ${closed.name} down failed on this PC: Error response from daemon: conflict`],
+      );
+      docker.downFails = false;
+
+      // No docker on this machine: skipped and said so.
+      docker.installed = false;
+      docker.calls = [];
+      closed = await session();
+      assert.equal(docker.calls.length, 1);
+      assert.equal(
+        closed.notices.at(-1).text,
+        `Skipped Docker Compose cleanup of ${closed.name}: docker compose is not available on this PC.`,
+      );
+      // Every down ever run named that session's own project.
+      assert.ok(downs(docker).every(argv => /^sf-[0-9a-f]{8}$/.test(argv[3])));
+    } finally {
+      await host.close();
+    }
+  }));
+
+test('leases named at delegation are taken before the worker starts, all or none, and go with its session', () =>
+  fixture(async context => {
+    const { orchestration, call, close } = await orchestrate(context, { pool: fakeMachine().pool });
+    const delegate = (task, leases) =>
+      call('delegate_task', { task, kind: 'deliver', instructions: 'slow', worktree: 'cand', leases });
+    try {
+      await assert.rejects(
+        delegate('DEMO-1', ['nope']),
+        error =>
+          error.status === 404 &&
+          /Unknown lease "nope" on this PC\. It declares: suite, gate, e2e \(\.switchflow\/capacity\.json\)/.test(
+            error.message,
+          ),
+      );
+      await assert.rejects(delegate('DEMO-1', ['e2e', 'e2e']), /different lease names/);
+      const first = await delegate('DEMO-1', ['e2e']);
+      assert.deepEqual([first.status, first.leases], ['working', ['e2e']]);
+      let listed = await call('list_leases', {});
+      const held = listed.leases.find(lease => lease.name === 'e2e');
+      // Held for the session, up to the lease's maxMinutes.
+      assert.deepEqual(
+        [held.holder, held.environment, held.task, held.kind, held.minutesLeft],
+        [first.workerId, 'local', 'DEMO-1', 'deliver', 120],
+      );
+      const ledger = await readState(context, 'worker-ledger', { entries: [] });
+      assert.deepEqual(ledger.entries.find(entry => entry.workerId === first.workerId).leases, ['e2e']);
+
+      const second = await delegate('DEMO-2', ['gate', 'e2e']);
+      assert.equal(second.status, 'queued');
+      assert.equal(second.queue.reason, 'e2e: 1 of 1 held by DEMO-1 deliver worker, 120 min left');
+      listed = await call('list_leases', {});
+      assert.equal(listed.resources.find(resource => resource.name === 'gate').held, 0, 'all or none');
+
+      await orchestration.finishWorker(orchestration.worker(first.workerId), 'completed');
+      await until(() => orchestration.worker(second.workerId).status === 'working');
+      listed = await call('list_leases', {});
+      assert.deepEqual(listed.leases.map(lease => [lease.name, lease.holder]).sort(), [
+        ['e2e', second.workerId],
+        ['gate', second.workerId],
+      ]);
+      await orchestration.finishWorker(orchestration.worker(second.workerId), 'completed');
+      assert.deepEqual((await call('list_leases', {})).leases, []);
+    } finally {
+      await close();
+    }
+  }));
+
+test('pausing local workers queues new local delegations; resuming starts them first in first out', () =>
+  fixture(async context => {
+    const { host, runId, orchestration, call, deliver, close } = await orchestrate(context, {
+      pool: roomyPool(),
+      maxWorkers: 2,
+    });
+    // A run holds admission: other settings are locked, but the pause toggle is not.
+    host.bind({
+      read: async () => ({ schemaVersion: 1, initiatives: [], activeRun: { id: runId, status: 'running' } }),
+      mutate: async fn => fn({ activeRun: { id: runId, status: 'running' } }),
+      trackProcess: async () => {},
+      untrackProcess: async () => {},
+    });
+    const status = async worker => (await call('worker_status', { workerId: worker.workerId })).workers[0];
+    try {
+      await assert.rejects(host.updateSettings({ limits: { maxWorkers: 3 } }), /Wait for the current run/);
+      const first = await deliver('DEMO-1');
+      assert.equal(first.status, 'working');
+      const paused = await host.updateSettings({ pauseLocalWorkers: true, expectedRevision: 1 });
+      assert.equal(paused.settings.pauseLocalWorkers, true);
+      assert.equal(paused.settings.revision, 2);
+
+      const second = await deliver('DEMO-2');
+      const third = await deliver('DEMO-3');
+      assert.deepEqual([second.status, second.queue.reason], ['queued', PAUSED_REASON]);
+      assert.deepEqual([third.status, third.queue.position, third.queue.reason], ['queued', 2, PAUSED_REASON]);
+      // The running worker continues.
+      assert.equal((await status(first)).status, 'working');
+      assert.deepEqual(
+        (await host.list()).capacity.queue.map(entry => [entry.task, entry.reason]),
+        [
+          ['DEMO-2', PAUSED_REASON],
+          ['DEMO-3', PAUSED_REASON],
+        ],
+      );
+
+      // Stored service-side: a restarted host reads the same setting.
+      const restarted = new AgentHost(context, { capabilities: both, capacity: { pool: roomyPool(), recheckMs: 0 } });
+      assert.equal(await restarted.localPaused(), true);
+      await restarted.close();
+
+      // Resuming starts the queue in order: DEMO-2 takes the free slot, DEMO-3 waits for the limit.
+      await host.updateSettings({ pauseLocalWorkers: false });
+      await until(async () => (await status(second)).status === 'working');
+      const waiting = await status(third);
+      assert.equal(waiting.status, 'queued');
+      assert.match(waiting.queue.reason, /2 workers are running, the limit/);
+      await orchestration.finishWorker(orchestration.worker(first.workerId), 'completed');
+      await until(async () => (await status(third)).status === 'working');
     } finally {
       await close();
     }

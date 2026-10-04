@@ -7,6 +7,7 @@ import { ControlError } from './lifecycle.mjs';
 import { resolveProvider } from './agent-settings.mjs';
 import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
 import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
+import { CAPACITY_CONFIG } from './capacity.mjs';
 import { DEFAULT_MAX_WORKERS as DEFAULT_BOX_WORKERS } from './environments/ssh.mjs';
 
 const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
@@ -16,6 +17,7 @@ const MAX_INSTRUCTIONS = 50000;
 /** The admission lane of an environment: "local" for this PC, otherwise the environment's id. */
 const laneOf = environment => (!environment || environment.kind === 'local' ? 'local' : environment.id);
 const SUITE_TTL_MINUTES = 30;
+const MAX_DELEGATED_LEASES = 8;
 
 /** Instructions for a worker re-delegated after a service restart. */
 export function resumeInstructions(entry) {
@@ -23,8 +25,13 @@ export function resumeInstructions(entry) {
     entry.status === 'queued'
       ? 'was still queued'
       : `had started${entry.approval ? ` (approach ${entry.approval})` : ''}`;
+  // An SSH worker's remote worktree was saved as a commit, and the new worktree starts from it.
+  const recovered = entry.recovery?.ref
+    ? `You continue interrupted work: your worktree starts from ${entry.recovery.head.slice(0, 12)}${entry.recovery.changed ? ", where the host committed the previous worker's uncommitted changes" : ''}.`
+    : null;
   const note = [
     `Resumed after the Switchflow service stopped. The previous ${entry.kind} worker for ${entry.task} (${entry.provider ?? 'provider unknown'}) ${was} and cannot be continued; this is a new session with the same instructions.`,
+    ...(recovered ? [recovered] : []),
     'Before changing anything, inspect the worktree: keep committed work, check uncommitted edits and any half-finished rebase or merge, and do not redo steps that are already done.',
     "The orchestrator's original instructions follow.",
     '',
@@ -156,6 +163,12 @@ export function confirmRefusal(approval, busy) {
   return null;
 }
 
+/** A reconnected delivery worker's gate, from its recorded cloud handle. */
+function reattachedApproval(record) {
+  if (record.writable) return APPROVAL.confirmed;
+  return !record.turn?.open && record.lastResult?.outcome === 'approach' ? APPROVAL.awaiting : APPROVAL.drafting;
+}
+
 /** Host-side worker management for one execution run. Tools arrive through the MCP helper over HTTP. */
 export class Orchestration {
   constructor({
@@ -277,9 +290,17 @@ export class Orchestration {
    * Delegates one task. The worker is admitted at once when a worker slot and memory are free;
    * otherwise it is queued (status "queued") and starts by itself, first in first out.
    */
-  async delegate_task(args, principal = 'orchestrator', { resumedFrom = null } = {}) {
-    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment']);
+  async delegate_task(args, principal = 'orchestrator', { resumedFrom = null, reattach = null, base = null } = {}) {
+    this.fields(args, ['task', 'kind', 'instructions', 'worktree'], ['provider', 'environment', 'leases']);
     const { task, kind, instructions, provider: requested, environment: requestedEnvironment } = args;
+    const leaseNames = args.leases ?? [];
+    if (
+      !Array.isArray(leaseNames) ||
+      leaseNames.length > MAX_DELEGATED_LEASES ||
+      leaseNames.some(name => typeof name !== 'string' || name.length > 64) ||
+      new Set(leaseNames).size !== leaseNames.length
+    )
+      throw new ControlError(`leases must be a list of at most ${MAX_DELEGATED_LEASES} different lease names.`);
     if (
       requestedEnvironment !== undefined &&
       (typeof requestedEnvironment !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(requestedEnvironment))
@@ -317,6 +338,21 @@ export class Orchestration {
         `Environment ${environment.id} runs one fire-and-forget task with no approach turn, and delivery workers need the approach gate. Place delivery locally, on an SSH box or on Claude cloud; ${environment.id} takes reviews only.`,
         409,
       );
+    // Leases named here are taken for the worker before it starts, from the pool of the machine
+    // it runs on: this PC's profile, or the environment's own declared leases.
+    const lane = laneOf(environment);
+    const profile = await this.host.capacity.profile();
+    const pool = this.leasePool(lane, profile, settings, environment);
+    const unknown = leaseNames.find(name => !pool[name]);
+    if (unknown !== undefined) {
+      const declared = Object.keys(pool).join(', ') || 'none';
+      throw new ControlError(
+        lane === 'local'
+          ? `Unknown lease "${unknown}" on this PC. It declares: ${declared} (${CAPACITY_CONFIG}).`
+          : `Unknown lease "${unknown}" on environment ${environment.id}. It declares: ${declared}. An environment's leases are set in its owner settings; this PC's leases do not cover it.`,
+        404,
+      );
+    }
     let capabilities = this.host.capabilities;
     if (!remote && environment.kind !== 'local') {
       if (typeof environment.spawnFor !== 'function')
@@ -377,13 +413,17 @@ export class Orchestration {
       queue: [],
       token: null,
       schemaPath: path.join(this.directory, `${kind}-schema.json`),
-      approval: write ? APPROVAL.drafting : null,
+      approval: write ? (remote && reattach ? reattachedApproval(reattach) : APPROVAL.drafting) : null,
       instructions,
       resumedFrom,
+      // After a restart: a cloud handle to reconnect to, or the recovered commit an SSH worker starts from.
+      reattach: remote ? reattach : null,
+      base: remote ? null : base,
       environment,
       workspace: null,
       collected: null,
       remote,
+      leases: leaseNames,
     };
     this.workers.set(worker.id, worker);
     if (write) this.authors.set(task, routed.provider);
@@ -403,22 +443,31 @@ export class Orchestration {
         status: 'queued',
         approval: worker.approval,
         resumedFrom,
+        ...(leaseNames.length ? { leases: leaseNames } : {}),
+        ...(worker.reattach ? { cloud: worker.reattach } : {}),
       });
-      // Cloud workers use no local memory or worker slot, so they start at once.
-      if (remote) {
+      // Cloud workers use no local memory or worker slot, so they start at once unless they wait for leases.
+      if (remote && !leaseNames.length) {
         worker.launching = this.launch(worker, routed, entry).catch(error => this.launchFailed(worker, error));
         admission = {};
       } else {
         // Workers on an SSH box use none of this PC's memory and queue against the box's own limit.
-        const lane = laneOf(environment);
-        const limit = lane === 'local' ? settings.limits.maxWorkers : (environment.maxWorkers ?? DEFAULT_BOX_WORKERS);
+        const limit = remote
+          ? Infinity
+          : lane === 'local'
+            ? settings.limits.maxWorkers
+            : (environment.maxWorkers ?? DEFAULT_BOX_WORKERS);
+        // Taken in the admission step itself, so a block or lease cannot go to two workers.
+        await this.host.capacity.ensureLoaded();
+        if (!remote) await this.host.resources.ensureLoaded();
         admission = await this.host.capacity.request({
           id: worker.id,
           runId: this.runId,
           task,
           kind,
           maxWorkers: limit,
-          slotFree: () => this.liveCount(lane) < limit,
+          slotFree: () => remote || this.liveCount(lane) < limit,
+          claim: () => this.claim(worker, { lane, names: leaseNames, resources: pool, profile }),
           start: () => (worker.launching = this.launch(worker, routed, entry)),
           onFailure: error => this.launchFailed(worker, error),
           ...(lane === 'local'
@@ -442,6 +491,33 @@ export class Orchestration {
       fallback: routed.fallback,
       ...(admission.note ? { capacityNote: admission.note } : {}),
     };
+  }
+
+  /** The leases a lane can grant: this PC's profile, or an environment's declared pool. */
+  leasePool(lane, profile, settings, environment) {
+    if (lane === 'local') return profile.leases;
+    return settings.environments?.find(config => config.id === lane)?.leases ?? environment?.config?.leases ?? {};
+  }
+  /**
+   * What a worker needs from its start, taken by admission all or none: a port block where it runs
+   * (process environments) and the leases named at delegation. Returns null, or why it waits.
+   */
+  claim(worker, { lane, names, resources, profile }) {
+    if (!worker.remote) {
+      const reason = this.host.resources.claim(worker.id, {
+        runId: this.runId,
+        environment: lane,
+        ports: profile.ports,
+      });
+      if (reason) return reason;
+    }
+    if (!names.length) return null;
+    const reason = this.host.capacity.takeLeases(
+      { names, pool: lane, resources, holder: worker.id, runId: this.runId, task: worker.task, kind: worker.kind },
+      profile,
+    );
+    if (reason && !worker.remote) this.host.resources.unclaim(worker.id);
+    return reason;
   }
 
   /** Opens an admitted worker's session and starts its first turn. */
@@ -468,11 +544,18 @@ export class Orchestration {
       this.workerTokens.set(workerToken, worker.id);
       // An SSH box runs our CLIs in a workspace prepared there; cloud kinds open their own session.
       const onBox = worker.environment.kind !== 'local' && !worker.remote;
-      if (onBox)
+      if (onBox) {
         worker.workspace = await worker.environment.prepareWorkspace({
           repo: entry.path,
           name: `${task}-${kind}-${worker.id.slice(0, 8)}`,
+          ...(worker.base ? { base: worker.base } : {}),
         });
+        // Where its work lives, so a restart can save what it left uncommitted (worker-recovery.mjs).
+        const { name, path: remotePath, branch, temporaryRoot: remoteTemporary } = worker.workspace;
+        await updateDelegation(this.context, worker.id, {
+          workspace: { name, path: remotePath, branch, temporaryRoot: remoteTemporary },
+        }).catch(() => {});
+      }
       const localRoots = write
         ? [
             entry.path,
@@ -507,6 +590,13 @@ export class Orchestration {
         environment: worker.environment,
         workspace: worker.workspace,
         approval: worker.approval,
+        // Cloud workers keep running through a restart: their handle is recorded to reconnect.
+        ...(worker.remote
+          ? {
+              reattach: worker.reattach,
+              onCloudHandle: record => updateDelegation(this.context, worker.id, { cloud: record }).catch(() => {}),
+            }
+          : {}),
         forward: async () => {},
       });
       // Cancelled while it was starting: close what just opened.
@@ -521,6 +611,7 @@ export class Orchestration {
       // The host reads the gate when a message asks to confirm.
       Object.defineProperty(opened.handle, 'approval', { get: () => worker.approval, configurable: true });
       await updateDelegation(this.context, worker.id, { status: 'open' }).catch(() => {});
+      if (worker.reattach) return await this.reattached(worker);
       await this.startTurn(
         worker,
         workerPrompt({
@@ -538,7 +629,12 @@ export class Orchestration {
     } catch (error) {
       // A worker that never opened must not leave a usable token behind.
       if (workerToken && !worker.handle) this.workerTokens.delete(workerToken);
-      if (!worker.handle) await this.cleanupRemote(worker);
+      if (!worker.handle) {
+        // What admission claimed for it goes back: its port block and the leases named at delegation.
+        this.host.resources.unclaim(worker.id);
+        await this.host.capacity.releaseHolder(worker.id).catch(() => {});
+        await this.cleanupRemote(worker);
+      }
       throw error;
     }
   }
@@ -549,28 +645,41 @@ export class Orchestration {
     await updateDelegation(this.context, worker.id, { status: 'finished', outcome: 'failed' }).catch(() => {});
     this.host.registry.wake();
   }
-  /** Re-delegates workers held by a service restart, deliveries before reviews. */
+  /** A reconnected cloud worker waits for the turn it was running, or idles with its last result. */
+  async reattached(worker) {
+    if (worker.reattach.turn?.open) return this.startTurn(worker, null, { watch: true });
+    Object.assign(worker, { status: 'idle', result: worker.reattach.lastResult ?? null, reported: false });
+    await this.host.registry.update(worker.id, { status: 'idle', result: worker.result });
+    this.host.registry.wake();
+  }
+  /**
+   * Resumes workers held by a service restart, deliveries before reviews. Cloud workers kept
+   * running and are reconnected; the others are delegated again (an SSH delivery from the commit
+   * worker-recovery.mjs saved its remote work in).
+   */
   async resume(entries) {
     const ordered = [...entries].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'deliver' ? -1 : 1));
     const resumed = [];
     const failed = [];
     for (const entry of ordered) {
+      const reattach = entry.cloud?.key && entry.environment && entry.environment !== 'local' ? entry.cloud : null;
       try {
         const summary = await this.delegate_task(
           {
             task: entry.task,
             kind: entry.kind,
             worktree: entry.worktree,
-            instructions: resumeInstructions(entry),
+            instructions: reattach ? entry.instructions : resumeInstructions(entry),
             // A reviewer is routed afresh so it still differs from the author.
             ...(entry.kind === 'deliver' && entry.provider ? { provider: entry.provider } : {}),
             // Same environment as before; a removed or unhealthy one is refused with its reason.
             ...(entry.environment && entry.environment !== 'local' ? { environment: entry.environment } : {}),
+            ...(Array.isArray(entry.leases) && entry.leases.length ? { leases: entry.leases } : {}),
           },
           'orchestrator',
-          { resumedFrom: entry.workerId },
+          { resumedFrom: entry.workerId, reattach, base: entry.recovery?.ref ? entry.recovery.head : null },
         );
-        resumed.push(`${entry.task} ${entry.kind} (${summary.status})`);
+        resumed.push(`${entry.task} ${entry.kind} (${reattach ? 'reconnected' : summary.status})`);
       } catch (error) {
         failed.push(`${entry.task} ${entry.kind}: ${error.message}`);
       }
@@ -593,7 +702,7 @@ export class Orchestration {
    * Starts a turn without waiting for it; its outcome lands on the worker record. An unconfirmed
    * delivery worker's turn is read-only; confirm unlocks writes from this turn on.
    */
-  async startTurn(worker, message, { confirm = false, by = 'orchestrator' } = {}) {
+  async startTurn(worker, message, { confirm = false, by = 'orchestrator', watch = false } = {}) {
     if (FINISHED.has(worker.status)) throw new ControlError('This worker has finished.', 409);
     if (confirm) {
       const refusal = confirmRefusal(worker.approval, worker.status === 'working');
@@ -609,11 +718,14 @@ export class Orchestration {
     worker.status = 'working';
     worker.reported = false;
     const gated = worker.kind === 'deliver' && worker.approval !== APPROVAL.confirmed;
-    const turn = worker.handle.startTurn(message, {
-      outputSchema: WORKER_SCHEMAS[worker.kind],
-      schemaPath: worker.schemaPath,
-      ...(gated ? { sandbox: 'read-only' } : {}),
-    });
+    // watch: a reconnected cloud worker's running turn, which needs no new message.
+    const turn = watch
+      ? worker.handle.resumeTurn()
+      : worker.handle.startTurn(message, {
+          outputSchema: WORKER_SCHEMAS[worker.kind],
+          schemaPath: worker.schemaPath,
+          ...(gated ? { sandbox: 'read-only' } : {}),
+        });
     worker.turn = turn
       .then(async outcome => {
         worker.result = outcome.result;
@@ -718,6 +830,7 @@ export class Orchestration {
   summary(worker) {
     const meta = this.host.registry.get(worker.id)?.meta ?? worker.meta ?? {};
     const queue = worker.status === 'queued' ? this.host.capacity.queueInfo(worker.id) : null;
+    const held = FINISHED.has(worker.status) ? null : this.host.resources.of(worker.id);
     return {
       workerId: worker.id,
       task: worker.task,
@@ -730,6 +843,9 @@ export class Orchestration {
       reviewRound: worker.reviewRound,
       status: worker.status,
       ...(queue ? { queue } : {}),
+      ...(worker.leases.length ? { leases: worker.leases } : {}),
+      ...(held?.ports ? { ports: held.ports } : {}),
+      ...(held ? { composeProject: held.compose } : {}),
       approval: worker.approval,
       writable: worker.kind === 'deliver' && worker.approval === APPROVAL.confirmed,
       ...(worker.approval === APPROVAL.awaiting && worker.status === 'idle' ? { note: AWAITING_NOTE } : {}),
@@ -808,7 +924,14 @@ export class Orchestration {
   }
   async list_leases(args) {
     this.fields(args, []);
-    return this.host.capacity.listLeases();
+    // Environments' own pools too, so the orchestrator can name them in delegate_task leases.
+    const settings = await this.host.settings();
+    const pools = Object.fromEntries(
+      (settings.environments ?? [])
+        .filter(config => config.enabled !== false && config.leases && Object.keys(config.leases).length)
+        .map(config => [config.id, config.leases]),
+    );
+    return this.host.capacity.listLeases({ pools });
   }
   /** Compatibility: the suite lock is the lease "suite". */
   async acquire_suite_lock(args, principal) {
