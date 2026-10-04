@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { readCompletedTasks } from './check-milestone-progress.mjs';
+import { execCliSync } from './cli-output.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
@@ -32,7 +32,7 @@ export function findReadyDependencyViolations(tasks, taskViews, completedTasks =
 }
 
 function runBacklog(args, cliPath = defaultCliPath, root = projectRoot) {
-  const output = execFileSync(process.execPath, [cliPath, ...args], {
+  const output = execCliSync(process.execPath, [cliPath, ...args], {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 4 * 1024 * 1024,

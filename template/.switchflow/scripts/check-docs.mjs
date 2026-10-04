@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { spawnCliSync } from './cli-output.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(process.argv[2] ?? join(scriptDirectory, '..', '..'));
@@ -143,7 +143,7 @@ for (const document of documents) checkLinks(document);
 
 if (backlogCli && errors.length === 0) {
   for (const document of documents) {
-    const result = spawnSync(process.execPath, [backlogCli, 'doc', 'view', document.id, '--plain'], {
+    const result = spawnCliSync(process.execPath, [backlogCli, 'doc', 'view', document.id, '--plain'], {
       cwd: projectRoot,
       encoding: 'utf8',
     });
@@ -157,7 +157,7 @@ if (backlogCli && errors.length === 0) {
   // Backlog has no per-decision read command, so one listing confirms it parses
   // every decision file the link checker resolved against.
   if (decisions.length > 0) {
-    const listed = spawnSync(process.execPath, [backlogCli, 'decision', 'list', '--plain'], {
+    const listed = spawnCliSync(process.execPath, [backlogCli, 'decision', 'list', '--plain'], {
       cwd: projectRoot,
       encoding: 'utf8',
     });

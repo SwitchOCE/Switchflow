@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnCliSync } from './cli-output.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const usage = 'Usage: backlog.ps1 milestone view <id> [--json] | milestone edit <id> --input-file <UTF-8 JSON file>';
@@ -109,7 +110,7 @@ export function editMilestone(projectRoot, id, input) {
       JSON.stringify({ expectedRevision: input.expectedRevision, description: input.description.trim() }),
       { flag: 'wx', encoding: 'utf8' },
     );
-    const result = spawnSync(process.execPath, [cli, 'milestone', 'edit', id, '--input-file', request, '--json'], {
+    const result = spawnCliSync(process.execPath, [cli, 'milestone', 'edit', id, '--input-file', request, '--json'], {
       cwd: root,
       encoding: 'utf8',
       windowsHide: true,
@@ -159,7 +160,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         { cwd: root, encoding: 'utf8', windowsHide: true },
       );
       if (resolved.status === 0) {
-        const viewed = spawnSync(process.execPath, [resolved.stdout.trim(), 'milestone', 'view', id, '--json'], {
+        const viewed = spawnCliSync(process.execPath, [resolved.stdout.trim(), 'milestone', 'view', id, '--json'], {
           cwd: root,
           encoding: 'utf8',
           windowsHide: true,

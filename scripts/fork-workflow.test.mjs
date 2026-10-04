@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { resolveBacklogFork } from '../template/.switchflow/scripts/backlog-fork/runtime.mjs';
+import { execCliSync } from '../template/.switchflow/scripts/cli-output.mjs';
 
 const executable = process.env.SWITCHFLOW_TEST_FORK_EXE || (await resolveBacklogFork()).executable;
 const mcp = (root, name, args) =>
@@ -57,8 +58,9 @@ const mcp = (root, name, args) =>
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'switchflow-fork-workflow-'));
   t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  // Outside Windows the CLI writes to files, as the host's callers do (SF-28).
   const run = (...args) =>
-    execFileSync(executable, args, {
+    execCliSync(executable, args, {
       cwd: root,
       encoding: 'utf8',
       windowsHide: true,
@@ -158,23 +160,15 @@ test('milestone CLI/MCP editing preserves identity, custom fields and body with 
   );
 });
 
-test(
-  'a long milestone description is edited from an input file and read back through the CLI',
-  {
-    skip:
-      process.platform === 'linux' &&
-      'SF-28: the pinned fork CLI drops piped stdout beyond 64 KiB on Linux; fixing it changes the fork identity',
-  },
-  async t => {
-    const { root, run, milestone } = await fixture(t);
-    run('milestone', 'add', 'First');
-    const inputFile = path.join(root, 'edit.json');
-    const long = 'A long readable scope.\n'.repeat(5000);
-    await fs.writeFile(inputFile, JSON.stringify({ expectedRevision: milestone('m-0').revision, description: long }));
-    run('milestone', 'edit', 'm-0', '--input-file', inputFile, '--json');
-    assert.equal(milestone('m-0').description, long.trim());
-  },
-);
+test('a long milestone description is edited from an input file and read back through the CLI', async t => {
+  const { root, run, milestone } = await fixture(t);
+  run('milestone', 'add', 'First');
+  const inputFile = path.join(root, 'edit.json');
+  const long = 'A long readable scope.\n'.repeat(5000);
+  await fs.writeFile(inputFile, JSON.stringify({ expectedRevision: milestone('m-0').revision, description: long }));
+  run('milestone', 'edit', 'm-0', '--input-file', inputFile, '--json');
+  assert.equal(milestone('m-0').description, long.trim());
+});
 
 test('dependency reconciliation promotes only dependency-blocked tasks, preserves manual gates and updates CAS', async t => {
   const { root, run, task } = await fixture(t);

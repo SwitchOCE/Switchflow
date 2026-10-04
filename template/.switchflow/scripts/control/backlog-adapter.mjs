@@ -1,12 +1,13 @@
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { withLock } from '../operations/storage.mjs';
+import { execCli } from '../cli-output.mjs';
 import { hash, text, ControlError } from './lifecycle.mjs';
 
-const exec = promisify(execFile);
+// promisify(execFile), except that outside Windows the CLI writes to files (SF-28).
+const exec = execCli;
 export async function findBacklog(context) {
   try {
     const { resolveBacklogFork } = await import('../backlog-fork/runtime.mjs');

@@ -1,8 +1,9 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { spawnCliSync } from './cli-output.mjs';
 
 // Use the pinned Backlog core through MCP: document/checkpoint bodies never enter argv.
 const [cliPath, projectRoot, ...args] = process.argv.slice(2);
@@ -42,7 +43,7 @@ try {
       throw new Error(
         'Task description must contain 1-10000 characters (pinned Backlog limit). Keep a compact checkpoint with linked detail; never truncate required content.',
       );
-    const current = spawnSync(process.execPath, [cliPath, 'task', 'view', args[2], '--json'], {
+    const current = spawnCliSync(process.execPath, [cliPath, 'task', 'view', args[2], '--json'], {
       cwd: projectRoot,
       encoding: 'utf8',
       windowsHide: true,
