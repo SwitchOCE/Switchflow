@@ -100,7 +100,40 @@ The policy lives in `scripts/control/worker-env.mjs`.
 
 **In the browser.** The Agents view shows a capacity strip above the sessions: memory free of total, running and queued workers, and each lease's held count; below it, every queued worker with its reason and every held lease with its holder and minutes left. `GET /agents` carries the same data as `capacity` (see [Agents API](#agents-api)).
 
-**Not yet.** Shared dependency installs (a pnpm store or hard-linked `node_modules` per lockfile, so a worktree costs megabytes instead of 565 MB) are a follow-up; so are per-worktree compose projects and ports, which would remove the need for an `e2e` lease altogether.
+**Shared dependencies (opt-in).** In the parity trial each worktree was about 565 MB, nearly all its own `node_modules`, and 18 worktrees took 9.4 GB and 1.3 M files. With `"dependencies": { "mode": "link" }` a new candidate whose npm lockfile matches gets its `node_modules` from a shared store in about half a second instead of a fresh install:
+
+```json
+{ "schemaVersion": 1, "dependencies": { "mode": "link", "paths": ["node_modules"], "private": [".prisma"] } }
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `dependencies.mode` | absent (off) | `link` shares; `off` is the same as leaving it out. |
+| `dependencies.paths` | `["node_modules"]` | 1–8 relative folders named `node_modules` that npm installs from the root lockfile, including the root one (for example `packages/web/node_modules` in an npm workspace). |
+| `dependencies.private` | none | At most 32 top-level names in `node_modules` that each worktree gets as its own writable copy, for code a tool generates there (for example Prisma's `.prisma`). |
+
+How it works:
+
+- **Store.** `<stateDir>/dependencies/<lockfile hash>-<id>/` holds one copy of the primary checkout's folders, made once per lockfile and per install of the primary. It is made only when the primary's npm lockfile equals the worktree's (line endings aside, since Git may check one out with CRLF) and npm's record of the installed tree (`node_modules/.package-lock.json`) agrees with every lockfile entry, missing only optional packages for other platforms. Caches (`.cache`, `.vite`, `.vite-temp`, `.vitest`) are left out. A link inside the folder is re-pointed into the store; a package entry linking elsewhere in the checkout (an npm workspace package) is re-created in each worktree pointing at the worktree's own source; a link leaving the checkout refuses the store. If the primary is reinstalled while it is copied, the copy is discarded. The service starts the copy when the delivery run's Git helper starts, so the first candidate normally finds it ready; a create waits at most 45 seconds for it.
+- **Seal.** Every file is made read-only. On Windows, read-only attributes cover only file contents (folders still accept new entries and renames, and tools clear the attribute before deleting), so the store's folders also get an inherited deny entry for Everyone on writing, appending, attributes, deleting and adding entries (`icacls … /deny *S-1-1-0:(OI)(CI)(WD,AD,WEA,WA,DE,DC)`); reading is unaffected. On Linux and macOS every folder is made read-only too. A store that cannot be protected is not used. `store.json` records a manifest. Before each use the store's listing is checked (about 0.5 s for 67,000 files) and, at most every 10 minutes, every file's size and read-only state (about 3 s). A store that changed is never used again: the next create copies the primary afresh, and the damaged store is deleted once no worktree links it.
+- **Worktree.** The candidate gets a real `node_modules` folder of its own whose entries are junctions (Windows) or symlinks into the store, except the `private` names and top-level files such as `.package-lock.json`, which are copied. Caches and anything a tool adds at the top level stay in the worktree. Nothing ever links to the primary's own `node_modules`, so no worktree can change the primary's dependencies. Native modules are shared as built for the primary, on the same machine.
+- **Result.** The `create` result carries `dependencies: { mode, status, store?, reason?, note?, ms }`. `linked` means installed already; `install` means install normally, with the reason (no npm lockfile, lockfile differs from the primary's, the primary's install is out of date, the copy is still being made, a link leaves the checkout, the store could not be protected, the service runs as root, which POSIX permissions cannot stop); `present` means the folder already existed. The orchestrator prompt passes this on to the worker.
+- **Changing dependencies in a worktree.** An install into the linked folder fails with a permission error (npm moves package folders aside first, and the store refuses). Delete `node_modules` first: `rm -rf`, `Remove-Item -Recurse`, `rmdir /s`, Node's `fs.rm` and `git clean -fdx` all remove only the links (checked on this PC). Then install as usual.
+- **Why not hardlinks or copies.** Hardlinks share file contents and attributes, so an in-place edit or a cleared read-only flag in one worktree changes every other one, and hardlinks straight from the primary would change the primary. Copy-on-write clones (`cp --reflink`, Windows Dev Drive block cloning) are safe but fall back to full copies on NTFS and ext4, the usual file systems here. Junctions or symlinks into one protected copy cost nothing per file on any of them.
+- **Removal.** After a new store is made, older stores that no registered worktree links any more are deleted. `git worktree remove` leaves a folder holding only the junctions on Windows; delete it with any of the tools above.
+
+Measured on a throwaway fixture on this PC (Windows 11, NTFS, Node 24, npm 11; React, Vite, Vitest, ESLint, TypeScript, Playwright, MUI with icons, webpack: 347 packages, 66,933 files, 217 MB). Vitest, `vite build`, the Vite dev server (including CSS imported from a package), `tsc`, ESLint and Prettier ran from a linked worktree.
+
+| Per worktree | Fresh `npm ci` (warm npm cache) | Linked |
+| --- | --- | --- |
+| Time | 55–75 s | 0.55–0.72 s (3.7 s with the full check) |
+| Disk | 217 MB, 66,933 files | 0.2 MB: 1 file and 221 junctions |
+
+The store costs 228 MB and 42–73 s once per lockfile (the deny entry takes about 15 s of that), so 18 such worktrees would take about 0.23 GB instead of 3.9 GB.
+
+Limits: npm lockfiles (version 2 or 3) only; pnpm already shares through its own store, and Yarn is not supported yet. A package in the store cannot require a workspace package (Node resolves from the store); a dev server that restricts served files to the project (Vite's `server.fs.allow`) still serves what the code imports but refuses other direct `/@fs/` requests into the store. SSH and cloud workers install on their own machines.
+
+**Not yet.** Per-worktree compose projects and ports, which would remove the need for an `e2e` lease altogether.
 
 ## Scope, concurrency and interruptions
 

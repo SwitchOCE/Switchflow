@@ -3,6 +3,8 @@ import path from 'node:path';
 import { assertSafePath, digest, readState, updateState } from '../operations/storage.mjs';
 import { createSafeGit } from './git-bridge-git.mjs';
 import { createMergeHandler } from './git-bridge-merge.mjs';
+import { readCapacityProfile } from './capacity.mjs';
+import { dependencyStores } from './dependencies.mjs';
 
 export const isSha = value => typeof value === 'string' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(value);
 const namePattern = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -58,6 +60,13 @@ export async function createGitOperations({ context, initiativeId, planHash, bas
     return registry;
   };
   await readRegistry();
+  // Start making the shared dependency store now, so the first candidate can already link it.
+  void readCapacityProfile(context)
+    .then(({ dependencies: settings }) => {
+      if (settings?.mode === 'link')
+        return dependencyStores(context).warm({ primary: context.governanceRoot, settings });
+    })
+    .catch(() => {});
 
   const managed = async (name, registry) => {
     if (typeof name !== 'string' || !namePattern.test(name)) throw new Error('Invalid managed candidate name');
@@ -237,7 +246,15 @@ export async function createGitOperations({ context, initiativeId, planHash, bas
           },
           empty,
         );
-        return { ...entry, head: base };
+        // Opt-in shared dependencies; any problem leaves the candidate for a normal install.
+        const settings = (await readCapacityProfile(context)).dependencies;
+        if (settings?.mode !== 'link') return { ...entry, head: base };
+        const dependencies = await dependencyStores(context).prepare({
+          worktree: candidatePath,
+          primary: context.governanceRoot,
+          settings,
+        });
+        return { ...entry, head: base, dependencies };
       }
       if (request.operation === 'commit') {
         requireFields(request, ['name', 'expectedHead', 'paths', 'message']);

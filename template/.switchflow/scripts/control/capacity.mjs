@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { assertSafePath, readState, updateState } from '../operations/storage.mjs';
 import { ControlError } from './lifecycle.mjs';
 import { MAX_ENV_VARS, workerEnvRefusal } from './worker-env.mjs';
+import { validateDependencies } from './dependencies.mjs';
 
 export const CAPACITY_CONFIG = '.switchflow/capacity.json';
 const MAX_CONFIG_BYTES = 16 * 1024;
@@ -45,7 +46,7 @@ const only = (value, keys, where) => {
 /** Validates an owner capacity profile. Unknown fields are refused. Returns the merged profile. */
 export function validateCapacityProfile(value) {
   if (!plain(value)) throw invalid('expected a JSON object.');
-  only(value, ['schemaVersion', 'memory', 'leases', 'workerEnv'], '');
+  only(value, ['schemaVersion', 'memory', 'leases', 'workerEnv', 'dependencies'], '');
   if (value.schemaVersion !== 1) throw invalid('schemaVersion must be 1.');
   const profile = defaultCapacityProfile();
   if (value.memory !== undefined) {
@@ -102,6 +103,8 @@ export function validateCapacityProfile(value) {
     }
     profile.workerEnv = { ...value.workerEnv };
   }
+  // Opt-in shared dependency folders for candidate worktrees, see dependencies.mjs.
+  if (value.dependencies !== undefined) profile.dependencies = validateDependencies(value.dependencies, invalid);
   return profile;
 }
 
