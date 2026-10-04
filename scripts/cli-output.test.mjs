@@ -39,6 +39,16 @@ test('only Windows keeps the pipes', () => {
 
 test('spawnCliSync and execCliSync return the complete output through files', async t => {
   const cli = await stub(t);
+  // A private temp folder: other test files running at the same time also create switchflow-cli-*.
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'switchflow-cli-output-temp-'));
+  const saved = Object.fromEntries(['TMPDIR', 'TEMP', 'TMP'].map(name => [name, process.env[name]]));
+  Object.assign(process.env, { TMPDIR: temp, TEMP: temp, TMP: temp });
+  t.after(async () => {
+    for (const [name, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    await fs.rm(temp, { recursive: true, force: true });
+  });
   const result = spawnCliSync(process.execPath, [cli, '1024', '3'], { encoding: 'utf8', maxBuffer: 4 << 20 }, files);
   assert.equal(result.status, 3);
   assert.equal(result.stdout, big);
@@ -57,11 +67,8 @@ test('spawnCliSync and execCliSync return the complete output through files', as
     error => error.status === 2 && error.stdout === 'x'.repeat(1024) && error.stderr === 'note\n',
   );
   // The temporary files are gone.
-  const left = (await fs.readdir(os.tmpdir())).filter(name => name.startsWith('switchflow-cli-'));
-  assert.deepEqual(
-    left.filter(name => !name.startsWith('switchflow-cli-output-')),
-    [],
-  );
+  assert.equal(os.tmpdir(), temp);
+  assert.deepEqual(await fs.readdir(temp), []);
 });
 
 test('execCli matches promisified execFile through files', async t => {
