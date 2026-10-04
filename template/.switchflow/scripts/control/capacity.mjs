@@ -1,6 +1,7 @@
 // Local capacity management: memory admission for delegated workers, named leases for shared
-// resources (gate slots, e2e stacks, ports), and the worker environment caps of a project's
-// capacity profile. See docs/browser-control.md "Capacity".
+// resources (gate slots, e2e stacks, ports), and the worker environment caps, port blocks and
+// Docker cleanup of a project's capacity profile (blocks and cleanup: worker-resources.mjs).
+// See docs/browser-control.md "Capacity".
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +34,8 @@ export function defaultCapacityProfile() {
     memory: { admission: true, workerIdleGB: 1.5, workerGatingGB: 6, headroomGB: 3 },
     leases: structuredClone(BUILTIN_LEASES),
     workerEnv: {},
+    ports: null,
+    docker: { composeDown: false },
   };
 }
 
@@ -44,10 +47,49 @@ const only = (value, keys, where) => {
   if (extra.length) throw invalid(`unsupported field ${where}${extra[0]}.`);
 };
 
+/**
+ * Validates a lease pool { name: count | { count, gating, maxMinutes } } and returns it normalized.
+ * Throws an Error naming the field. An environment's pool (gating: false) describes another
+ * machine, so it cannot gate: gating reserves this PC's memory.
+ */
+export function validateLeasePool(value, { gating = true, where = 'leases' } = {}) {
+  const fields = gating ? ['count', 'gating', 'maxMinutes'] : ['count', 'maxMinutes'];
+  const shape = `{ ${fields.join(', ')} }`;
+  if (!plain(value)) throw new Error(`${where} must be an object of name: count or ${shape}.`);
+  const pool = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (!LEASE_NAME.test(name))
+      throw new Error(`lease name "${name}" must be lowercase letters, digits and dashes (at most 32).`);
+    const lease = Number.isInteger(entry) ? { count: entry } : entry;
+    if (!plain(lease)) throw new Error(`${where}.${name} must be a count or ${shape}.`);
+    const extra = Object.keys(lease).filter(key => !fields.includes(key));
+    if (extra.length)
+      throw new Error(
+        `unsupported field ${where}.${name}.${extra[0]}${extra[0] === 'gating' ? " (gating reserves this PC's memory)" : ''}.`,
+      );
+    if (!Number.isInteger(lease.count) || lease.count < 1 || lease.count > 16)
+      throw new Error(`${where}.${name}.count must be a whole number from 1 to 16.`);
+    if (lease.gating !== undefined && typeof lease.gating !== 'boolean')
+      throw new Error(`${where}.${name}.gating must be true or false.`);
+    if (
+      lease.maxMinutes !== undefined &&
+      (!Number.isInteger(lease.maxMinutes) || lease.maxMinutes < 1 || lease.maxMinutes > 480)
+    )
+      throw new Error(`${where}.${name}.maxMinutes must be a whole number from 1 to 480.`);
+    pool[name] = {
+      count: lease.count,
+      ...(gating ? { gating: lease.gating ?? GATING_BY_DEFAULT.has(name) } : {}),
+      maxMinutes: lease.maxMinutes ?? 120,
+    };
+  }
+  if (Object.keys(pool).length > MAX_LEASES) throw new Error(`at most ${MAX_LEASES} leases can be declared.`);
+  return pool;
+}
+
 /** Validates an owner capacity profile. Unknown fields are refused. Returns the merged profile. */
 export function validateCapacityProfile(value) {
   if (!plain(value)) throw invalid('expected a JSON object.');
-  only(value, ['schemaVersion', 'memory', 'leases', 'workerEnv'], '');
+  only(value, ['schemaVersion', 'memory', 'leases', 'workerEnv', 'ports', 'docker'], '');
   if (value.schemaVersion !== 1) throw invalid('schemaVersion must be 1.');
   const profile = defaultCapacityProfile();
   if (value.memory !== undefined) {
@@ -70,28 +112,10 @@ export function validateCapacityProfile(value) {
       throw invalid('memory.workerGatingGB must be at least memory.workerIdleGB.');
   }
   if (value.leases !== undefined) {
-    if (!plain(value.leases))
-      throw invalid('leases must be an object of name: count or { count, gating, maxMinutes }.');
-    for (const [name, entry] of Object.entries(value.leases)) {
-      if (!LEASE_NAME.test(name))
-        throw invalid(`lease name "${name}" must be lowercase letters, digits and dashes (at most 32).`);
-      const lease = Number.isInteger(entry) ? { count: entry } : entry;
-      if (!plain(lease)) throw invalid(`leases.${name} must be a count or { count, gating, maxMinutes }.`);
-      only(lease, ['count', 'gating', 'maxMinutes'], `leases.${name}.`);
-      if (!Number.isInteger(lease.count) || lease.count < 1 || lease.count > 16)
-        throw invalid(`leases.${name}.count must be a whole number from 1 to 16.`);
-      if (lease.gating !== undefined && typeof lease.gating !== 'boolean')
-        throw invalid(`leases.${name}.gating must be true or false.`);
-      if (
-        lease.maxMinutes !== undefined &&
-        (!Number.isInteger(lease.maxMinutes) || lease.maxMinutes < 1 || lease.maxMinutes > 480)
-      )
-        throw invalid(`leases.${name}.maxMinutes must be a whole number from 1 to 480.`);
-      profile.leases[name] = {
-        count: lease.count,
-        gating: lease.gating ?? GATING_BY_DEFAULT.has(name),
-        maxMinutes: lease.maxMinutes ?? 120,
-      };
+    try {
+      Object.assign(profile.leases, validateLeasePool(value.leases));
+    } catch (error) {
+      throw invalid(error.message);
     }
     if (Object.keys(profile.leases).length > MAX_LEASES) throw invalid(`at most ${MAX_LEASES} leases can be declared.`);
   }
@@ -103,6 +127,28 @@ export function validateCapacityProfile(value) {
       if (refusal) throw invalid(`workerEnv.${name} ${refusal}.`);
     }
     profile.workerEnv = { ...value.workerEnv };
+  }
+  if (value.ports !== undefined) {
+    // One block of ports per running worker, in each environment (worker-resources.mjs).
+    if (!plain(value.ports)) throw invalid('ports must be { base, blockSize, blocks }.');
+    only(value.ports, ['base', 'blockSize', 'blocks'], 'ports.');
+    const { base, blockSize, blocks } = value.ports;
+    if (!Number.isInteger(base) || base < 1024 || base > 65535)
+      throw invalid('ports.base must be a whole number from 1024 to 65535.');
+    if (!Number.isInteger(blockSize) || blockSize < 1 || blockSize > 1000)
+      throw invalid('ports.blockSize must be a whole number from 1 to 1000.');
+    if (!Number.isInteger(blocks) || blocks < 1 || blocks > 64)
+      throw invalid('ports.blocks must be a whole number from 1 to 64.');
+    if (base + blockSize * blocks - 1 > 65535)
+      throw invalid(`ports: ${blocks} blocks of ${blockSize} from ${base} end past port 65535.`);
+    profile.ports = { base, blockSize, blocks };
+  }
+  if (value.docker !== undefined) {
+    if (!plain(value.docker)) throw invalid('docker must be { composeDown }.');
+    only(value.docker, ['composeDown'], 'docker.');
+    if (value.docker.composeDown !== undefined && typeof value.docker.composeDown !== 'boolean')
+      throw invalid('docker.composeDown must be true or false.');
+    profile.docker = { composeDown: value.docker.composeDown ?? false };
   }
   return profile;
 }
@@ -200,6 +246,8 @@ function memoryReason(need, snapshot) {
 }
 
 const minutesLeft = (expiresAt, now) => Math.max(0, Math.ceil((expiresAt - now) / 60000));
+/** The pool a lease belongs to: "local" for this PC, or the environment whose resources it describes. */
+const poolOf = lease => lease.environment ?? 'local';
 
 /**
  * Per-project capacity: the FIFO admission queue for delegated workers and the project's leases.
@@ -214,6 +262,7 @@ export class CapacityManager {
     this.queue = [];
     this.leases = [];
     this.waiting = new Map(); // lease name -> [token]
+    this.claimed = new Set(); // holders granted leases at admission whose session is not open yet
     this.cached = null;
     this.loaded = null;
     this.persisting = Promise.resolve();
@@ -238,7 +287,9 @@ export class CapacityManager {
 
   /**
    * Asks to start a worker. entry: { id, runId, task, kind, maxWorkers, slotFree(), start(), onFailure(error) },
-   * plus for a worker on another machine { lane: environment id, memory: false, limitReason }.
+   * plus for a worker on another machine { lane: environment id, memory: false, limitReason }, and
+   * optionally claim(): takes what the worker needs from its start (a port block, leases named at
+   * delegation) all or none, synchronously, and returns null or the reason it must wait.
    * start() must mark the worker as starting before its first await. Strictly first in, first out
    * within a lane: a new request never overtakes a queued one of its lane. Returns
    * { admitted: true, note? } once start() succeeded, or { admitted: false, position, reason } when queued.
@@ -274,8 +325,9 @@ export class CapacityManager {
       const lane = head.lane ?? 'local';
       if (blocked.has(lane)) continue;
       const decision = paused && lane === 'local' ? { ok: false, reason: PAUSED_REASON } : this.decide(head, profile);
-      if (!decision.ok) {
-        head.reason = decision.reason;
+      const claimed = decision.ok ? (head.claim?.() ?? null) : decision.reason;
+      if (claimed) {
+        head.reason = claimed;
         blocked.add(lane);
         continue;
       }
@@ -364,7 +416,7 @@ export class CapacityManager {
         const expiresAt = Date.parse(lease.expiresAt);
         if (!Number.isFinite(acquiredAt) || !Number.isFinite(expiresAt)) continue;
         this.leases.push({ ...lease, acquiredAt, expiresAt });
-        if (profile.leases[lease.name]?.gating && profile.memory.admission)
+        if (poolOf(lease) === 'local' && profile.leases[lease.name]?.gating && profile.memory.admission)
           this.reserveGating(lease, profile, acquiredAt);
       }
       await this.sweep();
@@ -384,7 +436,9 @@ export class CapacityManager {
     const live = this.host.registry.live;
     const state = await this.host.engine?.read().catch(() => null);
     const fenced = state?.activeRun?.status === 'interrupted' ? state.activeRun.id : null;
-    const gone = this.leases.filter(lease => !live.has(lease.holder) && lease.runId !== fenced);
+    const gone = this.leases.filter(
+      lease => !live.has(lease.holder) && !this.claimed.has(lease.holder) && lease.runId !== fenced,
+    );
     for (const lease of gone) this.drop(lease, null);
     if (gone.length) await this.persist();
   }
@@ -443,6 +497,7 @@ export class CapacityManager {
     return {
       id: lease.id,
       name: lease.name,
+      environment: poolOf(lease),
       holder: lease.holder,
       runId: lease.runId,
       task: lease.task ?? null,
@@ -452,19 +507,25 @@ export class CapacityManager {
       minutesLeft: minutesLeft(lease.expiresAt, now),
     };
   }
-  /** Whether token may take a lease of name now; the reason when not. */
-  leaseDecision(name, token, resource, profile) {
-    const active = this.leases.filter(lease => lease.name === name);
+  /**
+   * Whether token may take a lease of name in pool now; the reason when not. Without a token (a
+   * lease named at delegation) the request comes after every waiting acquire_lease call.
+   */
+  leaseDecision(name, token, resource, profile, pool = 'local') {
+    const active = this.leases.filter(lease => lease.name === name && poolOf(lease) === pool);
     const free = resource.count - active.length;
-    const ahead = (this.waiting.get(name) || []).indexOf(token);
+    const waiting = pool === 'local' ? this.waiting.get(name) || [] : [];
+    const ahead = token ? waiting.indexOf(token) : waiting.length;
+    const where = pool === 'local' ? '' : ` on ${pool}`;
     if (free <= 0)
       return {
         ok: false,
-        reason: `${name}: ${resource.count} of ${resource.count} held by ${active.map(lease => this.describe(lease)).join('; ')}`,
+        reason: `${name}${where}: ${resource.count} of ${resource.count} held by ${active.map(lease => this.describe(lease)).join('; ')}`,
       };
     if (ahead >= free)
       return { ok: false, reason: `${name}: waiting behind ${ahead} earlier request${ahead === 1 ? '' : 's'}` };
-    if (resource.gating && profile.memory.admission) {
+    // Gating reserves this PC's memory; another environment's leases never do.
+    if (pool === 'local' && resource.gating && profile.memory.admission) {
       const extra = Math.max(0, profile.memory.workerGatingGB - profile.memory.workerIdleGB);
       const snapshot = this.pool.snapshot(profile.memory.headroomGB);
       // The first gating lease on the machine is always granted, or nothing could ever gate.
@@ -491,7 +552,7 @@ export class CapacityManager {
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > resource.maxMinutes)
       throw new ControlError(`ttlMinutes must be 1–${resource.maxMinutes} for lease "${name}".`);
     this.expire();
-    const held = this.leases.find(lease => lease.name === name && lease.holder === holder);
+    const held = this.leases.find(lease => lease.name === name && lease.holder === holder && poolOf(lease) === 'local');
     if (held) {
       held.expiresAt = this.clock() + minutes * 60000;
       this.scheduleExpiry();
@@ -539,6 +600,47 @@ export class CapacityManager {
     await this.persist();
     return { acquired: true, ...this.view(granted) };
   }
+  /**
+   * Leases named at delegation (delegate_task leases): granted to holder all or none, for its whole
+   * session up to each lease's maxMinutes. Synchronous, because admission calls it between
+   * decisions; ensureLoaded() must have run. pool is "local" or an environment ID, and resources
+   * its declared leases. Returns null when granted, otherwise the reason the worker waits.
+   */
+  takeLeases({ names, pool = 'local', resources, holder, runId, task = null, kind }, profile) {
+    this.expire();
+    // Every decision before any grant: undoing a grant would release memory and wake admission again.
+    for (const name of names) {
+      const decision = resources[name]
+        ? this.leaseDecision(name, null, resources[name], profile, pool)
+        : { ok: false, reason: `${name}: not declared` };
+      if (!decision.ok) return decision.reason;
+    }
+    const granted = [];
+    for (const name of names) {
+      const resource = resources[name];
+      const now = this.clock();
+      const lease = {
+        id: randomUUID(),
+        name,
+        environment: pool,
+        holder,
+        runId,
+        task,
+        kind,
+        acquiredAt: now,
+        expiresAt: now + resource.maxMinutes * 60000,
+      };
+      this.leases.push(lease);
+      if (pool === 'local' && resource.gating && profile.memory.admission) this.reserveGating(lease, profile, now);
+      granted.push(lease);
+    }
+    if (granted.length) {
+      this.claimed.add(holder);
+      this.scheduleExpiry();
+      void this.persist();
+    }
+    return null;
+  }
   /** releasedBy is the holder, or a run whose orchestrator may release its workers' leases. */
   async releaseLease(id, { holder, runId = null }) {
     await this.ensureLoaded();
@@ -553,6 +655,7 @@ export class CapacityManager {
   }
   /** Releases every lease of a holder, optionally only one name. Used when a session closes. */
   async releaseHolder(holder, name = null) {
+    if (!name) this.claimed.delete(holder);
     await this.ensureLoaded();
     const mine = this.leases.filter(lease => lease.holder === holder && (!name || lease.name === name));
     for (const lease of mine) this.drop(lease, null);
@@ -562,21 +665,35 @@ export class CapacityManager {
     }
     return mine.map(lease => lease.id);
   }
-  async listLeases() {
+  /** pools: { environmentId: declared leases } to list beside this PC's, for the orchestrator. */
+  async listLeases({ pools = null } = {}) {
     await this.ensureLoaded();
     await this.sweep();
     this.expire();
     await this.persisting;
     const profile = await this.profile();
     const now = this.clock();
+    const held = (name, pool) => this.leases.filter(lease => lease.name === name && poolOf(lease) === pool).length;
     return {
       leases: this.leases.map(lease => this.view(lease, now)),
       resources: Object.entries(profile.leases).map(([name, resource]) => ({
         name,
         ...resource,
-        held: this.leases.filter(lease => lease.name === name).length,
+        held: held(name, 'local'),
         waiting: (this.waiting.get(name) || []).length,
       })),
+      ...(pools
+        ? {
+            environments: Object.entries(pools).map(([id, declared]) => ({
+              id,
+              resources: Object.entries(declared).map(([name, resource]) => ({
+                name,
+                ...resource,
+                held: held(name, id),
+              })),
+            })),
+          }
+        : {}),
     };
   }
 

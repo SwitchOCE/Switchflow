@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -30,7 +30,8 @@ import {
 } from '../template/.switchflow/scripts/control/environments/ssh.mjs';
 import { ControlEngine } from '../template/.switchflow/scripts/control/engine.mjs';
 import { createInitiative } from '../template/.switchflow/scripts/control/lifecycle.mjs';
-import { PAUSED_REASON } from '../template/.switchflow/scripts/control/capacity.mjs';
+import { CAPACITY_CONFIG, PAUSED_REASON } from '../template/.switchflow/scripts/control/capacity.mjs';
+import { composeProjectName, defaultRunner } from '../template/.switchflow/scripts/control/worker-resources.mjs';
 import * as protocol from '../template/.switchflow/scripts/control/agent-protocol.mjs';
 import { fakeMachine, fakeProvider, fixture, roomyPool, until } from './agent-fakes.mjs';
 
@@ -408,6 +409,7 @@ test('SSH health parses the box report and never claims an unreachable box is fi
 /** An interactive environment double for orchestration tests. */
 function fakeEnvironment({ healthy = true } = {}) {
   const calls = [];
+  const projects = [];
   return {
     calls,
     factory: config => ({
@@ -451,7 +453,15 @@ function fakeEnvironment({ healthy = true } = {}) {
       async cleanup(workspace) {
         calls.push(['cleanup', workspace.path]);
       },
+      // The box's docker: lists the projects the test says are up there.
+      async exec(argv) {
+        calls.push(['exec', argv]);
+        if (argv.join(' ') === 'docker compose ls --all --quiet')
+          return { code: 0, stdout: `${projects.join('\n')}\n`, stderr: '' };
+        return { code: 0, stdout: '', stderr: '' };
+      },
     }),
+    projects,
   };
 }
 
@@ -472,7 +482,7 @@ async function orchestrationWith(
   t,
   environmentDouble,
   placement = 'box',
-  { config = {}, pool = roomyPool() } = {},
+  { config = {}, pool = roomyPool(), resources = {}, entries = [] } = {},
 ) {
   const { file } = await keyFile(t);
   const initiativeId = randomUUID();
@@ -491,7 +501,8 @@ async function orchestrationWith(
     capabilities: both,
     providers: { codex: fakeProvider('codex', log, respond), claude: fakeProvider('claude', log, respond) },
     capacity: { pool },
-    environments: { factories: { ssh: environmentDouble.factory } },
+    environments: { factories: { ssh: environmentDouble.factory }, entries },
+    resources,
   });
   await host.init();
   await host.updateSettings({ environments: [{ ...sshConfig(file), ...config }], placement: { delivery: placement } });
@@ -1164,4 +1175,167 @@ test('delivery holds with the reason when a placed environment is not ready, and
     });
     assert.equal(started.environmentHold, null);
     assert.ok(box.checks >= 4);
+  }));
+
+test('an environment declares its own leases (no gating), and the host runs commands on the box quoted', async t => {
+  const { file, directory } = await keyFile(t);
+  const valid = validateEnvironmentConfig({
+    ...sshConfig(file),
+    leases: { gate: 1, 'e2e-stack': { count: 2, maxMinutes: 90 } },
+  });
+  assert.deepEqual(valid.leases, { gate: { count: 1, maxMinutes: 120 }, 'e2e-stack': { count: 2, maxMinutes: 90 } });
+  assert.throws(
+    () => validateEnvironmentConfig({ ...sshConfig(file), leases: { gate: { count: 1, gating: true } } }),
+    /unsupported field leases\.gate\.gating \(gating reserves this PC's memory\)/,
+  );
+  assert.throws(() => validateEnvironmentConfig({ ...sshConfig(file), leases: { Gate: 1 } }), /lease name "Gate"/);
+
+  // Compose cleanup runs where the worker ran: on the box through exec, from /.
+  const fake = fakeSsh({ answer: () => ({ code: 0, stdout: 'sf-0123abcd\n', stderr: '' }) });
+  const environment = createSshEnvironment(sshConfig(file), {
+    stateDir: directory,
+    spawnProcess: fake.spawnProcess,
+    sshExecutable: 'ssh',
+  });
+  const result = await defaultRunner(['docker', 'compose', 'ls', '--all', '--quiet'], { environment });
+  assert.deepEqual(result, { code: 0, stdout: 'sf-0123abcd\n', stderr: '' });
+  assert.deepEqual(fake.calls.at(-1).words, [
+    'sh',
+    '-c',
+    'cd / && exec "$@"',
+    'switchflow',
+    'docker',
+    'compose',
+    'ls',
+    '--all',
+    '--quiet',
+  ]);
+  // A cloud environment has no command runner: nothing runs anywhere.
+  assert.equal((await defaultRunner(['docker'], { environment: { id: 'cloud', kind: 'claude-cloud' } })).code, -1);
+});
+
+test('box workers get the box’s own port blocks and lease pool, and their compose project is stopped on the box', t =>
+  fixture(async context => {
+    const profile = path.join(context.governanceRoot, ...CAPACITY_CONFIG.split('/'));
+    await fs.mkdir(path.dirname(profile), { recursive: true });
+    await fs.writeFile(
+      profile,
+      JSON.stringify({
+        schemaVersion: 1,
+        ports: { base: 42000, blockSize: 5, blocks: 2 },
+        docker: { composeDown: true },
+      }),
+    );
+    const box = fakeEnvironment();
+    const local = [];
+    const { host, log, orchestration } = await orchestrationWith(context, t, box, 'box', {
+      config: { leases: { gate: 1 } },
+      resources: {
+        // Never real docker: this PC's runs are recorded, the box's go through its exec.
+        run: (argv, options) =>
+          options.environment?.kind === 'ssh'
+            ? defaultRunner(argv, options)
+            : (local.push(argv), { code: -1, stdout: '', stderr: 'not installed' }),
+      },
+    });
+    const call = (tool, args) => orchestration.call(tool, args);
+    const delegate = (task, extra = {}) =>
+      call('delegate_task', { task, kind: 'deliver', instructions: 'x', worktree: 'cand', ...extra });
+    const envOf = workerId => log.find(entry => entry.options.id === workerId).options.env;
+
+    const onBox = await delegate('DEMO-1', { leases: ['gate'] });
+    assert.deepEqual([onBox.status, onBox.environment], ['working', 'box']);
+    assert.equal(envOf(onBox.workerId).SWITCHFLOW_PORT_BASE, '42000');
+    assert.equal(envOf(onBox.workerId).COMPOSE_PROJECT_NAME, composeProjectName(onBox.workerId));
+    // This PC has its own blocks and its own gate lease.
+    const here = await delegate('DEMO-2', { environment: 'local', leases: ['gate'] });
+    assert.deepEqual([here.status, here.environment], ['working', 'local']);
+    assert.equal(envOf(here.workerId).SWITCHFLOW_PORT_BASE, '42000');
+
+    const waiting = await delegate('DEMO-3', { leases: ['gate'] });
+    assert.equal(waiting.status, 'queued');
+    assert.equal(waiting.queue.reason, 'gate on box: 1 of 1 held by DEMO-1 deliver worker, 120 min left');
+    assert.equal(
+      host.resources.records.filter(entry => entry.environment === 'box').length,
+      1,
+      'its port block went back while it waits',
+    );
+    await assert.rejects(
+      delegate('DEMO-4', { leases: ['e2e'] }),
+      error =>
+        error.status === 404 && /Unknown lease "e2e" on environment box\. It declares: gate\./.test(error.message),
+    );
+    const listed = await call('list_leases', {});
+    assert.deepEqual(listed.environments, [
+      { id: 'box', resources: [{ name: 'gate', count: 1, maxMinutes: 120, held: 1 }] },
+    ]);
+    assert.deepEqual(listed.leases.map(lease => [lease.name, lease.environment, lease.task]).sort(), [
+      ['gate', 'box', 'DEMO-1'],
+      ['gate', 'local', 'DEMO-2'],
+    ]);
+
+    // The box worker brought a stack up; its session end stops it there and frees the box's lease.
+    box.projects.push(composeProjectName(onBox.workerId), 'other-project');
+    await orchestration.finishWorker(orchestration.workers.get(onBox.workerId), 'completed');
+    assert.deepEqual(
+      box.calls.filter(([kind, argv]) => kind === 'exec' && argv.includes('down')).map(([, argv]) => argv),
+      [['docker', 'compose', '-p', composeProjectName(onBox.workerId), 'down', '--remove-orphans']],
+    );
+    const events = (await host.events(onBox.workerId, 0, 500)).events;
+    assert.ok(
+      events.some(event => /^Stopped Docker Compose project sf-[0-9a-f]{8} on Test box/.test(event.text || '')),
+    );
+    assert.deepEqual(local, [], 'nothing ran on this PC for a box worker');
+    await until(() => orchestration.workers.get(waiting.workerId).status === 'working');
+    assert.equal(envOf(waiting.workerId).SWITCHFLOW_PORT_BASE, '42000');
+  }));
+
+test('a cloud worker that names leases waits for them before it is submitted', t =>
+  fixture(async context => {
+    const opened = [];
+    const cloud = {
+      id: 'cloud',
+      kind: 'claude-cloud',
+      label: 'Cloud',
+      provider: 'claude',
+      remote: true,
+      capabilities: { stream: false, steer: true, interrupt: false, followUp: true, result: 'remote-branch' },
+      config: { leases: { 'staging-db': { count: 1, maxMinutes: 60 } } },
+      health: async () => ({ ok: true }),
+      openSession: async () => {
+        let fail = () => {};
+        const handle = {
+          provider: 'claude',
+          canSteer: false,
+          activeTurnId: null,
+          closed: false,
+          startTurn: () => new Promise((resolve, reject) => (fail = reject)),
+          close: async () => {
+            handle.closed = true;
+            fail(new Error('closed'));
+          },
+        };
+        opened.push(handle);
+        return handle;
+      },
+    };
+    const { orchestration } = await orchestrationWith(context, t, fakeEnvironment(), 'box', { entries: [cloud] });
+    const delegate = task =>
+      orchestration.call('delegate_task', {
+        task,
+        kind: 'deliver',
+        instructions: 'x',
+        worktree: 'cand',
+        environment: 'cloud',
+        leases: ['staging-db'],
+      });
+    const first = await delegate('DEMO-1');
+    assert.equal(first.status, 'working');
+    const second = await delegate('DEMO-2');
+    assert.equal(second.status, 'queued');
+    assert.equal(second.queue.reason, 'staging-db on cloud: 1 of 1 held by DEMO-1 deliver worker, 60 min left');
+    assert.equal(opened.length, 1, 'not submitted while it waits');
+    await orchestration.finishWorker(orchestration.workers.get(first.workerId), 'completed');
+    await until(() => orchestration.workers.get(second.workerId).status === 'working');
+    assert.equal(opened.length, 2);
   }));

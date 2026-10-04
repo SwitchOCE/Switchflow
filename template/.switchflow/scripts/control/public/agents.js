@@ -1233,6 +1233,8 @@ export function mountAgents(
       );
       const config = {
         ...(cloud && existing?.remote ? { remote: existing.remote } : {}),
+        // The form has no lease editor; keep the environment's declared leases.
+        ...(existing?.leases ? { leases: existing.leases } : {}),
         id: value('id'),
         kind,
         label: value('label') || value('id'),

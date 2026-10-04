@@ -10,6 +10,7 @@ import { AgentSessionRegistry } from './agent-sessions.mjs';
 import { confirmRefusal } from './orchestration.mjs';
 import { CapacityManager } from './capacity.mjs';
 import { ProcessTracker } from './process-tree.mjs';
+import { WorkerResources } from './worker-resources.mjs';
 import { EnvironmentRegistry } from './environments/index.mjs';
 import { recoverHeldWorkers } from './worker-recovery.mjs';
 import {
@@ -191,6 +192,7 @@ export class AgentHost {
       capacity = {},
       processes = {},
       environments = {},
+      resources = {},
     } = {},
   ) {
     this.context = context;
@@ -205,6 +207,8 @@ export class AgentHost {
     // Memory admission, leases and worker caps (capacity.mjs); leftover-process cleanup (process-tree.mjs).
     this.capacity = new CapacityManager(this, capacity);
     this.processes = processes instanceof ProcessTracker ? processes : new ProcessTracker(processes);
+    // Each worker's port block and compose project, and its compose cleanup (worker-resources.mjs).
+    this.resources = new WorkerResources(this, resources);
     // Where workers run: this PC or an owner-configured environment (environments/index.mjs).
     this.environments =
       environments instanceof EnvironmentRegistry
@@ -354,7 +358,7 @@ export class AgentHost {
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
     // The capacity profile's caps (VITEST_MAX_WORKERS, NODE_OPTIONS heap size, ...) reach every agent process.
-    const { workerEnv: env } = await this.capacity.profile();
+    const { workerEnv } = await this.capacity.profile();
     const meta = await this.registry.create({
       id,
       runId,
@@ -372,6 +376,18 @@ export class AgentHost {
       approval,
       environment: environmentId,
     });
+    // Workers also get their own port block and compose project, on whichever machine they run.
+    let env = workerEnv;
+    if (kind === 'deliver' || kind === 'review')
+      try {
+        env = {
+          ...workerEnv,
+          ...(await this.resources.attach(meta.id, { runId, environment: environmentId, target })),
+        };
+      } catch (error) {
+        await this.registry.finish(meta.id, { status: 'failed', error: error.message });
+        throw error;
+      }
     const onEvent = async entry => {
       await this.registry.record(meta.id, entry);
       await forward(entry, meta);
@@ -460,6 +476,8 @@ export class AgentHost {
       // Providers stop their own process when opening fails, so the fence entry can go.
       this.processes.untrack(meta.id);
       if (tracked) await this.engine.untrackProcess(runId, meta.id).catch(() => {});
+      // No agent ran, so nothing can have started its compose project.
+      await this.resources.release(meta.id, { compose: false }).catch(() => {});
       await this.registry.finish(meta.id, { status: signal?.aborted ? 'cancelled' : 'failed', error: error.message });
       throw error;
     }
@@ -508,7 +526,8 @@ export class AgentHost {
 
   /**
    * Ends a session: its agent process, then whatever that process left running (dev servers,
-   * browsers), then its leases and memory reservation. Every close reason goes through here.
+   * browsers), then its compose project (when the profile opts in) and port block, then its leases
+   * and memory reservation. Every close reason goes through here.
    */
   async closeSession(meta, handle, { status, error = null, result = null }) {
     try {
@@ -525,6 +544,10 @@ export class AgentHost {
       if (meta.kind !== 'stage' && this.engine) await this.engine.untrackProcess(meta.runId, meta.id);
     } finally {
       this.processes.untrack(meta.id);
+      const cleaned = await this.resources
+        .release(meta.id)
+        .catch(failure => ({ level: 'warning', text: `Docker Compose cleanup failed: ${failure.message}` }));
+      if (cleaned) await this.registry.record(meta.id, { kind: 'notice', ...cleaned });
       this.capacity.releaseWorker(meta.id);
       await this.capacity.releaseHolder(meta.id).catch(() => {});
       await this.registry.finish(meta.id, { status, error, ...(result ? { result } : {}) });
@@ -847,6 +870,7 @@ export class AgentHost {
     this.capacity.close();
     this.processes.close();
     this.environments.close();
+    await this.resources.persisting;
   }
 
   async ensureDirectory(...parts) {
