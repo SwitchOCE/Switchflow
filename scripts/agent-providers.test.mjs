@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   codexAppServerArguments,
   openCodexSession,
@@ -15,6 +16,7 @@ import {
   claudeExecutable,
   openClaudeSession,
 } from '../template/.switchflow/scripts/control/providers/claude-cli.mjs';
+import { workflowSkillBlocks } from '../template/.switchflow/scripts/control/workflow-skills.mjs';
 
 const schema = {
   type: 'object',
@@ -495,4 +497,42 @@ test('Claude runs a read-only turn in a saved process and resumes it with write 
   await assert.rejects(readOnlySession.startTurn('x', { sandbox: 'workspace-write' }), /cannot widen/);
   await readOnlySession.close();
   assert.equal(reviewer.children.length, 0);
+});
+
+test('A plugin-mode skill reaches Claude and Codex once, in the first turn, and resumed turns do not repeat it', async t => {
+  const skillsDir = fileURLToPath(new URL('../template/.agents/skills', import.meta.url));
+  const skill = workflowSkillBlocks(['deliver-task'], {
+    skillsDir,
+    metadata: { projectName: 'Demo', taskPrefix: 'DEMO' },
+  });
+  const first = `Follow the deliver-task workflow skill below.\n${skill}\nfinish now`;
+  const marker = '===== BEGIN WORKFLOW SKILL deliver-task =====';
+  const claude = await fixture(t, fakeClaude);
+  const session = await openClaudeSession({ ...claude.options, executable: 'claude.exe' });
+  await session.startTurn(first, { outputSchema: schema, sandbox: 'read-only' });
+  // The confirmed turn resumes the saved conversation in a new process with write tools.
+  await session.startTurn('confirmed: finish now', { outputSchema: schema });
+  await session.close();
+  const sent = await claude.lines();
+  const argv = sent.filter(entry => entry.argv).map(entry => entry.argv);
+  assert.equal(argv.length, 2);
+  assert.ok(argv.every(args => !args.includes('--append-system-prompt') && !args.join(' ').includes(marker)));
+  const users = sent.filter(entry => entry.type === 'user').map(entry => entry.message.content[0].text);
+  assert.deepEqual(
+    users.map(text => text.split(marker).length - 1),
+    [1, 0],
+  );
+  const codex = await fixture(t, fakeCodex);
+  const thread = await openCodexSession(codex.options);
+  await thread.startTurn(first, { outputSchema: schema, sandbox: 'read-only' });
+  await thread.startTurn('confirmed: finish now', { outputSchema: schema });
+  await thread.close();
+  const lines = await codex.lines();
+  const turns = lines.filter(message => message.method === 'turn/start').map(m => m.params.input[0].text);
+  assert.deepEqual(
+    turns.map(text => text.split(marker).length - 1),
+    [1, 0],
+  );
+  const started = lines.find(message => message.method === 'thread/start').params;
+  assert.ok(!JSON.stringify(started).includes(marker));
 });
