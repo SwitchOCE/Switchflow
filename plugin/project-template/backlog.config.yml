@@ -1,0 +1,18 @@
+project_name: '{{PROJECT_NAME_YAML_SINGLE}}'
+default_status: "Backlog"
+statuses: ["Backlog", "Ready", "In Progress", "Review", "Blocked", "Done"]
+labels: ["needs-decision", "high-priority"]
+date_format: yyyy-mm-dd
+max_column_width: 20
+default_editor: "notepad"
+auto_open_browser: false
+default_port: 6420
+remote_operations: false
+auto_commit: false
+filesystem_only: true
+zero_padded_ids: 2
+bypass_git_hooks: false
+check_active_branches: false
+active_branch_days: 30
+task_prefix: "{{TASK_PREFIX}}"
+backlog_directory: "backlog"

@@ -1,0 +1,136 @@
+export const decisionSeed =
+  '## Context\n\nDescribe the problem and constraints.\n\n## Decision\n\nDescribe the chosen approach and why.\n\n## Consequences\n\nDescribe benefits, costs and risks.\n\n## Alternatives\n\nDescribe alternatives considered.\n';
+export const escapeHtml = value =>
+  String(value ?? '').replace(
+    /[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+export function folderOf(record) {
+  return (record.path || '').replaceAll('\\', '/').split('/').slice(0, -1).join('/');
+}
+// Every search term must appear in the title, tags or body.
+export function matchesSearch(record, query) {
+  const text = [
+    record.title,
+    record.rawContent,
+    record.context,
+    record.decision,
+    record.consequences,
+    ...(record.tags || []),
+  ]
+    .join(' ')
+    .toLowerCase();
+  return String(query || '')
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every(term => text.includes(term));
+}
+// Decision status maps onto the shared status colours; unknown values stay neutral.
+export function decisionTone(status) {
+  return (
+    { accepted: 'done', proposed: 'review', rejected: 'blocked' }[
+      String(status || '')
+        .trim()
+        .toLowerCase()
+    ] || 'backlog'
+  );
+}
+export function statusLabel(status) {
+  const text = String(status || '').trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : '';
+}
+// The page title already heads the reader, so "On this page" lists the sections below it.
+export function tocEntries(headings, titleHeading = null) {
+  const entries = headings.filter(h => h.id !== titleHeading && h.level <= 3);
+  const top = Math.min(...entries.map(h => h.level));
+  return entries.map(h => ({ ...h, depth: h.level - top }));
+}
+export function draftFrom(record, kind) {
+  return {
+    id: record?.id || '',
+    title: record?.title || '',
+    content: record?.rawContent ?? (kind === 'decisions' ? decisionSeed : ''),
+    type: record?.type || 'other',
+    tags: (record?.tags || []).join(', '),
+    folder: record ? folderOf(record) : '',
+  };
+}
+// True when the draft differs from the editable fields it started from. Without a known
+// starting point (for example a recovered draft whose record moved on) it counts as changed.
+export function draftChanged(draft, original) {
+  if (!draft) return false;
+  if (!original) return true;
+  return ['title', 'content', 'type', 'tags', 'folder'].some(
+    field => String(draft[field] ?? '') !== String(original[field] ?? ''),
+  );
+}
+export function knowledgePayload(draft, kind) {
+  if (!draft.title.trim()) throw new Error('A title is required.');
+  if (kind === 'decisions') {
+    const headings = new Set();
+    let section = '';
+    let fence = '';
+    for (const line of draft.content.replace(/\r\n/g, '\n').split('\n')) {
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (marker) {
+        if (!fence && (marker[1][0] !== '`' || !marker[2].includes('`'))) fence = marker[1];
+        else if (fence[0] === marker[1][0] && marker[1].length >= fence.length && !marker[2].trim()) fence = '';
+      }
+      const heading = !fence && /^##[ \t]+(.+?)[ \t]*$/.exec(line);
+      if (heading) {
+        section = heading[1].toLowerCase();
+        if (!['context', 'decision', 'consequences', 'alternatives'].includes(section) || headings.has(section))
+          throw new Error('Use each decision section once. Put additional headings inside a section using ###.');
+        headings.add(section);
+      } else if (!section && line.trim())
+        throw new Error('Place all text under a decision section heading so it can be saved without loss.');
+    }
+    if (['context', 'decision', 'consequences'].some(h => !headings.has(h)))
+      throw new Error('Keep the Context, Decision and Consequences headings. Alternatives is optional.');
+    return { title: draft.title.trim(), content: draft.content };
+  }
+  const folder = draft.folder.trim().replaceAll('\\', '/');
+  if (folder.startsWith('/') || /[:\u0000-\u001f]/.test(folder) || folder.split('/').some(p => p === '..' || p === '.'))
+    throw new Error('Use a project-relative folder without dot segments.');
+  return {
+    title: draft.title.trim(),
+    content: draft.content,
+    type: draft.type,
+    tags: [
+      ...new Set(
+        draft.tags
+          .split(',')
+          .map(t => t.trim())
+          .filter(Boolean),
+      ),
+    ],
+    path: folder || (draft.id ? null : ''),
+  };
+}
+export function recordFingerprint(record) {
+  return JSON.stringify([
+    record.id,
+    record.title,
+    record.rawContent,
+    record.type,
+    record.tags || [],
+    record.path,
+    record.status,
+    record.date,
+  ]);
+}
+
+// Compare editable fields without exposing storage-specific JSON to the reader.
+export function knowledgeFieldComparison(draft, latest, kind) {
+  const saved = draftFrom(latest, kind);
+  return (kind === 'decisions' ? ['title', 'content'] : ['title', 'content', 'type', 'folder', 'tags'])
+    .map(field => ({
+      field,
+      label: { title: 'Title', content: 'Content', type: 'Type', folder: 'Folder', tags: 'Tags' }[field],
+      mine: draft[field] || '',
+      saved: saved[field] || '',
+    }))
+    .filter(row => row.mine !== row.saved);
+}

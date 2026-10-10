@@ -22,6 +22,11 @@ try {
         throw "Source formatting check failed. Run 'npm run format' in $switchflowRoot."
     }
 
+    & node (Join-Path $switchflowRoot 'scripts\build-plugin.mjs') --check
+    if ($LASTEXITCODE -ne 0) {
+        throw "Generated plugin files are out of date. Run 'node scripts/build-plugin.mjs' in $switchflowRoot."
+    }
+
     $tests =@(Get-ChildItem -LiteralPath (Join-Path $switchflowRoot 'scripts') -Filter '*.test.mjs' | Sort-Object Name | ForEach-Object FullName)
     & node --test @tests
     if ($LASTEXITCODE -ne 0) {

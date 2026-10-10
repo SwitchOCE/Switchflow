@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deliver Task"
+  short_description: "Implement one task and hand it off"
+  default_prompt: "Use $deliver-task to deliver {{TASK_PREFIX}}-xx."
