@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+// Runs the plugin's Backlog wrapper, ../service/backlog.mjs, from the caller's checkout.
+// It loads as CommonJS or as an ES module, whichever plugin/package.json declares.
+Promise.all([import('node:fs'), import('node:path'), import('node:url')])
+  .then(([fs, path, url]) => {
+    const bin = path.dirname(fs.realpathSync(process.argv[1]));
+    return import(url.pathToFileURL(path.join(bin, '..', 'service', 'backlog.mjs')).href);
+  })
+  .then(wrapper => wrapper.main(process.argv.slice(2)))
+  .then(
+    code => {
+      process.exitCode = code;
+    },
+    error => {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+    },
+  );
