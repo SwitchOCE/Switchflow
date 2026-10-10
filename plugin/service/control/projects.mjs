@@ -3,6 +3,7 @@ import path from 'node:path';
 import { resolveProject, readState, updateState, withLock, assertSafePath } from '../operations/storage.mjs';
 import { isRunProcessAlive } from './codex-runner.mjs';
 import { ControlError } from './lifecycle.mjs';
+import { installMode } from './tool-root.mjs';
 
 export function sharedServiceContext(context) {
   return { stateDir: path.join(path.dirname(path.dirname(context.stateDir)), 'control-service') };
@@ -27,11 +28,17 @@ export async function canonicalProject(projectRoot, serviceContext) {
     }
   }
   const metadata = JSON.parse(await fs.readFile(path.join(root, '.switchflow', 'project.json'), 'utf8'));
-  if (!/^0\.5\.\d+$/.test(metadata.templateVersion || '')) {
+  if (!compatibleInstallation(metadata)) {
     throw new ControlError(
-      'Update this project to Switchflow 0.5.x before adding it to the shared workspace. Mixing older task writers would bypass dependency and milestone rules.',
+      'Update this project to Switchflow 0.5.0 or a later 0.x release before adding it to the shared workspace. Mixing older task writers would bypass dependency and milestone rules.',
       409,
     );
+  }
+  // A plugin install holds only data; its tooling is this service's (tool-root.mjs).
+  try {
+    installMode(metadata);
+  } catch (error) {
+    throw new ControlError(error.message, 409);
   }
   let configured = false;
   for (const relative of ['backlog.config.yml', 'backlog/config.yml']) {
@@ -48,6 +55,14 @@ export async function canonicalProject(projectRoot, serviceContext) {
       409,
     );
   return context;
+}
+
+// Registration accepts schema 1 installations from 0.5.0 up to, but not
+// including, 1.0.0, prereleases such as a plugin's 0.7.0-alpha.1 included;
+// older writers skip the dependency and milestone rules.
+function compatibleInstallation(metadata) {
+  const match = /^0\.(\d+)\.\d+(?:-[0-9A-Za-z.-]+)?$/.exec(metadata.templateVersion || '');
+  return metadata.schemaVersion === 1 && match !== null && Number(match[1]) >= 5;
 }
 
 export async function acquireProjectService(context) {

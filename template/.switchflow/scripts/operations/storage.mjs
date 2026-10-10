@@ -15,7 +15,12 @@ export function stable(value) {
   return JSON.stringify(value);
 }
 export const git = (cwd, args) => {
-  const output = execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  const output = execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+    // A service started detached has no console; without this, Windows makes one for each git.
+    windowsHide: true,
+  });
   // NUL-delimited filenames are data: whitespace may be part of a path.
   return args.includes('-z') ? output : output.replace(/\r?\n$/, '');
 };

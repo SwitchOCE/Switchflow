@@ -58,9 +58,10 @@ export async function canonicalProject(projectRoot, serviceContext) {
 }
 
 // Registration accepts schema 1 installations from 0.5.0 up to, but not
-// including, 1.0.0; older writers skip the dependency and milestone rules.
+// including, 1.0.0, prereleases such as a plugin's 0.7.0-alpha.1 included;
+// older writers skip the dependency and milestone rules.
 function compatibleInstallation(metadata) {
-  const match = /^0\.(\d+)\.\d+$/.exec(metadata.templateVersion || '');
+  const match = /^0\.(\d+)\.\d+(?:-[0-9A-Za-z.-]+)?$/.exec(metadata.templateVersion || '');
   return metadata.schemaVersion === 1 && match !== null && Number(match[1]) >= 5;
 }
 

@@ -30,7 +30,11 @@ export async function captureCandidate(context) {
 export function createEnvironmentTag({ environment = process.env, inputs = {}, docker = false } = {}) {
   let dockerRuntime = null;
   if (docker)
-    dockerRuntime = execFileSync('docker', ['version', '--format', '{{json .}}'], { encoding: 'utf8', timeout: 10000 });
+    dockerRuntime = execFileSync('docker', ['version', '--format', '{{json .}}'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      windowsHide: true,
+    });
   return {
     digest: digest(
       stable({

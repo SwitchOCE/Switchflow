@@ -23,7 +23,7 @@ async function makeProject(root, name = 'Alpha') {
   await fs.mkdir(path.join(root, '.switchflow'), { recursive: true });
   await fs.writeFile(
     path.join(root, '.switchflow', 'project.json'),
-    JSON.stringify({ projectName: name, templateVersion: '0.5.0' }),
+    JSON.stringify({ schemaVersion: 1, projectName: name, templateVersion: '0.5.0' }),
   );
   await fs.writeFile(path.join(root, 'backlog.config.yml'), `project_name: ${name}\n`);
   git(root, 'init', '-b', 'main');
@@ -174,8 +174,9 @@ test('the launcher starts the service, reuses it, and upgrades it when idle', ()
     assert.equal(reused.status, 'running');
     assert.equal(reused.url, started.url);
     assert.equal(reused.projectId, started.projectId);
-    // Most of this is Node starting; the service answers well under a second.
-    assert.ok(reused.elapsedMs < 5000, `reuse took ${reused.elapsedMs} ms`);
+    // Reuse starts nothing: the same process still answers. (No time limit: a loaded machine
+    // makes any wall-clock bound flaky.)
+    assert.equal((await health(started.url)).pid, firstHealth.pid);
 
     // An older plugin never replaces a newer service, and without the flag nothing is stopped.
     const second = await makePlugin(base, '1.1.0');

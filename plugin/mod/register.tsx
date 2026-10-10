@@ -385,14 +385,13 @@ export const register: Register = on => {
             <Box key={`group:${label}`} flexDirection="column">
               <Text dimColor>{label}</Text>
               {list.map(entry => (
-                <Button key={`worker:${entry.id}`} plain onPress={() => choose($, entry.id)}>
-                  {entry.id === chosen ? '▸ ' : '  '}
-                  {entry.title}{' '}
-                  <Text dimColor>
-                    {statusLabel(entry)}
-                    {entry.isHeld ? ' · held' : ''}
-                  </Text>
-                </Button>
+                // A Button's label is one plain string; the engine refuses mixed children.
+                <Button
+                  key={`worker:${entry.id}`}
+                  plain
+                  label={`${entry.id === chosen ? '▸ ' : '  '}${entry.title} · ${statusLabel(entry)}${entry.isHeld ? ' · held' : ''}`}
+                  onPress={() => choose($, entry.id)}
+                />
               ))}
             </Box>
           ))}

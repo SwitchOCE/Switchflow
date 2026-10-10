@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { withLock } from '../operations/storage.mjs';
 import { execCli } from '../cli-output.mjs';
 import { hash, text, ControlError } from './lifecycle.mjs';
+import { readToolRoot, resolveToolRoot } from './tool-root.mjs';
 
 // promisify(execFile), except that outside Windows the CLI writes to files (SF-28).
 const exec = execCli;
@@ -15,11 +16,24 @@ export async function findBacklog(context) {
   } catch {
     /* Original Backlog remains readable until the pinned CAS runtime is set up. */
   }
-  const expected = JSON.parse(await fs.readFile(path.join(context.sourceRoot, '.switchflow', 'package.json'), 'utf8'))
-    .devDependencies['backlog.md'];
+  const governance = await readToolRoot(context.governanceRoot || context.sourceRoot);
+  if (governance.mode === 'plugin') {
+    // The plugin ships its own Backlog package; it is not installed per project.
+    const cliPath = path.join(governance.backlogPackageDir, 'cli.js');
+    try {
+      await fs.access(cliPath);
+      return cliPath;
+    } catch {
+      throw new Error(
+        `The Switchflow plugin's Backlog package is missing at ${governance.backlogPackageDir}. Reinstall the plugin.`,
+      );
+    }
+  }
+  const source = resolveToolRoot(context.sourceRoot, {});
+  const expected = JSON.parse(await fs.readFile(source.backlogPackageJson, 'utf8')).devDependencies['backlog.md'];
   for (const root of new Set([context.sourceRoot, context.governanceRoot])) {
     if (!root) continue;
-    const directory = path.join(root, '.switchflow', 'node_modules', 'backlog.md');
+    const directory = resolveToolRoot(root, {}).backlogPackageDir;
     try {
       const installed = JSON.parse(await fs.readFile(path.join(directory, 'package.json'), 'utf8'));
       if (installed.version === expected) return path.join(directory, 'cli.js');
@@ -269,11 +283,17 @@ export function createBacklogAdapter(context, { cliPath, execute = exec, callToo
         throw new ControlError('No task change supplied.');
       return withLock(context, 'board-edit', async () => {
         const before = await view(id);
-        if (!before.atomicRevision)
+        if (!before.atomicRevision) {
+          const tools = await readToolRoot(root);
+          const setup =
+            tools.mode === 'plugin'
+              ? path.join(tools.scriptsDir, 'backlog-fork', 'setup.mjs')
+              : '.switchflow/scripts/backlog-fork/setup.mjs';
           throw new ControlError(
-            'Safe editing needs the pinned Backlog CAS runtime. Run node .switchflow/scripts/backlog-fork/setup.mjs, then restart this board.',
+            `Safe editing needs the pinned Backlog CAS runtime. Run node ${setup}, then restart this board.`,
             503,
           );
+        }
         if (before.revision !== input.expectedRevision)
           throw new ControlError('This task changed. Reload before saving your edit.', 409);
         if (['In Progress', 'Review', 'Done'].includes(before.status))
@@ -301,11 +321,12 @@ export function createBacklogAdapter(context, { cliPath, execute = exec, callToo
           timeout: 30000,
           maxBuffer: 4 * 1024 * 1024,
         });
-        await execute(
-          process.execPath,
-          [path.join(root, '.switchflow', 'scripts', 'check-ready-dependencies.mjs'), await cli(), root],
-          { cwd: root, windowsHide: true, timeout: 30000, maxBuffer: 4 * 1024 * 1024 },
-        );
+        await execute(process.execPath, [(await readToolRoot(root)).checkReadyScript, await cli(), root], {
+          cwd: root,
+          windowsHide: true,
+          timeout: 30000,
+          maxBuffer: 4 * 1024 * 1024,
+        });
         return after;
       });
     },

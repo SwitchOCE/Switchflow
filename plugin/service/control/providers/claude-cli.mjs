@@ -17,6 +17,7 @@ import {
   validatePolicy,
   validatePrompt,
 } from './process.mjs';
+import { withToolPath } from '../tool-root.mjs';
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
@@ -91,17 +92,36 @@ export async function removeClaudeTranscript(sessionId, root = claudeTranscriptR
 }
 
 /** Bash patterns a role may run without a prompt. Everything else is denied (no prompt host). */
-export function bashAllowlist({ write, gitHelperPath }) {
+export function bashAllowlist({ write, gitHelperPath, toolRoot }) {
   const rules = [];
   for (const command of READ_ONLY_GIT) rules.push(`Bash(git ${command})`, `Bash(git ${command} *)`);
-  // Switchflow wrappers. Reviewers may only read through them.
-  const wrappers = write
-    ? ['.switchflow/scripts/*']
-    : ['.switchflow/scripts/backlog.ps1 task view *', '.switchflow/scripts/backlog.ps1 doc view *'];
-  for (const wrapper of wrappers)
-    for (const shell of ['powershell -NoProfile -ExecutionPolicy Bypass -File', 'pwsh -NoProfile -File'])
-      rules.push(`Bash(${shell} ${wrapper})`, `Bash(${shell} ./${wrapper})`);
-  if (write) rules.push('Bash(node .switchflow/scripts/*)', 'Bash(node ./.switchflow/scripts/*)');
+  if (toolRoot?.mode === 'plugin') {
+    // Plugin installs: the switchflow-backlog launcher on PATH, or node on the service's own script.
+    const scripts = toolRoot.scriptsDir.replaceAll('\\', '/');
+    const backlog = toolRoot.backlogScript.replaceAll('\\', '/');
+    const commands = write
+      ? ['switchflow-backlog', `node ${backlog}`]
+      : [
+          'switchflow-backlog task view',
+          'switchflow-backlog doc view',
+          `node ${backlog} task view`,
+          `node ${backlog} doc view`,
+        ];
+    for (const command of commands) {
+      if (write) rules.push(`Bash(${command})`);
+      rules.push(`Bash(${command} *)`);
+    }
+    if (write) rules.push(`Bash(node ${scripts}/*)`);
+  } else {
+    // Switchflow wrappers. Reviewers may only read through them.
+    const wrappers = write
+      ? ['.switchflow/scripts/*']
+      : ['.switchflow/scripts/backlog.ps1 task view *', '.switchflow/scripts/backlog.ps1 doc view *'];
+    for (const wrapper of wrappers)
+      for (const shell of ['powershell -NoProfile -ExecutionPolicy Bypass -File', 'pwsh -NoProfile -File'])
+        rules.push(`Bash(${shell} ${wrapper})`, `Bash(${shell} ./${wrapper})`);
+    if (write) rules.push('Bash(node .switchflow/scripts/*)', 'Bash(node ./.switchflow/scripts/*)');
+  }
   if (write && gitHelperPath) rules.push(`Bash(node ${gitHelperPath.replaceAll('\\', '/')} *)`);
   return rules;
 }
@@ -118,6 +138,7 @@ export function claudeArguments({
   instructions,
   mcpConfigPath,
   gitHelperPath,
+  toolRoot,
   resume = false,
   persist = false,
 }) {
@@ -129,7 +150,7 @@ export function claudeArguments({
   if (effort && !SAFE_EFFORT.test(effort)) throw new Error('Invalid Claude effort');
   if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 1000) throw new Error('Invalid Claude turn limit');
   const tools = [...READ_TOOLS, ...(write ? WRITE_TOOLS : []), 'Bash'];
-  const allowed = [...READ_TOOLS, ...bashAllowlist({ write, gitHelperPath })];
+  const allowed = [...READ_TOOLS, ...bashAllowlist({ write, gitHelperPath, toolRoot })];
   if (mcpConfigPath) allowed.push('mcp__switchflow');
   const args = [
     '-p',
@@ -225,6 +246,7 @@ export async function openClaudeSession({
   settleMs = 3000,
   transcriptRoot = claudeTranscriptRoot(),
   env: workerEnv = {},
+  toolRoot,
 }) {
   const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
   const maxTurns = limits.maxTurns ?? 200;
@@ -414,6 +436,7 @@ export async function openClaudeSession({
       instructions,
       mcpConfigPath,
       gitHelperPath,
+      toolRoot,
       resume,
       persist,
     });
@@ -423,7 +446,10 @@ export async function openClaudeSession({
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }, workerEnv),
+      env: withToolPath(
+        childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }, workerEnv),
+        toolRoot?.binDir,
+      ),
     });
     const current = { child, profile, persist, resumed: resume, exited: false, retiring: false };
     // A process this session ends on purpose (to change permissions) is not a failure.

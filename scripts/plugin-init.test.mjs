@@ -19,7 +19,11 @@ import { toPluginAgents } from '../plugin/tools/lib.mjs';
 
 const templateRoot = resolve('template');
 const initScript = resolve('plugin/tools/init.mjs');
-const version = readFileSync('VERSION', 'utf8').trim();
+// init stamps the plugin's version, falling back to VERSION only without a plugin manifest.
+const manifest = 'plugin/.claude-plugin/plugin.json';
+const version = existsSync(manifest)
+  ? JSON.parse(readFileSync(manifest, 'utf8')).version
+  : readFileSync('VERSION', 'utf8').trim();
 
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'switchflow-plugin-init-'));
@@ -87,8 +91,16 @@ test('init renders a data-only plugin project with every placeholder substituted
     assert.equal(config.schemaVersion, 1);
     assert.equal(config.install, 'plugin');
     assert.equal(config.templateVersion, version);
-    assert.match(config.templateRevision ?? '', /^[0-9a-f]{40}$/);
-    assert.equal(typeof config.templateDirty, 'boolean');
+    // Provenance is whatever Git reports here: unknown when Git refuses the checkout (for example a
+    // folder another account owns, outside the test's private Git config's safe directories).
+    const head = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+    if (head.status === 0) {
+      assert.match(config.templateRevision ?? '', /^[0-9a-f]{40}$/);
+      assert.equal(typeof config.templateDirty, 'boolean');
+    } else {
+      assert.equal(config.templateRevision, null);
+      assert.equal(config.templateDirty, null);
+    }
     assert.equal(config.projectName, `O'Neil "Q" \\ Co`);
     assert.equal(config.ownerName, "Ann O'Hara");
     assert.equal(config.projectPhase, 'Build');

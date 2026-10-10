@@ -104,8 +104,10 @@ function world(on: On, seed: Partial<World> = {}) {
   });
   on('ui.log', () => ({ value: undefined }));
   on('fs.read', ($, e) => {
-    // The engine resolves paths for its own platform, so a Windows path arrives prefixed on Linux.
-    if (w.hasInfo && e.path.endsWith(w.infoPath)) return { value: JSON.stringify({ url: BASE }) };
+    // The engine resolves paths for its own platform: a Windows path arrives prefixed on Linux, and
+    // a POSIX one arrives as C:\... on Windows.
+    const slashes = (value: string) => value.replace(/\\/g, '/');
+    if (w.hasInfo && slashes(e.path).endsWith(slashes(w.infoPath))) return { value: JSON.stringify({ url: BASE }) };
     throw new Error(`ENOENT: ${e.path}`);
   });
   on('http.fetch', ($, e) => {

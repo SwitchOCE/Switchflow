@@ -195,7 +195,7 @@ test('missing primary governance does not adopt stale worktree records', () =>
 test('registration accepts 0.5.0 and later 0.x installations', () =>
   fixture(async ({ roots, shared }) => {
     const metadataPath = path.join(roots[1], '.switchflow', 'project.json');
-    for (const templateVersion of ['0.5.0', '0.5.3', '0.6.0', '0.12.1']) {
+    for (const templateVersion of ['0.5.0', '0.5.3', '0.6.0', '0.12.1', '0.7.0-alpha.1']) {
       await fs.writeFile(metadataPath, JSON.stringify({ projectName: 'Beta', schemaVersion: 1, templateVersion }));
       const context = await canonicalProject(roots[1], shared);
       assert.equal(context.governanceRoot, await fs.realpath(roots[1]), templateVersion);
@@ -208,6 +208,7 @@ test('registration refuses older governance writers without changing their recor
     for (const metadata of [
       { schemaVersion: 1, templateVersion: '0.4.0' },
       { schemaVersion: 1, templateVersion: '0.4.9' },
+      { schemaVersion: 1, templateVersion: '0.4.0-alpha.1' },
       { schemaVersion: 1, templateVersion: '1.0.0' },
       { schemaVersion: 1, templateVersion: '0.6' },
       { schemaVersion: 2, templateVersion: '0.6.0' },
