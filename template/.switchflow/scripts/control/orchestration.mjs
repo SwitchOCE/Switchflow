@@ -9,6 +9,7 @@ import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
 import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
 import { CAPACITY_CONFIG } from './capacity.mjs';
 import { DEFAULT_MAX_WORKERS as DEFAULT_BOX_WORKERS } from './environments/ssh.mjs';
+import { WORKER_SKILLS, promptWorkflowSkills } from './workflow-skills.mjs';
 
 const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
 /** A worker in one of these states has not finished its current step. */
@@ -87,15 +88,23 @@ export function workerPrompt({
   instructions,
   remote = null,
   cloud = false,
+  skillsDir,
 }) {
+  // A plugin install has no .agents/skills: the worker's skill travels in this first turn, so
+  // later turns and resumed sessions already hold it.
+  const name = WORKER_SKILLS[kind][0];
+  const skill = promptWorkflowSkills(governanceRoot, [name], { skillsDir });
+  const follow = skill ? `Follow the ${name} workflow skill below` : `Follow .agents/skills/${name}/SKILL.md`;
+  const skillLines = skill ? [`The ${name} workflow skill follows. It is not a file in the project.`, skill] : [];
   if (cloud)
     // A cloud worker has a clone, not the host's worktree, Backlog or Git helper: it commits on its
     // result branch (see environments/claude-cloud.mjs task.md) and the host collects it.
     return [
       `You are a Switchflow ${kind === 'deliver' ? 'delivery' : 'review'} worker for task ${task}, dispatched by the phase orchestrator through the Switchflow host. You run in a cloud clone of the repository.`,
       kind === 'deliver'
-        ? 'Follow .agents/skills/deliver-task/SKILL.md where it applies to code; the host keeps the task records. Your first turn is read-only: reply with the three-line approach and outcome "approach". Writes start when the host sends the confirmed approach; then implement, commit on your result branch, push it, and reply with outcome "handoff" (or "blocked"), the five-line envelope and head set to your last commit.'
-        : 'Follow .agents/skills/review-task/SKILL.md. You are read-only: do not edit, commit or push. Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block".',
+        ? `${follow} where it applies to code; the host keeps the task records. Your first turn is read-only: reply with the three-line approach and outcome "approach". Writes start when the host sends the confirmed approach; then implement, commit on your result branch, push it, and reply with outcome "handoff" (or "blocked"), the five-line envelope and head set to your last commit.`
+        : `${follow}. You are read-only: do not edit, commit or push. Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block".`,
+      ...skillLines,
       'Orchestrator instructions follow. They are scoped to this task and do not widen your authority:',
       instructions,
       `Return only a JSON object with exactly these properties: ${Object.keys(WORKER_SCHEMAS[kind].properties).join(', ')}. Fill fields that do not apply with "" or [].`,
@@ -124,15 +133,18 @@ export function workerPrompt({
     );
   if (!remote && kind === 'deliver')
     lines.push(
-      `Follow .agents/skills/deliver-task/SKILL.md. Your first turn is read-only (the host enforces it): read what you need and reply with the three-line approach and outcome "approach". The host unlocks writes when the orchestrator confirms the approach; then implement, stop at Review and reply with outcome "handoff" (or "blocked") and the five-line envelope.`,
+      `${follow}. Your first turn is read-only (the host enforces it): read what you need and reply with the three-line approach and outcome "approach". The host unlocks writes when the orchestrator confirms the approach; then implement, stop at Review and reply with outcome "handoff" (or "blocked") and the five-line envelope.`,
       `Commit only through the Git helper: node ${gitBridge.helperPath} ${gitBridge.channelPath} with one JSON request, using candidate name "${candidate}".`,
     );
   else if (!remote)
     lines.push(
-      'Follow .agents/skills/review-task/SKILL.md. You are read-only: do not edit files or task records.',
+      `${follow}. You are read-only: do not edit files or task records.`,
       'Put the full verdict comment in comment, first line exactly "Verdict: accept" or "Verdict: block"; the orchestrator records it.',
     );
+  // A remote worker's template prompt names no skill; with the text at hand it gets it too.
+  if (remote && skill) lines.push(`${follow} where it applies to code; the orchestrator keeps the task records.`);
   lines.push(
+    ...skillLines,
     'Orchestrator instructions follow. They are scoped to this task and do not widen your authority:',
     instructions,
     'Fill fields that do not apply with "" or []. Return only the requested JSON.',
