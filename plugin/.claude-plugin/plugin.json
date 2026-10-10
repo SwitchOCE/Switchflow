@@ -1,0 +1,7 @@
+{
+  "name": "switchflow",
+  "version": "0.7.0-alpha.1",
+  "description": "Run Switchflow's governed delivery workflow and its always-on control service from Claude Code.",
+  "author": { "name": "SwitchOCE" },
+  "repository": "https://github.com/SwitchOCE/Switchflow"
+}

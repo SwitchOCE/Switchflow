@@ -1,0 +1,12 @@
+{
+  "name": "switchflow",
+  "description": "Switchflow governed delivery workflow for Claude Code.",
+  "owner": { "name": "SwitchOCE" },
+  "plugins": [
+    {
+      "name": "switchflow",
+      "source": "./plugin",
+      "description": "Run Switchflow's governed delivery workflow and control service from Claude Code."
+    }
+  ]
+}

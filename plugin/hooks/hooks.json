@@ -1,0 +1,25 @@
+{
+  "description": "Start the Switchflow control service and register the session's project.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/service/control/launch.mjs",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}",
+              "--project",
+              "${CLAUDE_PROJECT_DIR}",
+              "--upgrade-if-idle"
+            ],
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
