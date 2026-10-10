@@ -20,8 +20,11 @@ import { listSkills, readSkill } from './skills.mjs';
 import { listDocuments, readDocument } from './documents.mjs';
 import { sharedServiceContext, canonicalProject, acquireProjectService, ProjectRegistry } from './projects.mjs';
 import { createNativeBacklog } from './native-backlog.mjs';
+import { serviceVersion } from './launch.mjs';
 
 const publicRoot = fileURLToPath(new URL('./public/', import.meta.url));
+const codeRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const version = serviceVersion(codeRoot);
 const staticFiles = Object.fromEntries(
   [
     'index.html',
@@ -119,6 +122,8 @@ export async function createControlServer({
   // Test seams: memory probe/pool and clock for admission and leases, process listing for cleanup.
   capacity = {},
   processes = {},
+  // Called after POST /api/shutdown is accepted; main() routes it to the SIGTERM path.
+  onShutdown,
 } = {}) {
   const context = suppliedContext || (await canonicalProject(projectRoot));
   const sharedContext = sharedServiceContext(context);
@@ -334,7 +339,38 @@ export async function createControlServer({
           projectIds: [...projects.keys()],
           projectRoot: context.sourceRoot,
           pid: process.pid,
+          version,
+          codeRoot,
         });
+      if (req.method === 'POST' && url.pathname === '/api/shutdown') {
+        const input = await body(req);
+        if (Object.keys(input).some(key => key !== 'ifIdle') || !['undefined', 'boolean'].includes(typeof input.ifIdle))
+          throw new ControlError('Only ifIdle (a boolean) can be supplied.');
+        if (input.ifIdle) {
+          const activeRuns = [];
+          for (const session of projects.values()) {
+            const { activeRun } = await session.engine.read();
+            if (activeRun)
+              activeRuns.push({
+                projectId: session.project.id,
+                projectName: session.project.name,
+                runId: activeRun.id,
+                initiativeId: activeRun.initiativeId,
+                stage: activeRun.stage,
+              });
+          }
+          if (activeRuns.length)
+            return json(res, 409, { error: 'A run is active. The service keeps running.', activeRuns });
+        }
+        res.once('finish', () =>
+          setImmediate(() =>
+            Promise.resolve()
+              .then(onShutdown || (() => api.close()))
+              .catch(error => console.error(`Shutdown failed: ${error.message}`)),
+          ),
+        );
+        return json(res, 202, { stopping: true, pid: process.pid });
+      }
       if (req.method === 'GET' && url.pathname === '/api/projects')
         return json(res, 200, { csrfToken, defaultProjectId: context.id, projects: await summaries() });
       if (req.method === 'POST' && url.pathname === '/api/projects') {
@@ -574,7 +610,7 @@ export async function createControlServer({
   }
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   for (const session of projects.values()) session.engine.schedule();
-  return {
+  const api = {
     server,
     engine: initial.engine,
     context,
@@ -592,6 +628,7 @@ export async function createControlServer({
       }
     },
   };
+  return api;
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -625,7 +662,14 @@ export async function main(argv = process.argv.slice(2)) {
     shared,
     'service',
     async () => {
-      const app = await createControlServer({ context, port, persistProjects: true, lockProjects: true });
+      let requestStop;
+      const app = await createControlServer({
+        context,
+        port,
+        persistProjects: true,
+        lockProjects: true,
+        onShutdown: () => requestStop?.(),
+      });
       await updateState(shared, 'service-info', () => ({
         pid: process.pid,
         url: app.url,
@@ -641,6 +685,7 @@ export async function main(argv = process.argv.slice(2)) {
           await app.close();
           resolve();
         };
+        requestStop = stop;
         process.once('SIGINT', stop);
         process.once('SIGTERM', stop);
       });
