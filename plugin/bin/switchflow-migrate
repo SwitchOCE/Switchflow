@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the Switchflow plugin's project migrate tool. Claude Code puts this folder on the Bash PATH
+# while the plugin is enabled.
+exec node "$(dirname "$0")/../tools/migrate.mjs" "$@"
