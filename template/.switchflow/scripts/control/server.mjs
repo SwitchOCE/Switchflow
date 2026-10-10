@@ -20,6 +20,7 @@ import { listSkills, readSkill } from './skills.mjs';
 import { listDocuments, readDocument } from './documents.mjs';
 import { sharedServiceContext, canonicalProject, acquireProjectService, ProjectRegistry } from './projects.mjs';
 import { createNativeBacklog } from './native-backlog.mjs';
+import { projectSummary, rememberHealth, rollup } from './summary.mjs';
 
 const publicRoot = fileURLToPath(new URL('./public/', import.meta.url));
 const staticFiles = Object.fromEntries(
@@ -344,6 +345,14 @@ export async function createControlServer({
         const session = await register(input.projectRoot);
         return json(res, 201, { project: session.project });
       }
+      if (req.method === 'GET' && url.pathname === '/api/summary') {
+        const rolled = await rollup([...projects.values()], [...unavailable.values()]);
+        return json(
+          res,
+          200,
+          url.searchParams.get('since') === rolled.version ? { unchanged: true, version: rolled.version } : rolled,
+        );
+      }
       // Legacy URLs always target the launch project. Selection is explicit in
       // each scoped request; another browser tab cannot change its destination.
       const scoped = /^\/api\/projects\/([a-f0-9]{64})(\/.*)$/.exec(url.pathname);
@@ -420,6 +429,14 @@ export async function createControlServer({
           serviceError: engine.lastError || null,
         });
       }
+      if (req.method === 'GET' && url.pathname === '/api/summary' && scoped) {
+        const summary = await projectSummary(session);
+        return json(
+          res,
+          200,
+          url.searchParams.get('since') === summary.version ? { unchanged: true, version: summary.version } : summary,
+        );
+      }
       if (req.method === 'GET' && url.pathname === '/api/operations') {
         const [issues, metrics, worktrees, retention] = await Promise.all([
           listIssues(selectedContext),
@@ -433,8 +450,11 @@ export async function createControlServer({
       if (req.method === 'PUT' && url.pathname === '/api/agents/settings')
         return json(res, 200, await agents.updateSettings(await body(req)));
       const environmentTest = /^\/api\/agents\/environments\/([a-z0-9-]{1,32})\/test$/.exec(url.pathname);
-      if (environmentTest && req.method === 'POST')
-        return json(res, 200, await agents.testEnvironment(environmentTest[1]));
+      if (environmentTest && req.method === 'POST') {
+        const tested = await agents.testEnvironment(environmentTest[1]);
+        rememberHealth(session, tested);
+        return json(res, 200, tested);
+      }
       const agentRoute = /^\/api\/agents\/([a-f0-9-]{36})\/(events|steer|interrupt)$/.exec(url.pathname);
       if (agentRoute?.[2] === 'events' && req.method === 'GET') {
         const after = url.searchParams.get('after') ?? '0';
