@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ControlError } from './lifecycle.mjs';
+import { readToolRoot } from './tool-root.mjs';
 
 // Only Switchflow's shipped roles belong in this inspector, not unrelated skills.
 export const skillNames = [
@@ -17,10 +18,17 @@ export const skillNames = [
   'review-framework',
 ];
 const MAX_FILE = 1024 * 1024;
+// Template installs keep the skills in the project's .agents/skills; plugin installs read the
+// plugin's own copy (tool-root.mjs workflowSkillsDir).
+async function skillRoot(context) {
+  const tools = await readToolRoot(context.governanceRoot);
+  if (tools.mode === 'plugin') return { root: await fs.realpath(tools.workflowSkillsDir), prefix: [] };
+  return { root: await fs.realpath(context.governanceRoot), prefix: ['.agents', 'skills'] };
+}
 async function safePath(context, parts) {
-  const root = await fs.realpath(context.governanceRoot);
+  const { root, prefix } = await skillRoot(context);
   let current = root;
-  for (const part of ['.agents', 'skills', ...parts]) {
+  for (const part of [...prefix, ...parts]) {
     current = path.join(current, part);
     const stat = await fs.lstat(current);
     if (stat.isSymbolicLink()) throw new ControlError('Linked skill paths are not supported.', 403);
@@ -68,7 +76,10 @@ export async function readSkill(context, id) {
       name: parts[0],
       title: markdown.match(/^#\s+(.+)$/m)?.[1] || parts[0],
       description,
-      path: `.agents/skills/${id}`,
+      path:
+        (await readToolRoot(context.governanceRoot)).mode === 'plugin'
+          ? `workflow-skills/${id}`
+          : `.agents/skills/${id}`,
       markdown,
       raw,
     };

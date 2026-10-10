@@ -3,6 +3,7 @@ import path from 'node:path';
 import { resolveProject, readState, updateState, withLock, assertSafePath } from '../operations/storage.mjs';
 import { isRunProcessAlive } from './codex-runner.mjs';
 import { ControlError } from './lifecycle.mjs';
+import { installMode } from './tool-root.mjs';
 
 export function sharedServiceContext(context) {
   return { stateDir: path.join(path.dirname(path.dirname(context.stateDir)), 'control-service') };
@@ -32,6 +33,12 @@ export async function canonicalProject(projectRoot, serviceContext) {
       'Update this project to Switchflow 0.5.0 or a later 0.x release before adding it to the shared workspace. Mixing older task writers would bypass dependency and milestone rules.',
       409,
     );
+  }
+  // A plugin install holds only data; its tooling is this service's (tool-root.mjs).
+  try {
+    installMode(metadata);
+  } catch (error) {
+    throw new ControlError(error.message, 409);
   }
   let configured = false;
   for (const relative of ['backlog.config.yml', 'backlog/config.yml']) {
