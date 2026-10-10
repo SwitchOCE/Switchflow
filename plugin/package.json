@@ -1,0 +1,9 @@
+{
+  "name": "switchflow-plugin",
+  "private": true,
+  "version": "0.7.0-alpha.1",
+  "description": "Runtime dependencies of the Switchflow Claude Code plugin.",
+  "dependencies": {
+    "backlog.md": "1.50.1"
+  }
+}

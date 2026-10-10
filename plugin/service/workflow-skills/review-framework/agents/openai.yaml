@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Framework"
+  short_description: "Review process friction without dispatching work"
+  default_prompt: "Use $review-framework to assess the requested Switchflow friction records and propose improvements."
+
+policy:
+  allow_implicit_invocation: false

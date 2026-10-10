@@ -1,0 +1,7 @@
+interface:
+  display_name: "Guided UAT"
+  short_description: "Walk through human acceptance scenarios"
+  default_prompt: "Use $guided-uat to resume acceptance of the delivered {{PROJECT_NAME_YAML_DOUBLE}} candidate."
+
+policy:
+  allow_implicit_invocation: true

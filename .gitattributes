@@ -1,2 +1,3 @@
 # Unified patches contain context prefixes before upstream tabs and blank lines.
 template/.switchflow/scripts/backlog-fork/*.patch -whitespace
+plugin/service/backlog-fork/*.patch -whitespace

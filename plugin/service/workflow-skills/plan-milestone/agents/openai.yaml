@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Milestone"
+  short_description: "Turn a frozen scope contract into ready tasks"
+  default_prompt: "Use $plan-milestone to break this frozen {{PROJECT_NAME_YAML_DOUBLE}} scope contract into ordered phases and ready tasks."

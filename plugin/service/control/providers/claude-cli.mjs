@@ -1,0 +1,584 @@
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import {
+  TurnInterruptedError,
+  childEnvironment,
+  emptyUsage,
+  oneLine,
+  openRawLog,
+  readLines,
+  stopTree,
+  stripAnsi,
+  turnSandbox,
+  validatePolicy,
+  validatePrompt,
+} from './process.mjs';
+
+const READ_TOOLS = ['Read', 'Grep', 'Glob'];
+const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+const READ_ONLY_GIT = [
+  'status',
+  'diff',
+  'log',
+  'show',
+  'rev-parse',
+  'ls-files',
+  'branch --show-current',
+  'worktree list',
+];
+const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\-[\]]{0,99}$/;
+const SAFE_EFFORT = /^[a-z]{2,10}$/;
+
+/**
+ * The npm shim (claude.cmd) cannot be spawned without a shell on Windows (EINVAL), and a shell
+ * would re-quote JSON arguments. Spawn the native executable it wraps instead.
+ */
+export function claudeExecutable({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
+  if (platform === 'win32') {
+    const candidates = [
+      env.APPDATA && path.join(env.APPDATA, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'),
+      env.USERPROFILE && path.join(env.USERPROFILE, '.local', 'bin', 'claude.exe'),
+    ].filter(Boolean);
+    return candidates.find(candidate => exists(candidate)) || null;
+  }
+  return 'claude';
+}
+
+/** Where Claude Code saves conversations: <config>/projects/<sanitized cwd>/<session ID>.jsonl. */
+export function claudeTranscriptRoot(env = process.env) {
+  return path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+}
+
+/**
+ * The projects folder name Claude Code uses for a working directory: every character other than
+ * an ASCII letter or digit becomes "-" (C:\Users\me\repo -> C--Users-me-repo). Longer names are
+ * cut and given a hash suffix, which is not reproduced here, so they return null.
+ */
+export function claudeProjectFolder(cwd) {
+  const name = String(cwd ?? '').replace(/[^A-Za-z0-9]/g, '-');
+  return name && name.length <= 200 ? name : null;
+}
+
+/**
+ * Removes the saved conversation of one session this host started, found by its random session
+ * ID (the folder name is the CLI's own encoding of the working directory). Its folder goes too
+ * when nothing else is in it. Returns the removed file, or null.
+ */
+export async function removeClaudeTranscript(sessionId, root = claudeTranscriptRoot()) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) return null;
+  let folders = [];
+  try {
+    folders = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const folder of folders) {
+    if (!folder.isDirectory()) continue;
+    const file = path.join(root, folder.name, `${sessionId}.jsonl`);
+    try {
+      await fs.rm(file);
+    } catch {
+      continue;
+    }
+    await fs.rmdir(path.join(root, folder.name)).catch(() => {});
+    return file;
+  }
+  return null;
+}
+
+/** Bash patterns a role may run without a prompt. Everything else is denied (no prompt host). */
+export function bashAllowlist({ write, gitHelperPath }) {
+  const rules = [];
+  for (const command of READ_ONLY_GIT) rules.push(`Bash(git ${command})`, `Bash(git ${command} *)`);
+  // Switchflow wrappers. Reviewers may only read through them.
+  const wrappers = write
+    ? ['.switchflow/scripts/*']
+    : ['.switchflow/scripts/backlog.ps1 task view *', '.switchflow/scripts/backlog.ps1 doc view *'];
+  for (const wrapper of wrappers)
+    for (const shell of ['powershell -NoProfile -ExecutionPolicy Bypass -File', 'pwsh -NoProfile -File'])
+      rules.push(`Bash(${shell} ${wrapper})`, `Bash(${shell} ./${wrapper})`);
+  if (write) rules.push('Bash(node .switchflow/scripts/*)', 'Bash(node ./.switchflow/scripts/*)');
+  if (write && gitHelperPath) rules.push(`Bash(node ${gitHelperPath.replaceAll('\\', '/')} *)`);
+  return rules;
+}
+
+export function claudeArguments({
+  sessionId,
+  sandbox,
+  writableRoots = [],
+  temporaryRoot,
+  model,
+  effort,
+  maxTurns,
+  outputSchema,
+  instructions,
+  mcpConfigPath,
+  gitHelperPath,
+  resume = false,
+  persist = false,
+}) {
+  const roots = validatePolicy({ sandbox, writableRoots, temporaryRoot });
+  const write = sandbox === 'workspace-write';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId))
+    throw new Error('Invalid Claude session ID');
+  if (model && !SAFE_MODEL.test(model)) throw new Error('Invalid Claude model name');
+  if (effort && !SAFE_EFFORT.test(effort)) throw new Error('Invalid Claude effort');
+  if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 1000) throw new Error('Invalid Claude turn limit');
+  const tools = [...READ_TOOLS, ...(write ? WRITE_TOOLS : []), 'Bash'];
+  const allowed = [...READ_TOOLS, ...bashAllowlist({ write, gitHelperPath })];
+  if (mcpConfigPath) allowed.push('mcp__switchflow');
+  const args = [
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--replay-user-messages',
+    // Ignores user/project/local settings, confines file tools to the working directories,
+    // refuses bypassPermissions and drops command tools unless --tools names them.
+    '--restricted',
+    '--strict-mcp-config',
+    // Nobody answers prompts: anything not pre-approved below is denied.
+    '--permission-prompts',
+    'none',
+    '--permission-mode',
+    write ? 'acceptEdits' : 'dontAsk',
+    '--tools',
+    tools.join(','),
+    '--allowedTools',
+    ...allowed,
+    '--disallowedTools',
+    'WebFetch',
+    'WebSearch',
+    // A resumed process continues the same conversation under its own permission set.
+    resume ? '--resume' : '--session-id',
+    sessionId,
+    ...(persist ? [] : ['--no-session-persistence']),
+    '--max-turns',
+    String(maxTurns),
+  ];
+  if (model) args.push('--model', model);
+  if (effort) args.push('--effort', effort);
+  if (outputSchema) args.push('--json-schema', JSON.stringify(outputSchema));
+  if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath);
+  if (instructions) args.push('--append-system-prompt', instructions);
+  for (const root of roots) args.push('--add-dir', root);
+  if (args.some(arg => /bypassPermissions|dangerously/i.test(arg))) throw new Error('Unsafe Claude permission flag');
+  return args;
+}
+
+function usageFrom(previous, result) {
+  const u = result?.usage || {};
+  const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+  const next = {
+    inputTokens: previous.inputTokens + input,
+    cachedInputTokens: previous.cachedInputTokens + (u.cache_read_input_tokens ?? 0),
+    outputTokens: previous.outputTokens + (u.output_tokens ?? 0),
+    reasoningOutputTokens: 0,
+    totalTokens: previous.totalTokens + input + (u.output_tokens ?? 0),
+    costUsd:
+      typeof result?.total_cost_usd === 'number' ? (previous.costUsd ?? 0) + result.total_cost_usd : previous.costUsd,
+  };
+  return next;
+}
+
+function toolEvent(block) {
+  const input = block.input || {};
+  if (block.name === 'Bash') return { kind: 'command', command: oneLine(input.command, 2000), status: 'started' };
+  if (WRITE_TOOLS.includes(block.name) && (input.file_path || input.notebook_path))
+    return { kind: 'file_change', paths: [input.file_path || input.notebook_path], status: 'requested' };
+  return { kind: 'tool', name: block.name, summary: oneLine(input.file_path || input.pattern || input.path || input) };
+}
+
+/**
+ * Drives the installed Claude Code CLI in stream-json mode. The process starts with the first
+ * turn because --json-schema is fixed per process; later turns must use the same schema.
+ *
+ * Tools and Bash rules are also fixed per process. A turn that asks for a narrower sandbox than
+ * the session (a delivery worker's read-only approach turn) runs in a read-only process whose
+ * conversation is saved; the first wider turn ends that process and resumes the same conversation
+ * (`--resume`) in a process with the session's write tools. The new PID goes through onProcess.
+ */
+export async function openClaudeSession({
+  id = randomUUID(),
+  cwd,
+  sandbox = 'workspace-write',
+  writableRoots = [],
+  temporaryRoot,
+  instructions,
+  model,
+  effort,
+  limits = {},
+  onEvent = () => {},
+  onProcess = async () => {},
+  signal,
+  mcpConfigPath,
+  gitHelperPath,
+  rawLogPath,
+  executable = claudeExecutable(),
+  spawnProcess = spawn,
+  settleMs = 3000,
+  transcriptRoot = claudeTranscriptRoot(),
+  env: workerEnv = {},
+}) {
+  const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
+  const maxTurns = limits.maxTurns ?? 200;
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000)
+    throw new Error('Invalid run timeout');
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw new Error('Session working directory must be absolute');
+  if (!executable) throw new Error('Claude Code is not installed');
+  if (signal?.aborted) throw new Error('Agent session cancelled');
+  validatePolicy({ sandbox, writableRoots, temporaryRoot });
+  const sessionId = randomUUID();
+  const raw = await openRawLog(rawLogPath);
+  let proc = null; // { child, profile, persist, resumed, exited, retiring, closedPromise, readers }
+  let switching = false;
+  let saved = false; // a process of this session saved its conversation
+  let schemaKey;
+  let closed = false;
+  let failure = null;
+  let active = null; // { id, unreplayed, resolve, reject, interrupting, lastText, settleTimer }
+  let usage = emptyUsage();
+  let heldMessage = null;
+  let events = Promise.resolve();
+  let timer;
+  const emit = event => {
+    // A host that cannot record events must not keep an unobserved agent running.
+    events = events
+      .then(() => onEvent(event))
+      .catch(error => {
+        fail(error);
+        void close();
+      });
+    return events;
+  };
+  const flushMessage = final => {
+    if (!heldMessage) return;
+    const text = heldMessage;
+    heldMessage = null;
+    void emit({ kind: 'message', text, final });
+  };
+  const write = message => {
+    const child = proc?.child;
+    if (!child || closed || proc.retiring || !child.stdin.writable) throw new Error('Claude session is closed');
+    void raw.write('>', message);
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  const userMessage = (text, priority) => ({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text }] },
+    parent_tool_use_id: null,
+    session_id: '',
+    ...(priority ? { priority } : {}),
+  });
+  const fail = error => {
+    failure ??= error;
+    if (active) {
+      const turn = active;
+      active = null;
+      clearTimeout(turn.settleTimer);
+      flushMessage(false);
+      void emit({ kind: 'turn.failed', turnId: turn.id, error: error.message });
+      turn.reject(error);
+    }
+  };
+  const completeTurn = result => {
+    const turn = active;
+    if (!turn) return;
+    active = null;
+    clearTimeout(turn.settleTimer);
+    if (turn.interrupting) {
+      flushMessage(false);
+      void emit({ kind: 'turn.completed', turnId: turn.id, status: 'interrupted', usage });
+      turn.reject(new TurnInterruptedError());
+      return;
+    }
+    if (result.is_error || result.subtype !== 'success') {
+      flushMessage(false);
+      const reason = result.terminal_reason || result.subtype || 'error';
+      const message = `Claude reported ${reason}: ${oneLine(result.result ?? result.errors ?? '', 500)}`;
+      void emit({ kind: 'turn.failed', turnId: turn.id, error: message });
+      turn.reject(new Error(message));
+      return;
+    }
+    const text = typeof result.result === 'string' ? result.result : '';
+    if (heldMessage) flushMessage(true);
+    else if (text) void emit({ kind: 'message', text, final: true });
+    void emit({ kind: 'turn.completed', turnId: turn.id, status: 'completed', usage });
+    let structured = null;
+    if (turn.outputSchema) {
+      structured = result.structured_output ?? null;
+      if (structured === null) {
+        try {
+          structured = JSON.parse(text);
+        } catch {
+          turn.reject(new Error('Claude returned no structured output'));
+          return;
+        }
+      }
+    }
+    turn.resolve({ turnId: turn.id, text, result: structured, usage });
+  };
+  const onLine = async line => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      void raw.write('<!', line);
+      return;
+    }
+    if (message.type !== 'stream_event') void raw.write('<', message);
+    switch (message.type) {
+      case 'system':
+        if (message.subtype === 'init')
+          await emit({
+            kind: 'session.started',
+            provider: 'claude',
+            transport: 'cli',
+            threadId: message.session_id ?? sessionId,
+            pid: proc?.child.pid ?? null,
+            model: message.model ?? model ?? null,
+            ...(proc?.resumed ? { resumed: true } : {}),
+          });
+        return;
+      case 'assistant': {
+        if (message.error) await emit({ kind: 'notice', level: 'error', text: oneLine(message.error) });
+        for (const block of message.message?.content || []) {
+          if (block.type === 'text' && block.text) {
+            flushMessage(false);
+            heldMessage = block.text;
+          } else if (block.type === 'tool_use') {
+            flushMessage(false);
+            await emit(toolEvent(block));
+          }
+        }
+        return;
+      }
+      case 'user':
+        if (message.isReplay && active && active.unreplayed > 0) active.unreplayed--;
+        return;
+      case 'result':
+        usage = usageFrom(usage, message);
+        if (!active) return;
+        if (Array.isArray(message.permission_denials) && message.permission_denials.length)
+          await emit({
+            kind: 'notice',
+            level: 'warning',
+            text: `Denied: ${oneLine(message.permission_denials.map(d => d.tool_name).join(', '))}`,
+          });
+        clearTimeout(active.settleTimer);
+        // A steer queued behind this reply produces its own result. Wait for it.
+        if (active.unreplayed > 0 && !active.interrupting && !message.is_error) {
+          const turn = active;
+          turn.settleTimer = setTimeout(() => {
+            if (active === turn) completeTurn(message);
+          }, settleMs);
+          return;
+        }
+        completeTurn(message);
+        return;
+      case 'control_request':
+        // --permission-prompts none should prevent these. Deny anything that still arrives.
+        write({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: message.request_id,
+            response: { behavior: 'deny', message: 'Switchflow denies tools outside the role allowlist.' },
+          },
+        });
+        await emit({ kind: 'notice', level: 'warning', text: `Denied ${message.request?.tool_name || 'request'}.` });
+        return;
+      default:
+    }
+  };
+  const start = (outputSchema, profile, { resume = false } = {}) => {
+    schemaKey = JSON.stringify(outputSchema ?? null);
+    // Only a process narrower than the session saves its conversation, so a wider one can resume it.
+    const persist = profile !== sandbox;
+    saved ||= persist;
+    const args = claudeArguments({
+      sessionId,
+      sandbox: profile,
+      writableRoots,
+      temporaryRoot,
+      model,
+      effort,
+      maxTurns,
+      outputSchema,
+      instructions,
+      mcpConfigPath,
+      gitHelperPath,
+      resume,
+      persist,
+    });
+    const child = spawnProcess(executable, args, {
+      cwd: path.resolve(cwd),
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: childEnvironment(temporaryRoot, { CLAUDE_CODE_ENTRYPOINT: 'switchflow' }, workerEnv),
+    });
+    const current = { child, profile, persist, resumed: resume, exited: false, retiring: false };
+    // A process this session ends on purpose (to change permissions) is not a failure.
+    const lost = error => {
+      if (!current.retiring) fail(error);
+    };
+    current.closedPromise = new Promise(resolve => {
+      child.once('error', lost);
+      child.once('close', code => {
+        current.exited = true;
+        if (!current.retiring) {
+          closed = true;
+          fail(new Error(`Claude exited with code ${code}`));
+        }
+        resolve(code);
+      });
+    });
+    child.stdin.on('error', lost);
+    current.readers = [
+      readLines(child.stdout, onLine).catch(error => {
+        lost(error);
+        void stopTree(child);
+      }),
+      readLines(child.stderr, text => {
+        const clean = stripAnsi(text).trim();
+        if (clean) void emit({ kind: 'stderr', text: oneLine(clean, 2000) });
+      }).catch(() => {}),
+    ];
+    proc = current;
+  };
+  const stop = async (current, graceMs) => {
+    if (!current) return;
+    if (!current.exited) {
+      try {
+        current.child.stdin.end();
+      } catch {}
+      await Promise.race([current.closedPromise, new Promise(resolve => setTimeout(resolve, graceMs))]);
+      if (!current.exited) await stopTree(current.child);
+    }
+    await current.closedPromise;
+    await Promise.allSettled(current.readers);
+  };
+  /** Ends the idle process so the next turn can resume the conversation with other permissions. */
+  const retire = async () => {
+    const current = proc;
+    current.retiring = true;
+    // Closing stdin lets the CLI finish saving the conversation before it exits.
+    await stop(current, 5000);
+    await onProcess(null);
+  };
+  let closing;
+  const close = async () => {
+    if (closing) return closing;
+    closing = (async () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      await stop(proc, 1500);
+      // A saved approach conversation was only needed to resume it; it does not outlive the session.
+      if (saved) {
+        const removed = await removeClaudeTranscript(sessionId, transcriptRoot).catch(() => null);
+        if (!removed)
+          await emit({ kind: 'notice', level: 'warning', text: 'Could not remove the saved Claude conversation.' });
+      }
+      fail(new Error('Agent session closed'));
+      await emit({ kind: 'session.closed' });
+      await events;
+      await raw.close();
+    })();
+    return closing;
+  };
+  const abort = () => {
+    fail(new Error('Agent session cancelled'));
+    void close();
+  };
+  timer = setTimeout(() => {
+    fail(new Error('Agent session timed out'));
+    void close();
+  }, timeoutMs);
+  // A live process keeps the service running; the deadline alone must not (tests, shutdown).
+  timer.unref?.();
+  signal?.addEventListener('abort', abort, { once: true });
+
+  return {
+    id,
+    provider: 'claude',
+    transport: 'cli',
+    get pid() {
+      return proc?.child.pid ?? null;
+    },
+    threadId: sessionId,
+    get activeTurnId() {
+      return active?.id ?? null;
+    },
+    get closed() {
+      return closed || Boolean(closing);
+    },
+    async startTurn(text, { outputSchema, sandbox: requested } = {}) {
+      validatePrompt(text);
+      if (failure && proc) throw failure;
+      if (closing) throw new Error('Claude session is closed');
+      if (active || switching) throw new Error('A turn is already running in this session');
+      const profile = turnSandbox(sandbox, requested);
+      if (proc && JSON.stringify(outputSchema ?? null) !== schemaKey)
+        throw new Error('A Claude session keeps the output schema of its first turn');
+      if (!proc || proc.profile !== profile) {
+        // Only a saved (narrower) conversation can be resumed; a write process is never narrowed.
+        if (proc && !proc.persist) throw new Error('This Claude session cannot narrow its permissions');
+        switching = true;
+        try {
+          if (proc) await retire();
+          if (closing) throw new Error('Claude session is closed');
+          start(outputSchema, profile, { resume: Boolean(proc) });
+          // The host records the PID before any input reaches the process.
+          await onProcess(proc.child.pid ?? null);
+        } catch (error) {
+          fail(error);
+          await close();
+          throw error;
+        } finally {
+          switching = false;
+        }
+      }
+      const turnId = randomUUID();
+      const done = new Promise((resolve, reject) => {
+        active = { id: turnId, unreplayed: 1, resolve, reject, outputSchema };
+      });
+      await emit({ kind: 'turn.started', turnId });
+      write(userMessage(text));
+      return done;
+    },
+    async steer(text, { expectedTurnId, by = 'owner' } = {}) {
+      validatePrompt(text);
+      if (!active || (expectedTurnId && expectedTurnId !== active.id))
+        throw Object.assign(new Error('No active turn to steer'), { code: 409 });
+      active.unreplayed++;
+      // "next": read inside the running turn once its current tools finish (Agent SDK semantics).
+      write(userMessage(text, 'next'));
+      await emit({ kind: 'steer', text, by, mode: 'steer', turnId: active.id });
+      return { turnId: active.id };
+    },
+    async interrupt({ by = 'owner' } = {}) {
+      if (!active) return false;
+      const turn = active;
+      turn.interrupting = true;
+      await emit({ kind: 'interrupt', by, turnId: turn.id });
+      write({ type: 'control_request', request_id: `interrupt-${randomUUID()}`, request: { subtype: 'interrupt' } });
+      // If no result follows, end the process: an unacknowledged interrupt must still stop work.
+      setTimeout(() => {
+        if (active === turn) {
+          fail(new TurnInterruptedError());
+          void close();
+        }
+      }, 15000).unref?.();
+      return true;
+    },
+    close,
+  };
+}

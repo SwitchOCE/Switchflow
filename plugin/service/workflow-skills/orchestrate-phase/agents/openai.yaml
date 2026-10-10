@@ -1,0 +1,7 @@
+interface:
+  display_name: "Orchestrate Phase"
+  short_description: "Deliver and checkpoint one phase"
+  default_prompt: "Use $orchestrate-phase to deliver phase <N> of the <milestone> milestone."
+
+policy:
+  allow_implicit_invocation: false

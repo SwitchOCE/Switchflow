@@ -1,0 +1,161 @@
+/* UAT preview bar: a compact launcher above the guided acceptance checks. */
+.preview-bar {
+  display: grid;
+  gap: var(--space-2);
+}
+.detail-section.preview-bar {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.detail-body > .detail-section.preview-bar + .detail-section {
+  margin-top: var(--space-4);
+}
+.preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.detail-section .preview-head h3 {
+  margin: 0;
+}
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.detail-section > p.preview-note,
+.detail-section > p.preview-command {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.preview-command code,
+.preview-note code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-1);
+  font-size: var(--text-xs);
+}
+.preview-command strong {
+  color: var(--text-1);
+}
+.detail-section > p.preview-problem {
+  color: var(--danger-text);
+}
+.preview-bar .status-pill[data-status='warning'] {
+  --status: var(--warning);
+}
+.detail-section > p.preview-warning {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text-1);
+  font-weight: 600;
+}
+.preview-url {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.preview-bar .preview-candidate {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 320px;
+  margin: 0;
+}
+.preview-bar .preview-error {
+  margin: 0;
+}
+.detail-body .preview-bar details.preview-log {
+  padding: 0;
+  border-top: 0;
+}
+.preview-log summary {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.preview-output {
+  max-height: 240px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .preview-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .preview-actions > * {
+    flex: 1 1 auto;
+  }
+}
+/* Compact copy of the preview state in the sticky UAT progress header. */
+.uat-progress-head:has(> .preview-status) {
+  flex-wrap: wrap;
+}
+.preview-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.preview-status[hidden] {
+  display: none;
+}
+.preview-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-progress);
+}
+.preview-status[data-tone='running'] .preview-status-dot {
+  background: var(--status-done);
+}
+.preview-status[data-tone='warning'] {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.preview-status[data-tone='warning'] .preview-status-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-soft);
+}
+.preview-status-open {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+@media (max-width: 520px) {
+  /* Tally and "Next unchecked" keep their row; the preview line goes beneath them. */
+  .uat-progress-head > .preview-status {
+    order: 1;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+.preview-actions .preview-candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
