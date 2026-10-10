@@ -9,6 +9,7 @@ import { LEASE_TOOLS, TOOL_NAMES } from './orchestration-mcp.mjs';
 import { recordDelegation, updateDelegation } from './worker-ledger.mjs';
 import { CAPACITY_CONFIG } from './capacity.mjs';
 import { DEFAULT_MAX_WORKERS as DEFAULT_BOX_WORKERS } from './environments/ssh.mjs';
+import { readToolRoot, workerBacklogCommand } from './tool-root.mjs';
 
 const WORKER_TOOL_NAMES = LEASE_TOOLS.map(tool => tool.name);
 /** A worker in one of these states has not finished its current step. */
@@ -87,6 +88,7 @@ export function workerPrompt({
   instructions,
   remote = null,
   cloud = false,
+  backlogCommand = workerBacklogCommand(null),
 }) {
   if (cloud)
     // A cloud worker has a clone, not the host's worktree, Backlog or Git helper: it commits on its
@@ -120,7 +122,7 @@ export function workerPrompt({
       );
   } else
     lines.push(
-      `Work only in ${worktree}. The primary Backlog is at ${governanceRoot}; use .switchflow/scripts/backlog.ps1 for task records.`,
+      `Work only in ${worktree}. The primary Backlog is at ${governanceRoot}; use ${backlogCommand} for task records.`,
     );
   if (!remote && kind === 'deliver')
     lines.push(
@@ -624,6 +626,7 @@ export class Orchestration {
           instructions: worker.instructions,
           remote: onBox ? { label: worker.environment.label, path: worker.workspace.path } : null,
           cloud: worker.remote,
+          backlogCommand: workerBacklogCommand(await readToolRoot(this.context.governanceRoot).catch(() => null)),
         }),
       );
     } catch (error) {

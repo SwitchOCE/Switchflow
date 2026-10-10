@@ -13,6 +13,7 @@ import { ProcessTracker } from './process-tree.mjs';
 import { WorkerResources } from './worker-resources.mjs';
 import { EnvironmentRegistry } from './environments/index.mjs';
 import { recoverHeldWorkers } from './worker-recovery.mjs';
+import { readToolRoot } from './tool-root.mjs';
 import {
   ROLES,
   normalizeCapabilities,
@@ -354,6 +355,9 @@ export class AgentHost {
     const environmentId = target?.id ?? 'local';
     // Process kinds other than local (ssh): the same CLIs, spawned through the environment.
     const remote = Boolean(target);
+    // Plugin installs run Backlog through the plugin's launcher (tool-root.mjs); only local agents see it.
+    const toolRoot =
+      remote || !this.context.governanceRoot ? null : await readToolRoot(this.context.governanceRoot).catch(() => null);
     const model = settings.models[provider] ?? undefined;
     const effort = settings.efforts[provider] ?? undefined;
     const limits = this.limitsFor(settings);
@@ -426,6 +430,7 @@ export class AgentHost {
       signal,
       rawLogPath: this.registry.rawLogPath(meta),
       env,
+      ...(toolRoot?.mode === 'plugin' ? { toolRoot } : {}),
       ...(remote ? { spawnProcess: target.spawnFor(workspace, { onRemoteProcess }) } : {}),
     };
     // Remote environments name their own CLIs; the host's Windows paths mean nothing there.
