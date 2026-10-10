@@ -16,6 +16,7 @@ import {
   validatePolicy,
   validatePrompt,
 } from './process.mjs';
+import { withToolPath } from '../tool-root.mjs';
 
 const CLIENT = { name: 'switchflow', title: 'Switchflow', version: '1' };
 // Notifications the host never shows. Fewer messages, same protocol.
@@ -186,6 +187,7 @@ export async function openCodexSession({
   handshakeTimeoutMs = 30000,
   isolateUserMcp = true,
   env: workerEnv = {},
+  toolRoot,
 }) {
   const timeoutMs = limits.timeoutMs ?? 60 * 60 * 1000;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000)
@@ -200,7 +202,7 @@ export async function openCodexSession({
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: childEnvironment(temporaryRoot, {}, workerEnv),
+    env: withToolPath(childEnvironment(temporaryRoot, {}, workerEnv), toolRoot?.binDir),
   });
   let nextId = 0;
   const pending = new Map();
