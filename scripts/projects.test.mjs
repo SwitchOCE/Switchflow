@@ -23,7 +23,7 @@ async function fixture(run) {
     await fs.mkdir(path.join(root, 'backlog', 'docs'), { recursive: true });
     await fs.writeFile(
       path.join(root, '.switchflow', 'project.json'),
-      JSON.stringify({ projectName: name, templateVersion: '0.5.0' }),
+      JSON.stringify({ projectName: name, schemaVersion: 1, templateVersion: '0.5.0' }),
     );
     await fs.writeFile(path.join(root, 'backlog.config.yml'), `project_name: ${name}\n`);
     await fs.writeFile(
@@ -192,13 +192,36 @@ test('missing primary governance does not adopt stale worktree records', () =>
     assert.match(await fs.readFile(path.join(worktree, 'backlog', 'docs', 'guide.md'), 'utf8'), /Alpha/);
   }));
 
+test('registration accepts 0.5.0 and later 0.x installations', () =>
+  fixture(async ({ roots, shared }) => {
+    const metadataPath = path.join(roots[1], '.switchflow', 'project.json');
+    for (const templateVersion of ['0.5.0', '0.5.3', '0.6.0', '0.12.1']) {
+      await fs.writeFile(metadataPath, JSON.stringify({ projectName: 'Beta', schemaVersion: 1, templateVersion }));
+      const context = await canonicalProject(roots[1], shared);
+      assert.equal(context.governanceRoot, await fs.realpath(roots[1]), templateVersion);
+    }
+  }));
+
 test('registration refuses older governance writers without changing their records', () =>
   fixture(async ({ roots, shared }) => {
     const metadataPath = path.join(roots[1], '.switchflow', 'project.json');
-    const previous = JSON.stringify({ projectName: 'Older installation', templateVersion: '0.4.0' });
-    await fs.writeFile(metadataPath, previous);
-    await assert.rejects(canonicalProject(roots[1], shared), /Update this project to Switchflow 0\.5/);
-    assert.equal(await fs.readFile(metadataPath, 'utf8'), previous);
+    for (const metadata of [
+      { schemaVersion: 1, templateVersion: '0.4.0' },
+      { schemaVersion: 1, templateVersion: '0.4.9' },
+      { schemaVersion: 1, templateVersion: '1.0.0' },
+      { schemaVersion: 1, templateVersion: '0.6' },
+      { schemaVersion: 2, templateVersion: '0.6.0' },
+      { templateVersion: '0.6.0' },
+    ]) {
+      const previous = JSON.stringify({ projectName: 'Older installation', ...metadata });
+      await fs.writeFile(metadataPath, previous);
+      await assert.rejects(
+        canonicalProject(roots[1], shared),
+        /Update this project to Switchflow 0\.5\.0 or a later 0\.x release/,
+        previous,
+      );
+      assert.equal(await fs.readFile(metadataPath, 'utf8'), previous);
+    }
   }));
 
 test('Switchflow pages, legacy links, project assets and every write method retain the shared project and admission boundaries', () =>
